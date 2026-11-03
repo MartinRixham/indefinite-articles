@@ -383,7 +383,6 @@ class EndToEndTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             self.cfg.database = f"{d}/s.db"
-            self.cfg.digest_time = "00:00"  # due now
             self.cfg.email.imap.host = ""
             self.cfg.email.smtp.host = "smtp.invalid"
             db = DB(self.cfg.database)
@@ -395,6 +394,7 @@ class EndToEndTests(unittest.TestCase):
             db.close()
 
             release, scoring, fetched, sent = (threading.Event() for _ in range(4))
+            sent_msgs = []
 
             def stuck_scoring(cfg, db, llm, stop=None):
                 scoring.set()
@@ -411,8 +411,10 @@ class EndToEndTests(unittest.TestCase):
 
             with mock.patch.object(ranker, "score_candidates", stuck_scoring), \
                  mock.patch.object(daemon, "gather", lambda *a, **k: fetched.set()), \
-                 mock.patch.object(mailer, "send", lambda cfg, m: sent.set()), \
-                 mock.patch.object(signal, "signal"):
+                 mock.patch.object(mailer, "send", lambda cfg, m: (sent_msgs.append(m), sent.set())), \
+                 mock.patch.object(signal, "signal"), \
+                 mock.patch.object(daemon.Service, "_digest_due",  # due once scoring is stuck
+                                   lambda svc: scoring.is_set() and fetched.is_set() and not sent_msgs):
                 t = threading.Thread(target=run)
                 t.start()
                 try:
@@ -420,6 +422,10 @@ class EndToEndTests(unittest.TestCase):
                     # Scoring is stuck, yet feeds are fetched and the digest goes out.
                     self.assertTrue(fetched.wait(5))
                     self.assertTrue(sent.wait(5))
+                    body = sent_msgs[0].get_body(preferencelist=("plain",)).get_content()
+                    self.assertRegex(body, r"backlog: shortlist 3, 3 never scored")
+                    self.assertRegex(body, r"scoring: running for \d+s")
+                    self.assertIn("llm stall limits:", body)
                 finally:
                     if svcs:
                         svcs[0]._shutdown()

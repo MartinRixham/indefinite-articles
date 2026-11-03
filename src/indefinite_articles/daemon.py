@@ -49,6 +49,54 @@ def _ago(ts) -> str:
     return f"{mins}m ago" if mins < 120 else f"{mins // 60}h ago"
 
 
+def _duration(secs: float) -> str:
+    secs = int(secs)
+    if secs < 120:
+        return f"{secs}s"
+    if secs < 7200:
+        return f"{secs // 60}m"
+    return f"{secs // 3600}h{secs % 3600 // 60:02d}m"
+
+
+def _backlog(cfg, db: DB) -> str:
+    """Work still waiting at publish time."""
+    profile = db.current_profile()
+    pid = profile["id"] if profile else None
+    short = ranker.shortlist(cfg, db)
+    unscored = sum(a["score"] is None for a in short)
+    stale = sum(a["score"] is not None and a["score_profile_id"] != pid for a in short)
+    no_text = sum(a["content_status"] is None for a in short) if cfg.fetch_full_articles else 0
+    unembedded = len(db.unembedded(cfg.max_article_age_days, 50000)) if cfg.llm.embedding_model else 0
+    return (f"backlog: shortlist {len(short)}, {unscored} never scored, {stale} scored against"
+            f" an older profile, {no_text} awaiting full text; {unembedded} articles not embedded")
+
+
+def _job_status(name: str, j: dict) -> str:
+    now = time.time()
+    if j.get("running_since"):
+        state = f"running for {_duration(now - j['running_since'])}"
+    else:
+        state = "idle"
+    if j.get("last_end"):
+        state += f", last run finished {_ago(j['last_end'])} after {_duration(j['last_secs'])}"
+        if j.get("last_error"):
+            state += f": FAILED {j['last_error']}"
+        elif j.get("last_result") is not None:
+            state += f": {j['last_result']}"
+    elif not j.get("running_since"):
+        state += ", not run yet"
+    return f"  {name}: {state}"
+
+
+def _llm_limits(llm: LLM) -> str:
+    from .llm import MIN_STALL, STALL_FACTOR
+    with llm._lock:
+        slowest = dict(llm._slowest)
+    parts = [f"{k} {_duration(max(MIN_STALL, STALL_FACTOR * v))} (slowest {v:.1f}s)"
+             for k, v in sorted(slowest.items())]
+    return "llm stall limits: " + (", ".join(parts) if parts else "none learned yet")
+
+
 def _classifier_status(db: DB) -> str:
     likes, _, dislikes = db.get_state("classifier_info", "0:0").partition(":")
     if db.get_state("classifier", ""):
@@ -79,11 +127,20 @@ def debug_report(cfg, db: DB, items, info: dict) -> list[str]:
         f" full text {st['full_text']} ok / {st['full_text_failed']} failed",
         f"selection: {sel.get('candidates', 0)} candidates, {sel.get('llm_scored', 0)} scored"
         f" against current profile, {sel.get('stale_scored', 0)} with stale scores",
+        _backlog(cfg, db),
         f"profile: v{profile['id'] if profile else '-'} ({profile['note'] if profile else ''}),"
         f" {len(fb)} ratings + {len(comments)} comments pending",
         f"feedback total: +{st['likes']} / -{st['dislikes']}, {st['digests']} digests sent",
         _classifier_status(db),
         "timings: " + ", ".join(f"{k} {v:.1f}s" for k, v in t.items()),
+    ]
+    jobs = info.get("jobs")
+    if jobs is not None:
+        lines.append("jobs at publish time:")
+        lines += [_job_status(name, j) for name, j in jobs.items()]
+    if info.get("llm") is not None:
+        lines.append(_llm_limits(info["llm"]))
+    lines += [
         "",
         "#   rank  final =   llm + adj  + src   text      source",
     ]
@@ -103,15 +160,16 @@ def debug_report(cfg, db: DB, items, info: dict) -> list[str]:
     return lines
 
 
-def send_digest(cfg, db: DB, dry_run: bool = False):
+def send_digest(cfg, db: DB, dry_run: bool = False, status: dict | None = None):
     """Select and send today's digest from the scores the hourly runs left behind.
 
     It never calls the LLM, so the email goes out on time however slow the LLM is.
     Articles not scored yet stay candidates for later digests. Returns the
-    EmailMessage or None.
+    EmailMessage or None. `status` (from the service) adds the state of its jobs and
+    LLM client to the debug report.
     """
     note = ""
-    info: dict = {"timings": {}, "select": {}}
+    info: dict = {"timings": {}, "select": {}, **(status or {})}
 
     def timed(name, fn, *a, **kw):
         t0 = time.monotonic()
@@ -177,6 +235,9 @@ class Service:
         self.score_wanted = threading.Event()
         self.last_prune = 0.0
         self.next_digest_attempt = 0.0
+        # What each worker thread is doing, for the digest's debug report. Each entry is
+        # replaced whole, so the main thread never sees one half-updated.
+        self.jobs: dict[str, dict] = {name: {} for name in ("feed fetch", "scoring", "inbox poll")}
 
     def _digest_due(self) -> bool:
         now = datetime.now()
@@ -187,33 +248,48 @@ class Service:
         return (now.hour, now.minute) >= (h, m)
 
     def _run_job(self, name, fn, *args):
+        tracked = name in self.jobs  # the worker jobs; never adds keys from another thread
+        t0 = time.time()
+        if tracked:
+            self.jobs[name] = {**self.jobs[name], "running_since": t0}
+        result, error = None, None
         try:
-            fn(*args)
-        except Exception:
+            result = fn(*args)
+        except Exception as e:
             log.exception("%s failed", name)
+            error = str(e)[:150] or type(e).__name__
+        if tracked:
+            end = time.time()
+            self.jobs[name] = {"running_since": None, "last_end": end, "last_secs": end - t0,
+                               "last_result": result, "last_error": error}
 
     # -- jobs (each gets the database connection of the thread it runs on) ---------
-    def fetch(self, db: DB):
-        gather(self.cfg, db, self.llm, stop=self.stop)
+    def fetch(self, db: DB) -> str:
+        n = gather(self.cfg, db, self.llm, stop=self.stop)
         self.score_wanted.set()
+        return f"{n} new articles"
 
-    def score(self, db: DB):
+    def score(self, db: DB) -> str:
         try:
-            ranker.score_candidates(self.cfg, db, self.llm, stop=self.stop)
+            return f"scored {ranker.score_candidates(self.cfg, db, self.llm, stop=self.stop)}"
         except LLMError as e:
             log.warning("scoring skipped: %s", e)
+            return f"skipped: {e}"
 
-    def poll_and_learn(self, db: DB):
+    def poll_and_learn(self, db: DB) -> str:
         used = inbox.poll(self.cfg, db, self.llm)
         if used:
             log.info("processed %d replies", used)
         # Also retries pending feedback if an earlier update failed.
         if ranker.update_profile(self.cfg, db, self.llm):
             self.score_wanted.set()  # rescore the shortlist against the new profile
+            return f"{used} replies, profile updated"
+        return f"{used} replies"
 
     def digest(self):
         today = datetime.now().date().isoformat()
-        msg = send_digest(self.cfg, self.db)
+        msg = send_digest(self.cfg, self.db,
+                          status={"jobs": {k: dict(v) for k, v in self.jobs.items()}, "llm": self.llm})
         # Mark the day done even if there was nothing to send, so we don't retry every tick.
         self.db.set_state("last_digest_date", today)
         if msg is not None:
