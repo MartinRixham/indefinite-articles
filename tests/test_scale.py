@@ -8,7 +8,7 @@ from unittest import mock
 from indefinite_articles import config, embed, feeds, ranker
 from indefinite_articles.config import Config, Feed
 from indefinite_articles.db import DB
-from indefinite_articles.llm import LLM
+from indefinite_articles.llm import LLM, LLMError
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -188,13 +188,44 @@ class PrefilterTests(unittest.TestCase):
             self.skipTest("numpy not installed")
         from test_indefinite_articles import fake_embedding
         vecs = [embed.pack(fake_embedding(t)) for t in ("rust code", "garden soil", "rust garden")]
-        prof = embed.pack(fake_embedding("rust compilers"))
+        wanted = [embed.pack(fake_embedding("rust compilers")), embed.pack(fake_embedding("tomatoes"))]
+        unwanted = [embed.pack(fake_embedding("garden"))]
         likes = [embed.pack(fake_embedding("soil compost")), embed.pack(fake_embedding("code"))]
         dis = [embed.pack(fake_embedding("gossip"))]
-        a = embed._scores_numpy(vecs, prof, likes, dis)
-        b = embed._scores_python(vecs, prof, likes, dis)
-        for x, y in zip(a, b):
-            self.assertAlmostEqual(x, y, places=5)
+        for args in ((wanted, unwanted, likes, dis), (wanted, [], [], [])):
+            a = embed._scores_numpy(vecs, *args)
+            b = embed._scores_python(vecs, *args)
+            for x, y in zip(a, b):
+                self.assertAlmostEqual(x, y, places=5)
+
+    def test_split_profile(self):
+        likes, avoid = embed.split_profile(
+            "- Likes Rust and compilers, but not marketing posts\n"
+            "- Dislikes celebrity gossip. Enjoys long science features.\n"
+            "* Fewer product announcements")
+        self.assertEqual(likes, ["Likes Rust and compilers", "Enjoys long science features"])
+        self.assertEqual(avoid, ["not marketing posts", "Dislikes celebrity gossip",
+                                 "Fewer product announcements"])
+
+    def test_profile_dislikes_push_articles_down(self):
+        # A profile naming a topic only as a dislike must not rank that topic first.
+        cfg, db, llm = self._cfg(), self._db(), self._llm()
+        cfg.interests = "I like tomatoes compost garden soil. I dislike celebrity gossip red carpet fashion."
+        llm.chat_json.side_effect = LLMError("down")  # keyword split
+        embed.embed_new(cfg, db, llm)
+        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
+        ranked = sorted(db.pool(3), key=lambda a: a["prefilter"], reverse=True)
+        self.assertEqual(ranked[0]["source"], "Garden")
+        self.assertEqual(ranked[-1]["source"], "Celeb News")
+
+    def test_profile_phrases_prefers_llm_split(self):
+        llm = self._llm()
+        llm.chat_json.return_value = {"likes": ["rust compilers"], "avoid": ["celebrity gossip"]}
+        self.assertEqual(embed.profile_phrases(llm, "whatever"),
+                         (["rust compilers"], ["celebrity gossip"]))
+        llm.chat_json.return_value = {"oops": 1}  # unusable answer: keyword split
+        self.assertEqual(embed.profile_phrases(llm, "Likes rust. Avoids gossip."),
+                         (["Likes rust"], ["Avoids gossip"]))
 
 
 if __name__ == "__main__":
