@@ -1,15 +1,17 @@
 import json
+import signal
 import re
 import threading
+import time
 import unittest
 from email.message import EmailMessage
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
 from indefinite_articles import config, daemon, feeds, inbox, mailer, ranker, replies
 from indefinite_articles.db import DB
-from indefinite_articles.llm import LLM, extract_json
+from indefinite_articles.llm import LLM, LLMError, extract_json
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -42,6 +44,9 @@ class FakeLLM(BaseHTTPRequestHandler):
     """OpenAI-compatible endpoint: scores titles containing 'Rust'/'Linux' highly."""
     requests = []
     size_vram = 1
+    delay = 0.0      # seconds before the first token
+    gap = 0.0        # seconds between tokens
+    hang_after = None  # stop sending after this many tokens (a hung server)
 
     def log_message(self, *a):
         pass
@@ -67,7 +72,26 @@ class FakeLLM(BaseHTTPRequestHandler):
             content = "- Likes Rust and systems programming\n- Dislikes gossip"
         else:
             content = "OK"
-        self._json({"choices": [{"message": {"role": "assistant", "content": content}}]})
+        if not body.get("stream"):
+            return self._json({"choices": [{"message": {"role": "assistant", "content": content}}]})
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        time.sleep(FakeLLM.delay)
+        tokens = [content[i:i + 4] for i in range(0, len(content), 4)]
+        try:
+            for i, tok in enumerate(tokens):
+                if FakeLLM.hang_after is not None and i >= FakeLLM.hang_after:
+                    time.sleep(5)
+                    return
+                if i:
+                    time.sleep(FakeLLM.gap)
+                event = {"choices": [{"index": 0, "delta": {"content": tok}}]}
+                self.wfile.write(b"data: " + json.dumps(event).encode() + b"\n\n")
+                self.wfile.flush()
+            self.wfile.write(b"data: [DONE]\n\n")
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the client gave up
 
     def _json(self, obj):
         out = json.dumps(obj).encode()
@@ -126,7 +150,7 @@ class ReplyParsingTests(unittest.TestCase):
 class EndToEndTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server = HTTPServer(("127.0.0.1", 0), FakeLLM)
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), FakeLLM)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
 
     @classmethod
@@ -300,15 +324,108 @@ class EndToEndTests(unittest.TestCase):
             msg = daemon.send_digest(self.cfg, self.db, dry_run=True)
         self.assertNotIn("simple heuristics", msg.get_body(preferencelist=("plain",)).get_content())
 
-    def test_hourly_scoring_stops_at_digest_time(self):
+    def _fake_speed(self, delay=0.0, gap=0.0, hang_after=None):
+        FakeLLM.delay, FakeLLM.gap, FakeLLM.hang_after = delay, gap, hang_after
+        self.addCleanup(setattr, FakeLLM, "delay", 0.0)
+        self.addCleanup(setattr, FakeLLM, "gap", 0.0)
+        self.addCleanup(setattr, FakeLLM, "hang_after", None)
+
+    def test_streamed_chat(self):
+        self.assertEqual(self.llm.chat("s", "Are you there?"), "OK")
+        self.assertTrue(FakeLLM.requests[-1]["stream"])
+        text = self.llm.chat("maintain a concise profile", "x")
+        self.assertEqual(text, "- Likes Rust and systems programming\n- Dislikes gossip")
+
+    def test_no_stall_limit_until_something_succeeded(self):
+        self._fake_speed(delay=0.5)
+        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.1):
+            self.assertEqual(self.llm.ping(), "OK")  # no history: waits as long as it takes
+
+    def test_slow_but_progressing_is_not_cut_off(self):
+        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.3):
+            self.llm.chat("maintain a concise profile", "x")  # learn: fast
+            self._fake_speed(gap=0.1)  # 15 tokens: 1.5s in all, but never 0.3s silent
+            self.assertIn("Dislikes gossip", self.llm.chat("maintain a concise profile", "x"))
+
+    def test_stalled_stream_is_cut_off_and_limit_doubles(self):
+        from indefinite_articles.llm import LLMUnavailable
+        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.3):
+            self.llm.chat("maintain a concise profile", "x")  # learn: fast
+            self._fake_speed(hang_after=3)
+            t0 = time.monotonic()
+            with self.assertRaisesRegex(LLMUnavailable, "stopped responding"):
+                self.llm.chat("maintain a concise profile", "x")
+            self.assertLess(time.monotonic() - t0, 2)
+            self.assertAlmostEqual(self.llm._limit("gap")[0], 0.6)  # the 0.3s limit doubled
+            with self.assertRaises(LLMUnavailable):
+                self.llm.chat("maintain a concise profile", "x")
+            self.assertAlmostEqual(self.llm._limit("gap")[0], 1.2)
+
+    def test_stalled_scoring_stops_the_round(self):
         self._load_articles(score=False)
-        stop = threading.Event()
-        self.assertFalse(daemon._StopAt(stop, 2e9).is_set())
-        past = daemon._StopAt(stop, 0)
-        self.assertTrue(past.is_set())
-        self.assertEqual(ranker.score_candidates(self.cfg, self.db, self.llm, stop=past), 0)
-        stop.set()
-        self.assertTrue(daemon._StopAt(stop, 2e9).is_set())
+        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.3):
+            self.llm.ping()  # learn: fast
+            self._fake_speed(delay=3)  # never sends the first token in time
+            n = len(FakeLLM.requests)
+            self.assertEqual(ranker.score_candidates(self.cfg, self.db, self.llm), 0)
+            self.assertEqual(len(FakeLLM.requests) - n, 1)  # gave up after the first article
+
+    def test_llm_deadline(self):
+        llm = LLM(self.cfg.llm, deadline=lambda: 2e9)
+        self.assertEqual(llm.ping().strip(), self.llm.ping().strip())
+        llm.deadline = lambda: 0
+        with self.assertRaisesRegex(LLMError, "next digest"):
+            llm.ping()
+        self.assertGreater(daemon.next_digest_time(self.cfg), time.time())
+        self.assertLessEqual(daemon.next_digest_time(self.cfg), time.time() + 86400)
+
+    def test_slow_scoring_blocks_nothing_else(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self.cfg.database = f"{d}/s.db"
+            self.cfg.digest_time = "00:00"  # due now
+            self.cfg.email.imap.host = ""
+            self.cfg.email.smtp.host = "smtp.invalid"
+            db = DB(self.cfg.database)
+            for data in (RSS, ATOM):
+                title, entries = feeds.parse_feed(data)
+                for e in entries:
+                    db.add_article(e.url, e.title, feeds.title_key(e.title), e.summary, title, None)
+            db.conn.commit()
+            db.close()
+
+            release, scoring, fetched, sent = (threading.Event() for _ in range(4))
+
+            def stuck_scoring(cfg, db, llm, stop=None):
+                scoring.set()
+                release.wait(10)  # like an LLM request that takes ages
+                return 0
+
+            svcs = []
+
+            def run():  # the service must be built on the thread that runs it
+                svc = daemon.Service(self.cfg)
+                svc.TICK = 0.05
+                svcs.append(svc)
+                svc.run()
+
+            with mock.patch.object(ranker, "score_candidates", stuck_scoring), \
+                 mock.patch.object(daemon, "gather", lambda *a, **k: fetched.set()), \
+                 mock.patch.object(mailer, "send", lambda cfg, m: sent.set()), \
+                 mock.patch.object(signal, "signal"):
+                t = threading.Thread(target=run)
+                t.start()
+                try:
+                    self.assertTrue(scoring.wait(5))
+                    # Scoring is stuck, yet feeds are fetched and the digest goes out.
+                    self.assertTrue(fetched.wait(5))
+                    self.assertTrue(sent.wait(5))
+                finally:
+                    if svcs:
+                        svcs[0]._shutdown()
+                    release.set()
+                    t.join(10)
+            self.assertFalse(t.is_alive())
 
 
 if __name__ == "__main__":

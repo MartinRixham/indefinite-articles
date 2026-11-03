@@ -236,6 +236,7 @@ def enrich_candidates(cfg, db, stop=None) -> int:
             if status == "skipped":
                 continue
             db.set_content(aid, text or "", status)
+            db.conn.commit()  # don't hold the write lock while waiting for more pages
             if status == "ok":
                 ok += 1
             else:

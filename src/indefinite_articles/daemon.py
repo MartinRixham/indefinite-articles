@@ -24,11 +24,17 @@ def prefilter(cfg, db: DB, llm: LLM, stop=None):
         log.warning("embedding pre-filter unavailable, using newest articles instead: %s", e)
 
 
-def refresh(cfg, db: DB, llm: LLM, stop=None) -> int:
-    """Fetch feeds, pre-filter, fetch full text for the shortlist, and LLM-score it."""
+def gather(cfg, db: DB, llm: LLM, stop=None) -> int:
+    """Fetch feeds, pre-filter, and fetch full text for the shortlist."""
     n = feeds.update_all(cfg, db, stop=stop)
     prefilter(cfg, db, llm, stop)
     extract.enrich_candidates(cfg, db, stop=stop)
+    return n
+
+
+def refresh(cfg, db: DB, llm: LLM, stop=None) -> int:
+    """gather(), then LLM-score the shortlist."""
+    n = gather(cfg, db, llm, stop)
     try:
         ranker.score_candidates(cfg, db, llm, stop=stop)
     except LLMError as e:
@@ -137,29 +143,38 @@ def send_digest(cfg, db: DB, dry_run: bool = False):
     return msg
 
 
-class _StopAt:
-    """Stop flag that is also set once a wall-clock deadline passes.
+def next_digest_time(cfg) -> float:
+    """When the next digest is due (epoch seconds), always in the future.
 
-    Only reads the clock, so the feed fetcher's worker threads can check it too.
+    Long-running work (LLM requests, the hourly job) must be finished by then.
     """
-
-    def __init__(self, stop: threading.Event, deadline: float):
-        self.stop, self.deadline = stop, deadline
-
-    def is_set(self) -> bool:
-        return self.stop.is_set() or time.time() >= self.deadline
+    h, m = cfg.digest_hour_minute
+    now = datetime.now()
+    at = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    if at <= now:
+        at += timedelta(days=1)
+    return at.timestamp()
 
 
 class Service:
+    """Runs each job on its own thread, so a slow LLM never holds up the others.
+
+    - fetch:  every fetch_interval_minutes, fetch feeds, pre-filter, download text
+    - score:  LLM-scores the shortlist whenever fetch or a profile change asks for it
+    - inbox:  every poll_interval_minutes, read replies and rewrite the profile
+    - main:   sends the digest at digest_time (no LLM) and prunes old data
+
+    Each thread has its own database connection (SQLite in WAL mode).
+    """
+
     TICK = 20  # seconds
 
     def __init__(self, cfg):
         self.cfg = cfg
         self.db = DB(cfg.database)
-        self.llm = LLM(cfg.llm)
+        self.llm = LLM(cfg.llm, deadline=lambda: next_digest_time(cfg))
         self.stop = threading.Event()
-        self.last_fetch = 0.0
-        self.last_poll = 0.0
+        self.score_wanted = threading.Event()
         self.last_prune = 0.0
         self.next_digest_attempt = 0.0
 
@@ -171,31 +186,30 @@ class Service:
             return False
         return (now.hour, now.minute) >= (h, m)
 
-    def _next_digest_time(self) -> float:
-        """When the next digest is due (epoch seconds), at least a moment from now."""
-        h, m = self.cfg.digest_hour_minute
-        now = datetime.now()
-        at = now.replace(hour=h, minute=m, second=0, microsecond=0)
-        if at <= now:
-            at += timedelta(days=1)
-        return at.timestamp()
-
-    def _run_job(self, name, fn):
+    def _run_job(self, name, fn, *args):
         try:
-            fn()
+            fn(*args)
         except Exception:
             log.exception("%s failed", name)
 
-    def fetch_and_score(self):
-        # Give way to the digest: stop at digest time and leave the rest for the next run.
-        refresh(self.cfg, self.db, self.llm, stop=_StopAt(self.stop, self._next_digest_time()))
+    # -- jobs (each gets the database connection of the thread it runs on) ---------
+    def fetch(self, db: DB):
+        gather(self.cfg, db, self.llm, stop=self.stop)
+        self.score_wanted.set()
 
-    def poll_and_learn(self):
-        used = inbox.poll(self.cfg, self.db, self.llm)
+    def score(self, db: DB):
+        try:
+            ranker.score_candidates(self.cfg, db, self.llm, stop=self.stop)
+        except LLMError as e:
+            log.warning("scoring skipped: %s", e)
+
+    def poll_and_learn(self, db: DB):
+        used = inbox.poll(self.cfg, db, self.llm)
         if used:
             log.info("processed %d replies", used)
         # Also retries pending feedback if an earlier update failed.
-        ranker.update_profile(self.cfg, self.db, self.llm)
+        if ranker.update_profile(self.cfg, db, self.llm):
+            self.score_wanted.set()  # rescore the shortlist against the new profile
 
     def digest(self):
         today = datetime.now().date().isoformat()
@@ -205,32 +219,65 @@ class Service:
         if msg is not None:
             log.info("digest sent: %s", msg["Subject"])
 
+    # -- threads -----------------------------------------------------------------
+    def _with_db(self, loop, *args):
+        db = DB(self.cfg.database)
+        try:
+            loop(db, *args)
+        finally:
+            db.close()
+
+    def _every(self, db: DB, name: str, minutes: int, job):
+        """Run `job` now and then every `minutes`, measured from the start of each run."""
+        while not self.stop.is_set():
+            t0 = time.monotonic()
+            self._run_job(name, job, db)
+            self.stop.wait(max(0.0, minutes * 60 - (time.monotonic() - t0)))
+
+    def _on_demand(self, db: DB, name: str, job):
+        """Run `job` whenever score_wanted is set (also once at start)."""
+        self.score_wanted.set()
+        while True:
+            self.score_wanted.wait()
+            if self.stop.is_set():
+                return
+            # Clear first: a request made while the job runs triggers another run.
+            self.score_wanted.clear()
+            self._run_job(name, job, db)
+
+    def _shutdown(self, *_):
+        self.stop.set()
+        self.score_wanted.set()  # wake the scoring thread so it can see the stop
+
     def run(self):
         for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, lambda *_: self.stop.set())
+            signal.signal(sig, self._shutdown)
         ranker.ensure_profile(self.cfg, self.db)
         log.info("indefinite-articles service started: %d feeds, digest at %s, model %s at %s",
                  len(self.cfg.feeds), self.cfg.digest_time, self.cfg.llm.model, self.cfg.llm.base_url)
+        # Daemon threads: one stuck in a slow LLM request must not stop the service exiting.
+        threads = [
+            threading.Thread(target=self._with_db, name="fetch", daemon=True,
+                             args=(self._every, "feed fetch", self.cfg.fetch_interval_minutes, self.fetch)),
+            threading.Thread(target=self._with_db, name="score", daemon=True,
+                             args=(self._on_demand, "scoring", self.score)),
+            threading.Thread(target=self._with_db, name="inbox", daemon=True,
+                             args=(self._every, "inbox poll", self.cfg.poll_interval_minutes,
+                                   self.poll_and_learn)),
+        ]
+        for t in threads:
+            t.start()
         while not self.stop.is_set():
             now = time.monotonic()
-            # The digest goes first, so other jobs never delay it.
             if now >= self.next_digest_attempt and self._digest_due():
                 # If sending fails (e.g. SMTP down) retry in 15 minutes, not every tick.
                 self.next_digest_attempt = now + 900
                 self._run_job("digest", self.digest)
-            if not self.last_fetch or now - self.last_fetch >= self.cfg.fetch_interval_minutes * 60:
-                self.last_fetch = now
-                self._run_job("feed fetch", self.fetch_and_score)
-            if self.stop.is_set():
-                break
-            if not self.last_poll or now - self.last_poll >= self.cfg.poll_interval_minutes * 60:
-                self.last_poll = now
-                self._run_job("inbox poll", self.poll_and_learn)
-            if self.stop.is_set():
-                break
             if now - self.last_prune >= 86400:
                 self.last_prune = now
                 self._run_job("prune", self.db.prune)
             self.stop.wait(self.TICK)
         log.info("indefinite-articles service stopping")
+        for t in threads:
+            t.join(timeout=5)
         self.db.close()

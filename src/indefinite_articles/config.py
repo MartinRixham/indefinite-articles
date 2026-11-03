@@ -27,7 +27,6 @@ class LLMConfig:
     base_url: str = "http://127.0.0.1:11434/v1"
     model: str = "qwen2.5:14b"
     api_key: str = ""
-    timeout_seconds: int = 600
     embedding_model: str = "nomic-embed-text"
     embedding_prefix: str = "clustering: "
     embedding_batch: int = 64
@@ -136,8 +135,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     cfg.interests = raw.get("profile", {}).get("interests", "").strip()
 
     l = raw.get("llm", {})
-    for k in ("base_url", "model", "api_key", "timeout_seconds",
-              "max_prompt_chars", "temperature", "embedding_model", "embedding_prefix",
+    for k in ("base_url", "model", "api_key", "max_prompt_chars", "temperature", "embedding_model", "embedding_prefix",
               "embedding_batch", "require_gpu"):
         if k in l:
             setattr(cfg.llm, k, type(getattr(cfg.llm, k))(l[k]))

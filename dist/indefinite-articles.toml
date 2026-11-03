@@ -40,7 +40,6 @@ product announcements, celebrity news and listicles.
 base_url = "http://127.0.0.1:11434/v1"
 model = "qwen2.5:14b"
 api_key = ""
-timeout_seconds = 600
 embedding_model = "nomic-embed-text"   # first-pass ranking of every article:
                                        #   ollama pull nomic-embed-text
                                        # set to "" to disable (newest articles are used)
@@ -51,6 +50,9 @@ max_prompt_chars = 12000         # ~3k tokens per scoring request (one article e
                                  # prompts set OLLAMA_CONTEXT_LENGTH=16384 for ollama.service
                                  # and raise this to ~50000.
 temperature = 0.2
+# There is no fixed request timeout. Answers are streamed, and a request is only
+# abandoned when the LLM goes silent for 4x longer than it ever has before (at least
+# 60s), or at the next digest_time. A slow but working LLM is never cut off.
 require_gpu = true               # don't start if Ollama runs the model on the CPU only
                                  # (no compatible GPU). Can't be checked with llama.cpp.
 

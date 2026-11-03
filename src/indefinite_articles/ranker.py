@@ -6,7 +6,7 @@ import logging
 import random
 from datetime import date
 
-from .llm import LLM, LLMError
+from .llm import LLM, LLMError, LLMUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -162,8 +162,8 @@ def score_candidates(cfg, db, llm: LLM, stop=None) -> int:
             score, reason = score_one(llm, prefix, a, per_article)
         except LLMError as e:
             log.warning("scoring article %d failed: %s", a["id"], e)
-            if "cannot reach" in str(e):
-                break
+            if isinstance(e, LLMUnavailable):
+                break  # leave the rest for the next round
             continue
         db.set_score(a["id"], score, reason, profile["id"])
         db.conn.commit()

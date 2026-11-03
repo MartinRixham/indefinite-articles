@@ -14,14 +14,14 @@ from .llm import LLM, LLMError
 def _setup_logging(verbose: bool):
     # Under systemd, journald adds timestamps itself.
     import os
-    fmt = "%(levelname)s %(name)s: %(message)s"
+    fmt = "%(levelname)s %(name)s [%(threadName)s]: %(message)s"
     if not os.environ.get("JOURNAL_STREAM"):
         fmt = "%(asctime)s " + fmt
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format=fmt)
 
 
 def cmd_run(cfg, args):
-    from .daemon import Service
+    from .daemon import Service, next_digest_time
     problems = config.validate_for_daemon(cfg)
     for p in problems:
         logging.warning("config: %s", p)
@@ -29,7 +29,7 @@ def cmd_run(cfg, args):
         logging.error("cannot start: fix %s", args.config or config.DEFAULT_CONFIG_PATH)
         return 1
     if cfg.llm.require_gpu:
-        llm = LLM(cfg.llm)
+        llm = LLM(cfg.llm, deadline=lambda: next_digest_time(cfg))
         try:
             llm.ping()  # makes Ollama load the model
         except LLMError as e:
