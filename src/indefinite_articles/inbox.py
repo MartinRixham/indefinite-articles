@@ -1,7 +1,5 @@
 """Reading replies from an IMAP mailbox and recording feedback."""
 
-from __future__ import annotations
-
 import email
 import email.policy
 import imaplib

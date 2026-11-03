@@ -1,7 +1,5 @@
 """Fetch and parse RSS 2.0 / RSS 1.0 (RDF) / Atom feeds using only the standard library."""
 
-from __future__ import annotations
-
 import email.utils
 import html
 import html.entities

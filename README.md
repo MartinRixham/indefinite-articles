@@ -21,7 +21,7 @@ How it works:
    dislikes and comments, and the LLM rewrites your reader profile. It can reply
    to confirm what it understood.
 
-It needs only Python, numpy and a local LLM server.
+It targets Fedora 44 (Python 3.14) and needs only Python, numpy and a local LLM server.
 
 ## Build the RPM
 

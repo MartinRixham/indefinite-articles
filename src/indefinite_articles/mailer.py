@@ -1,7 +1,5 @@
 """Composing and sending emails over SMTP."""
 
-from __future__ import annotations
-
 import html
 import logging
 import secrets

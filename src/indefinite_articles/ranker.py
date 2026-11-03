@@ -1,7 +1,5 @@
 """Scoring articles against the learned reader profile, and learning from feedback."""
 
-from __future__ import annotations
-
 import bisect
 import hashlib
 import logging

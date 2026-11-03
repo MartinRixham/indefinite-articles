@@ -1,7 +1,5 @@
 """Fetch article pages and extract their main text, so the LLM judges more than a headline."""
 
-from __future__ import annotations
-
 import ipaddress
 import logging
 import re

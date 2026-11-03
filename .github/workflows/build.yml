@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13", "3.14"]
+        python: ["3.14"]  # Fedora 44's python3
     steps:
       - uses: actions/checkout@v5
 
@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fedora: ["43", "44"]
+        fedora: ["44"]
     steps:
       - name: Install build tools
         run: >

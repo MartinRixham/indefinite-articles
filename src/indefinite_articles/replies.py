@@ -1,7 +1,5 @@
 """Understanding the reader's email replies."""
 
-from __future__ import annotations
-
 import logging
 import re
 from email.message import EmailMessage

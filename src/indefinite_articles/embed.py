@@ -9,8 +9,6 @@ the most recent likes and dislikes. Only the best matches, plus a few random one
 on to full-text fetching and LLM scoring.
 """
 
-from __future__ import annotations
-
 import base64
 import logging
 import re

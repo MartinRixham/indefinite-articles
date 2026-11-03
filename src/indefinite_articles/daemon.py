@@ -1,7 +1,5 @@
 """Long-running service: fetch feeds, poll replies, send the daily digest."""
 
-from __future__ import annotations
-
 import logging
 import signal
 import threading

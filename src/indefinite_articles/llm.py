@@ -4,8 +4,6 @@ Works with Ollama (http://127.0.0.1:11434/v1) and llama.cpp's llama-server
 (http://127.0.0.1:8080/v1), both of which are packaged in Fedora.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import re
