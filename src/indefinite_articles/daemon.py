@@ -8,7 +8,7 @@ from datetime import datetime
 from email.message import EmailMessage
 
 from . import __version__, embed, extract, feeds, inbox, mailer, ranker
-from .database import Database
+from .database import Database, PendingFeedback
 from .llm import LLM, LLMError
 
 log = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ def debug_report(config, database: Database, items, info: dict) -> list[str]:
     selection = info.get("select", {})
     statistics = database.statistics()
     profile = database.current_profile()
-    feedback, comments = database.feedback_since(profile["created_at"]) if profile else ([], [])
+    pending = database.feedback_since(profile["created_at"]) if profile else PendingFeedback([], [])
     states = database.feed_states()
     never = sum(feed.url not in states for feed in config.feeds)
     last_ok = max((state["last_success"] or 0 for state in states.values()), default=0)
@@ -130,7 +130,7 @@ def debug_report(config, database: Database, items, info: dict) -> list[str]:
         f" against current profile, {selection.get('stale_scored', 0)} with stale scores",
         _backlog(config, database),
         f"profile: v{profile['id'] if profile else '-'} ({profile['note'] if profile else ''}),"
-        f" {len(feedback)} ratings + {len(comments)} comments pending",
+        f" {len(pending.feedback)} ratings + {len(pending.comments)} comments pending",
         f"feedback total: +{statistics['likes']} / -{statistics['dislikes']}, {statistics['digests']} digests sent",
         _classifier_status(database),
         "timings: " + ", ".join(f"{key} {seconds:.1f}s" for key, seconds in timings.items()),
@@ -146,7 +146,8 @@ def debug_report(config, database: Database, items, info: dict) -> list[str]:
         "#   rank  final =   llm + adj  + src   text      source",
     ]
     scores, rank = selection.get("scores", {}), selection.get("rank", {})
-    for position, (article, exploratory) in enumerate(items, start=1):
+    for position, pick in enumerate(items, start=1):
+        article = pick.article
         score = scores.get(article["id"])
         if score is None:
             continue
@@ -154,7 +155,7 @@ def debug_report(config, database: Database, items, info: dict) -> list[str]:
         lines.append(
             f"{position:<3} {rank.get(article['id'], 0):>4}  {score['final']:5.2f} = {llm_score} {score['base']:+5.2f}"
             f" {score['bonus']:+5.2f}   {(article['content_status'] or '-')[:8]:8}  {article['source'][:30]}"
-            + ("  [explore]" if exploratory else "")
+            + ("  [explore]" if pick.exploratory else "")
         )
     lines.append("(adj: embedding agreement, or fallback rank when the LLM did not score;"
                  " src: source like/dislike bonus)")
@@ -193,7 +194,7 @@ def send_digest(config, database: Database, dry_run: bool = False,
         return message
     mailer.send(config, message)
     database.record_digest(token, message["Message-ID"], datetime.now().date().isoformat(),
-                     [(article["id"], exploratory) for article, exploratory in items])
+                     [(pick.article["id"], pick.exploratory) for pick in items])
     return message
 
 
@@ -224,11 +225,9 @@ class Service:
 
     def _digest_due(self) -> bool:
         now = datetime.now()
-        hour, minute = self.config.digest_hour_minute
-        today = now.date().isoformat()
-        if self.database.get_state("last_digest_date") == today:
+        if self.database.get_state("last_digest_date") == now.date().isoformat():
             return False
-        return (now.hour, now.minute) >= (hour, minute)
+        return self.config.digest_hour_minute.has_passed(now)
 
     def _run_job(self, name, function, *args):
         tracked = name in self.jobs  # the worker jobs; never adds keys from another thread

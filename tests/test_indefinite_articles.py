@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from indefinite_articles import daemon, feeds, inbox, mailer, ranker, replies
-from indefinite_articles.config import load as load_config
+from indefinite_articles.config import TimeOfDay, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError, extract_json
 
@@ -45,7 +45,7 @@ def current_text(database: Database) -> str:
 
 
 def stall_limit(llm: LLM) -> float:
-    limit = llm._limit("gap")[0]
+    limit = llm._limit("gap").seconds
     assert limit is not None
     return limit
 
@@ -125,7 +125,8 @@ class FakeLLM(BaseHTTPRequestHandler):
 
 class FeedTests(unittest.TestCase):
     def test_rss(self):
-        title, entries = feeds.parse_feed(RSS)
+        parsed = feeds.parse_feed(RSS)
+        title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "Example RSS")
         self.assertEqual([entry.url for entry in entries], ["https://ex.com/rust", "https://ex.com/gossip"])
         self.assertEqual(entries[0].title, "Rust & the borrow checker")
@@ -133,7 +134,8 @@ class FeedTests(unittest.TestCase):
         self.assertIsNotNone(entries[0].published)
 
     def test_atom(self):
-        title, entries = feeds.parse_feed(ATOM)
+        parsed = feeds.parse_feed(ATOM)
+        title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "Example Atom")
         self.assertEqual(entries[0].url, "https://ex.org/linux")
         self.assertEqual(entries[0].summary, "Kernel news.")
@@ -141,21 +143,25 @@ class FeedTests(unittest.TestCase):
 
 class ReplyParsingTests(unittest.TestCase):
     def test_compact(self):
-        ratings, general, unresolved = replies.parse_structured("+1 +4 -2, 3-", 5)
-        self.assertEqual(ratings, {1: (1, ""), 4: (1, ""), 2: (-1, ""), 3: (-1, "")})
+        parsed = replies.parse_structured("+1 +4 -2, 3-", 5)
+        ratings, general, unresolved = parsed.ratings, parsed.general, parsed.unresolved
+        self.assertEqual(ratings, {1: replies.Rating(1), 4: replies.Rating(1),
+                                   2: replies.Rating(-1), 3: replies.Rating(-1)})
         self.assertEqual((general, unresolved), ([], 0))
 
     def test_lines(self):
         text = "3 like - more on compilers please\n5: no, not crypto\n2 hmm\nGreat list today"
-        ratings, general, unresolved = replies.parse_structured(text, 5)
-        self.assertEqual(ratings[3], (1, "more on compilers please"))
-        self.assertEqual(ratings[5], (-1, "not crypto"))
-        self.assertEqual(ratings[2], (0, "hmm"))
+        parsed = replies.parse_structured(text, 5)
+        ratings, general, unresolved = parsed.ratings, parsed.general, parsed.unresolved
+        self.assertEqual(ratings[3], replies.Rating(1, "more on compilers please"))
+        self.assertEqual(ratings[5], replies.Rating(-1, "not crypto"))
+        self.assertEqual(ratings[2], replies.Rating(0, "hmm"))
         self.assertEqual(unresolved, 1)
         self.assertEqual(general, ["Great list today"])
 
     def test_out_of_range_is_general(self):
-        ratings, general, _ = replies.parse_structured("2026 was a good year", 10)
+        parsed = replies.parse_structured("2026 was a good year", 10)
+        ratings, general = parsed.ratings, parsed.general
         self.assertEqual(ratings, {})
 
     def test_strip_quoted(self):
@@ -174,10 +180,10 @@ class DigestTemplateTests(unittest.TestCase):
         self.config = Config()
         self.config.email.sender, self.config.email.to = "me@example.com", "you@example.com"
         self.items = [
-            ({"title": "Rust & <b>", "source": "Blog", "url": "https://ex.com/1?a=1&b=2", "reason": "fits",
-              "summary": "A summary.", "content": None}, False),
-            ({"title": "Other", "source": "News", "url": "https://ex.com/2", "reason": None,
-              "summary": "", "content": None}, True),
+            ranker.DigestPick({"title": "Rust & <b>", "source": "Blog", "url": "https://ex.com/1?a=1&b=2",
+                               "reason": "fits", "summary": "A summary.", "content": None}, False),
+            ranker.DigestPick({"title": "Other", "source": "News", "url": "https://ex.com/2", "reason": None,
+                               "summary": "", "content": None}, True),
         ]
 
     def test_plain_text(self):
@@ -223,7 +229,8 @@ class EndToEndTests(unittest.TestCase):
 
     def _load_articles(self, score=True):
         for data in (RSS, ATOM):
-            title, entries = feeds.parse_feed(data)
+            parsed = feeds.parse_feed(data)
+            title, entries = parsed.title, parsed.entries
             for entry in entries:
                 self.database.add_article(entry.url, entry.title, entry.title_key, entry.summary,
                                           title, None)
@@ -237,7 +244,7 @@ class EndToEndTests(unittest.TestCase):
         ranker.score_candidates(self.config, database, self.llm)
 
     def test_example_config_loads(self):
-        self.assertEqual(self.config.digest_hour_minute, (7, 0))
+        self.assertEqual(self.config.digest_hour_minute, TimeOfDay(7, 0))
         self.assertGreater(len(self.config.feeds), 400)  # dist/feeds.d/default.opml
         self.assertEqual(len({feed.url for feed in self.config.feeds}), len(self.config.feeds))
         self.assertTrue(all(feed.category for feed in self.config.feeds))
@@ -260,7 +267,7 @@ class EndToEndTests(unittest.TestCase):
 
         # A digest that we sent ourselves must never be read back as feedback.
         message.replace_header("From", "you@example.com")
-        self.assertEqual(inbox.process_message(self.config, self.database, self.llm, message)[0], "ignored:own")
+        self.assertEqual(inbox.process_message(self.config, self.database, self.llm, message).status, "ignored:own")
 
         reply = EmailMessage()
         reply["From"] = "Me <you@example.com>"
@@ -268,17 +275,17 @@ class EndToEndTests(unittest.TestCase):
         reply["Message-ID"] = "<reply1@example.com>"
         reply["In-Reply-To"] = message["Message-ID"]
         reply.set_content("+1\n2 the gossip one was dull\n\nOn Tue someone wrote:\n> " + body)
-        status, summary = inbox.handle_message(self.config, self.database, self.llm, reply, reply["Message-ID"])
-        self.assertEqual(status, "ok")
+        result = inbox.handle_message(self.config, self.database, self.llm, reply, reply["Message-ID"])
+        self.assertEqual(result.status, "ok")
         feedback = {row["title"]: row["rating"] for row in self.database.connection.execute(
             "SELECT a.title, f.rating FROM feedback f JOIN articles a ON a.id=f.article_id")}
         self.assertEqual(feedback[items[0]["title"]], 1)
         self.assertEqual(feedback[items[1]["title"]], -1)   # resolved by the LLM
-        self.assertTrue(any("less gossip" in line for line in summary))
+        self.assertTrue(any("less gossip" in line for line in result.summary))
 
         # Unknown sender is ignored.
         reply.replace_header("From", "stranger@evil.example")
-        self.assertEqual(inbox.process_message(self.config, self.database, self.llm, reply)[0], "ignored:sender")
+        self.assertEqual(inbox.process_message(self.config, self.database, self.llm, reply).status, "ignored:sender")
 
         self.assertTrue(ranker.update_profile(self.config, self.database, self.llm))
         self.assertIn("Rust", current_text(self.database))
@@ -288,7 +295,8 @@ class EndToEndTests(unittest.TestCase):
         """Send a digest from a file-backed DB and build a reply to it."""
         database = Database(database_path)
         for data in (RSS, ATOM):
-            title, entries = feeds.parse_feed(data)
+            parsed = feeds.parse_feed(data)
+            title, entries = parsed.title, parsed.entries
             for entry in entries:
                 database.add_article(entry.url, entry.title, entry.title_key, entry.summary, title, None)
         database.connection.commit()
@@ -318,8 +326,8 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(database.count("SELECT COUNT(*) FROM feedback"), 0)
             self.assertEqual(database.count("SELECT COUNT(*) FROM processed_messages"), 0)
             # The reply is still unprocessed, so the next poll handles it, exactly once.
-            self.assertEqual(inbox.handle_message(self.config, database, self.llm, reply, reply_id)[0], "ok")
-            self.assertEqual(inbox.handle_message(self.config, database, self.llm, reply, reply_id)[0],
+            self.assertEqual(inbox.handle_message(self.config, database, self.llm, reply, reply_id).status, "ok")
+            self.assertEqual(inbox.handle_message(self.config, database, self.llm, reply, reply_id).status,
                              "already-processed")
             database.close()
 
@@ -451,7 +459,8 @@ class EndToEndTests(unittest.TestCase):
             self.config.email.smtp.host = "smtp.invalid"
             database = Database(self.config.database)
             for data in (RSS, ATOM):
-                title, entries = feeds.parse_feed(data)
+                parsed = feeds.parse_feed(data)
+                title, entries = parsed.title, parsed.entries
                 for entry in entries:
                     database.add_article(entry.url, entry.title, entry.title_key, entry.summary,
                                          title, None)

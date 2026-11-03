@@ -16,6 +16,7 @@ from datetime import datetime
 from html.parser import HTMLParser
 
 from . import __version__
+from .config import Feed
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,30 @@ class Entry:
     @property
     def title_key(self) -> str:
         return title_key(self.title)
+
+
+@dataclass
+class ParsedFeed:
+    title: str
+    entries: list[Entry]
+
+
+@dataclass
+class FetchResult:
+    """A fetched feed body (None when the server says it hasn't changed) and its validators."""
+    data: bytes | None
+    etag: str | None
+    last_modified: str | None
+
+
+@dataclass
+class FeedResult:
+    """The outcome of fetching one feed: "ok", "not-modified" or "error"."""
+    feed: Feed
+    status: str
+    parsed: ParsedFeed | None = None
+    fetched: FetchResult | None = None
+    error: str = ""
 
 
 class _TextExtractor(HTMLParser):
@@ -143,7 +168,7 @@ def _tag_text(block: str, *names) -> str:
     return ""
 
 
-def _lenient_entries(text: str) -> tuple[str, list[Entry]]:
+def _lenient_entries(text: str) -> ParsedFeed:
     """Last resort for badly broken feeds: pull fields out with regular expressions."""
     entries = []
     for block in re.findall(r"<(?:item|entry)(?:\s[^>]*)?>(.*?)</(?:item|entry)>", text, re.S | re.I):
@@ -157,11 +182,11 @@ def _lenient_entries(text: str) -> tuple[str, list[Entry]]:
                                  _summarise(_tag_text(block, "description", "summary", "content")),
                                  _parse_date(_tag_text(block, "pubDate", "published", "updated", "dc:date"))))
     channel_title = re.search(r"<title(?:\s[^>]*)?>(.*?)</title>", text, re.S | re.I)
-    return html_to_text(channel_title.group(1)) if channel_title else "", entries
+    return ParsedFeed(html_to_text(channel_title.group(1)) if channel_title else "", entries)
 
 
-def parse_feed(data: bytes) -> tuple[str, list[Entry]]:
-    """Return (feed title, entries). Tolerates common breakage in real-world feeds."""
+def parse_feed(data: bytes) -> ParsedFeed:
+    """Return the feed title and entries. Tolerates common breakage in real-world feeds."""
     data = data.lstrip(b"\xef\xbb\xbf \t\r\n")
     head = data[:200].lower()
     if head.startswith(b"<!doctype html") or head.startswith(b"<html"):
@@ -175,10 +200,10 @@ def parse_feed(data: bytes) -> tuple[str, list[Entry]]:
         try:
             root = ElementTree.fromstring(_fix_entities(text))
         except ElementTree.ParseError:
-            title, entries = _lenient_entries(text)
-            if not entries:
+            parsed = _lenient_entries(text)
+            if not parsed.entries:
                 raise first
-            return title, entries
+            return parsed
     kind = _local(root.tag)
     entries: list[Entry] = []
     feed_title = ""
@@ -214,7 +239,7 @@ def parse_feed(data: bytes) -> tuple[str, list[Entry]]:
             date = _text(item, "pubDate", "date", "published", "updated")
             if url and title:
                 entries.append(Entry(url, title, _summarise(summary), _parse_date(date)))
-    return html_to_text(feed_title), entries
+    return ParsedFeed(html_to_text(feed_title), entries)
 
 
 def _decompress(data: bytes, encoding: str) -> bytes:
@@ -228,8 +253,8 @@ def _decompress(data: bytes, encoding: str) -> bytes:
 
 
 def fetch_conditional(url: str, etag: str | None = None, last_modified: str | None = None,
-                      timeout: int = 30) -> tuple[bytes | None, dict]:
-    """GET a feed. Returns (None, meta) when the server says it hasn't changed."""
+                      timeout: int = 30) -> FetchResult:
+    """GET a feed. `data` is None when the server says it hasn't changed."""
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.5",
@@ -243,40 +268,41 @@ def fetch_conditional(url: str, etag: str | None = None, last_modified: str | No
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read(MAX_FEED_BYTES + 1)
-            metadata = {"etag": response.headers.get("ETag"), "last_modified": response.headers.get("Last-Modified")}
+            new_etag = response.headers.get("ETag")
+            new_last_modified = response.headers.get("Last-Modified")
             encoding = (response.headers.get("Content-Encoding") or "").lower()
     except urllib.error.HTTPError as error:
         if error.code == 304:
-            return None, {"etag": etag, "last_modified": last_modified}
+            return FetchResult(None, etag, last_modified)
         raise
     if len(data) > MAX_FEED_BYTES:
         raise ValueError("feed too large")
-    return _decompress(data, encoding), metadata
+    return FetchResult(_decompress(data, encoding), new_etag, new_last_modified)
 
 
 def fetch(url: str, timeout: int = 30) -> bytes:
-    data = fetch_conditional(url, timeout=timeout)[0]
+    data = fetch_conditional(url, timeout=timeout).data
     if data is None:  # 304 without If-None-Match/If-Modified-Since: a broken server
         raise ValueError(f"unexpected 304 Not Modified from {url}")
     return data
 
 
-def _fetch_group(feeds, states, stop):
+def _fetch_group(feeds, states, stop) -> list[FeedResult]:
     """Fetch feeds that share a host one after another, to be polite to that host."""
-    results = []
+    results: list[FeedResult] = []
     for feed in feeds:
         if stop is not None and stop.is_set():
             break
         state = states.get(feed.url)
         try:
-            data, metadata = fetch_conditional(feed.url, state["etag"] if state else None,
-                                           state["last_modified"] if state else None)
-            if data is None:
-                results.append((feed, "not-modified", None, metadata))
+            fetched = fetch_conditional(feed.url, state["etag"] if state else None,
+                                        state["last_modified"] if state else None)
+            if fetched.data is None:
+                results.append(FeedResult(feed, "not-modified", fetched=fetched))
             else:
-                results.append((feed, "ok", parse_feed(data), metadata))
+                results.append(FeedResult(feed, "ok", parse_feed(fetched.data), fetched))
         except Exception as error:
-            results.append((feed, "error", None, f"{type(error).__name__}: {error}"))
+            results.append(FeedResult(feed, "error", error=f"{type(error).__name__}: {error}"))
     return results
 
 
@@ -293,17 +319,20 @@ def update_all(config, database, stop=None) -> int:
     new = changed = unchanged = failed = 0
     with ThreadPoolExecutor(max_workers=max(1, config.fetch_concurrency)) as pool:
         for results in pool.map(lambda group: _fetch_group(group, states, stop), groups.values()):
-            for feed, status, parsed, metadata in results:
-                if status == "error":
+            for result in results:
+                feed = result.feed
+                if result.status == "error":
                     failed += 1
-                    database.feed_failed(feed.url, metadata, config.fetch_interval_minutes * 60)
-                    log.debug("feed %s failed: %s", feed.url, metadata)
+                    database.feed_failed(feed.url, result.error, config.fetch_interval_minutes * 60)
+                    log.debug("feed %s failed: %s", feed.url, result.error)
                     continue
-                if status == "not-modified":
+                assert result.fetched is not None
+                if result.status == "not-modified":
                     unchanged += 1
-                    database.feed_ok(feed.url, "", metadata["etag"], metadata["last_modified"])
+                    database.feed_ok(feed.url, "", result.fetched.etag, result.fetched.last_modified)
                     continue
-                title, entries = parsed
+                assert result.parsed is not None
+                title, entries = result.parsed.title, result.parsed.entries
                 source = feed.name or title or feed.url
                 entries.sort(key=lambda entry: entry.published or 0, reverse=True)
                 added = 0
@@ -311,7 +340,7 @@ def update_all(config, database, stop=None) -> int:
                     if database.add_article(entry.url, entry.title, entry.title_key, entry.summary,
                                       source, entry.published, feed.category):
                         added += 1
-                database.feed_ok(feed.url, title, metadata["etag"], metadata["last_modified"])
+                database.feed_ok(feed.url, title, result.fetched.etag, result.fetched.last_modified)
                 changed += 1
                 new += added
             database.connection.commit()

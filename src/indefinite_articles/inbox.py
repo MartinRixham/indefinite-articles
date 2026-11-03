@@ -6,6 +6,7 @@ import imaplib
 import logging
 import re
 import ssl
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from . import mailer, replies
@@ -14,6 +15,18 @@ from .llm import LLM
 log = logging.getLogger(__name__)
 
 TOKEN_RE = re.compile(re.escape(mailer.TOKEN_PREFIX) + r"([0-9a-f]{8})")
+
+
+@dataclass
+class ReplyResult:
+    """What became of one reply ("ok", "ignored:sender", ...) and a line per item understood."""
+    status: str
+    summary: list[str] = field(default_factory=list)
+
+    @property
+    def ignored(self) -> bool:
+        """Not a reply to a digest: leave the message untouched."""
+        return self.status.startswith("ignored")
 
 
 def connect(config) -> imaplib.IMAP4:
@@ -35,59 +48,58 @@ def find_digest(database, message, text: str):
     return database.find_digest(match.group(1) if match else None, refs)
 
 
-def process_message(config, database, llm: LLM | None, message) -> tuple[str, list[str]]:
+def process_message(config, database, llm: LLM | None, message) -> ReplyResult:
     """Stage feedback from one reply in the open transaction (not committed).
 
     Use handle_message(), which commits it together with the processed-message marker.
-    Returns (status, summary lines).
     """
     if not config.email.is_allowed_sender(message):
-        return "ignored:sender", []
+        return ReplyResult("ignored:sender")
     # Never treat our own digests/acknowledgements as replies (e.g. when to == from).
     if message.get("X-Indefinite-Articles-Digest") or message.get("X-Indefinite-Articles-Ack") or (
         (message.get("Auto-Submitted") or "no").lower() != "no"
     ):
-        return "ignored:own", []
+        return ReplyResult("ignored:own")
     full = replies.body_text(message)
     digest = find_digest(database, message, full)
     if digest is None:
-        return "ignored:no-digest", []
+        return ReplyResult("ignored:no-digest")
     items = database.digest_items(digest["id"])
     text = replies.strip_quoted(full)
     if not text:
-        return "empty", []
-    ratings, general = replies.understand(llm, text, items)
+        return ReplyResult("empty")
+    interpretation = replies.understand(llm, text, items)
 
     summary = []
-    for item_number in sorted(ratings):
-        rating, comment = ratings[item_number]
+    for item_number in sorted(interpretation.ratings):
+        rating = interpretation.ratings[item_number]
         article = items[item_number - 1]
-        database.add_feedback(article["id"], rating, comment)
-        label = {1: "👍 liked", -1: "👎 disliked", 0: "💬 noted"}[rating]
-        summary.append(f"{label} #{item_number}: {article['title']}" + (f' — "{comment}"' if comment else ""))
-    for comment in general:
+        database.add_feedback(article["id"], rating.rating, rating.comment)
+        summary.append(f"{rating.label} #{item_number}: {article['title']}"
+                       + (f' — "{rating.comment}"' if rating.comment else ""))
+    for comment in interpretation.general:
         database.add_general_comment(digest["id"], comment)
         summary.append(f'💬 general: "{comment}"')
-    return ("ok" if summary else "nothing-understood"), summary
+    return ReplyResult("ok" if summary else "nothing-understood", summary)
 
 
 def message_id(message, fallback: str) -> str:
     return (message.get("Message-ID") or fallback).strip()
 
 
-def handle_message(config, database, llm: LLM | None, message, reply_id: str) -> tuple[str, list[str]]:
+def handle_message(config, database, llm: LLM | None, message, reply_id: str) -> ReplyResult:
     """Process a reply exactly once: its feedback and the processed marker are committed
     in one transaction, so a crash can never record one without the other."""
     if database.message_processed(reply_id):
-        return "already-processed", []
+        return ReplyResult("already-processed")
     try:
-        status, summary = process_message(config, database, llm, message)
-        database.mark_message(reply_id, status, commit=False)
+        result = process_message(config, database, llm, message)
+        database.mark_message(reply_id, result.status, commit=False)
         database.connection.commit()
     except BaseException:
         database.connection.rollback()
         raise
-    return status, summary
+    return result
 
 
 def poll(config, database, llm: LLM | None) -> int:
@@ -113,15 +125,15 @@ def poll(config, database, llm: LLM | None) -> int:
             message = email.message_from_bytes(data[0][1], policy=email.policy.default)
             reply_id = message_id(message, f"uid-{uid}")
             try:
-                status, summary = handle_message(config, database, llm, message, reply_id)
+                result = handle_message(config, database, llm, message, reply_id)
             except Exception:
                 log.exception("failed to process message %s", reply_id)
                 continue
-            if status == "already-processed":
+            if result.status == "already-processed":
                 continue
-            log.info("reply %s: %s (%d items)", reply_id, status, len(summary))
-            if status.startswith("ignored"):
-                continue  # leave unrelated mail untouched
+            log.info("reply %s: %s (%d items)", reply_id, result.status, len(result.summary))
+            if result.ignored:
+                continue
             used += 1
             connection.uid("STORE", uid, "+FLAGS", r"(\Seen)")
             if config.email.processed_folder:
@@ -130,7 +142,7 @@ def poll(config, database, llm: LLM | None) -> int:
                     connection.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
                     connection.expunge()
             if config.email.send_acknowledgement:
-                lines = summary or ["Sorry, I couldn't find any ratings in your reply. "
+                lines = result.summary or ["Sorry, I couldn't find any ratings in your reply. "
                                     "Try something like: +1 +3 -2"]
                 try:
                     mailer.send(config, mailer.build_acknowledgement(config, message, lines))

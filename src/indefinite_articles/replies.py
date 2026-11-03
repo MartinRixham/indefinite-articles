@@ -2,6 +2,7 @@
 
 import logging
 import re
+from dataclasses import dataclass, field
 from email.message import EmailMessage
 
 from .feeds import html_to_text
@@ -20,6 +21,49 @@ _QUOTE_HEADER = re.compile(
 )
 _COMPACT_TOKEN = re.compile(r"([+-])\s?(\d{1,2})|(\d{1,2})\s?([+-])")
 _ITEM_LINE = re.compile(r"^\s*#?(\d{1,2})\s*[.):,]?\s*(.*)$")
+
+
+@dataclass(frozen=True)
+class Rating:
+    """The reader's verdict on one article: 1 liked, -1 disliked, 0 just a comment."""
+    rating: int
+    comment: str = ""
+
+    @property
+    def label(self) -> str:
+        return {1: "👍 liked", -1: "👎 disliked", 0: "💬 noted"}[self.rating]
+
+
+@dataclass
+class Sentiment:
+    """A like/dislike word found at the start of a line (None if there was none), and the rest."""
+    rating: int | None
+    comment: str
+
+
+@dataclass
+class Interpretation:
+    """What a reply says: ratings by item number, and comments not about one article."""
+    ratings: dict[int, Rating] = field(default_factory=dict)
+    general: list[str] = field(default_factory=list)
+
+    def filled_in_by(self, other: "Interpretation") -> "Interpretation":
+        """These ratings, plus `other`'s for items these leave out or only comment on;
+        `other`'s general comments."""
+        ratings = dict(self.ratings)
+        for item_number, rating in other.ratings.items():
+            if item_number not in ratings or ratings[item_number].rating == 0:
+                ratings[item_number] = rating
+        return Interpretation(ratings, other.general)
+
+
+@dataclass
+class StructuredReply:
+    """Ratings and general comments from the documented formats, and the number of item
+    lines whose sentiment was unclear."""
+    ratings: dict[int, Rating]
+    general: list[str]
+    unresolved: int
 
 
 def body_text(message: EmailMessage) -> str:
@@ -55,26 +99,22 @@ def strip_quoted(text: str) -> str:
     return "\n".join(out).strip()
 
 
-def _sentiment(rest: str) -> tuple[int | None, str]:
-    """Look at the start of `rest` for a like/dislike word. Returns (rating, remaining comment)."""
+def _sentiment(rest: str) -> Sentiment:
+    """Look at the start of `rest` for a like/dislike word."""
     rest = rest.strip()
     match = re.match(r"^([+-]|[^\W\d_]+|👍|👎|❤️?)\s*[:,.!\-–—]*\s*(.*)$", rest, re.DOTALL)
     if match:
         word = match.group(1).lower()
         if word in LIKE_WORDS:
-            return 1, match.group(2).strip()
+            return Sentiment(1, match.group(2).strip())
         if word in DISLIKE_WORDS:
-            return -1, match.group(2).strip()
-    return None, rest
+            return Sentiment(-1, match.group(2).strip())
+    return Sentiment(None, rest)
 
 
-def parse_structured(text: str, item_count: int):
-    """Parse ratings written in the documented formats.
-
-    Returns (ratings, general_comments, unresolved) where ratings maps item number to
-    (rating, comment), and unresolved counts item lines whose sentiment was unclear.
-    """
-    ratings: dict[int, tuple[int, str]] = {}
+def parse_structured(text: str, item_count: int) -> StructuredReply:
+    """Parse ratings written in the documented formats."""
+    ratings: dict[int, Rating] = {}
     general: list[str] = []
     unresolved = 0
     for raw in text.split("\n"):
@@ -88,20 +128,20 @@ def parse_structured(text: str, item_count: int):
                 sign, number = (match.group(1), match.group(2)) if match.group(1) else (match.group(4), match.group(3))
                 item_number = int(number)
                 if 1 <= item_number <= item_count:
-                    ratings[item_number] = (1 if sign == "+" else -1, "")
+                    ratings[item_number] = Rating(1 if sign == "+" else -1)
             continue
         match = _ITEM_LINE.match(line)
         if match and 1 <= int(match.group(1)) <= item_count:
             item_number = int(match.group(1))
-            rating, comment = _sentiment(match.group(2))
-            if rating is None:
+            sentiment = _sentiment(match.group(2))
+            if sentiment.rating is None:
                 unresolved += 1
-                ratings[item_number] = (0, comment)
+                ratings[item_number] = Rating(0, sentiment.comment)
             else:
-                ratings[item_number] = (rating, comment)
+                ratings[item_number] = Rating(sentiment.rating, sentiment.comment)
             continue
         general.append(line)
-    return ratings, general, unresolved
+    return StructuredReply(ratings, general, unresolved)
 
 
 INTERPRET_SYSTEM = (
@@ -110,7 +150,7 @@ INTERPRET_SYSTEM = (
 )
 
 
-def interpret_with_llm(llm: LLM, text: str, items):
+def interpret_with_llm(llm: LLM, text: str, items) -> Interpretation:
     listing = "\n".join(f"{item_number}. {article['title']} ({article['source']})"
                         for item_number, article in enumerate(items, start=1))
     user = (
@@ -125,7 +165,7 @@ def interpret_with_llm(llm: LLM, text: str, items):
     data = llm.chat_json(INTERPRET_SYSTEM, user)
     if not isinstance(data, dict):
         raise LLMError("unexpected interpretation format")
-    ratings: dict[int, tuple[int, str]] = {}
+    ratings: dict[int, Rating] = {}
     for entry in data.get("ratings") or []:
         try:
             item_number = int(entry["item"])
@@ -134,23 +174,20 @@ def interpret_with_llm(llm: LLM, text: str, items):
         if not 1 <= item_number <= len(items):
             continue
         rating = {"like": 1, "dislike": -1}.get(str(entry.get("rating", "")).lower(), 0)
-        ratings[item_number] = (rating, str(entry.get("comment") or "")[:500])
+        ratings[item_number] = Rating(rating, str(entry.get("comment") or "")[:500])
     general = str(data.get("general_comment") or "").strip()
-    return ratings, ([general] if general else [])
+    return Interpretation(ratings, [general] if general else [])
 
 
-def understand(llm: LLM | None, text: str, items):
+def understand(llm: LLM | None, text: str, items) -> Interpretation:
     """Combine the structured parser with LLM interpretation for free-form replies."""
-    ratings, general, unresolved = parse_structured(text, len(items))
-    needs_llm = unresolved > 0 or (general and llm is not None)
-    if needs_llm and llm is not None:
-        try:
-            llm_ratings, llm_general = interpret_with_llm(llm, text, items)
-            # Explicit structured ratings win; the LLM fills in the rest.
-            for item_number, rating in llm_ratings.items():
-                if item_number not in ratings or ratings[item_number][0] == 0:
-                    ratings[item_number] = rating
-            general = llm_general
-        except LLMError as error:
-            log.warning("could not interpret free-form reply with LLM: %s", error)
-    return ratings, general
+    parsed = parse_structured(text, len(items))
+    structured = Interpretation(parsed.ratings, parsed.general)
+    if llm is None or not (parsed.unresolved or parsed.general):
+        return structured
+    try:
+        # Explicit structured ratings win; the LLM fills in the rest.
+        return structured.filled_in_by(interpret_with_llm(llm, text, items))
+    except LLMError as error:
+        log.warning("could not interpret free-form reply with LLM: %s", error)
+        return structured

@@ -4,7 +4,8 @@ from unittest import mock
 
 from indefinite_articles import inbox, mailer, replies
 from indefinite_articles.config import Config
-from indefinite_articles.database import Database
+from indefinite_articles.database import Database, SourceStatistics
+from indefinite_articles.ranker import DigestPick
 
 
 def make_config() -> Config:
@@ -41,8 +42,8 @@ class MailerTests(unittest.TestCase):
         self.assertIn("+1", mailer.instructions())
 
     def test_build_digest_headers_and_debug(self):
-        items = [({"title": "T", "source": "S", "url": "https://e/1", "reason": "", "summary": None,
-                   "content": "word " * 100}, False)]
+        items = [DigestPick({"title": "T", "source": "S", "url": "https://e/1", "reason": "", "summary": None,
+                             "content": "word " * 100}, False)]
         message = mailer.build_digest(self.config, items, "0123abcd", debug=["line one", "line <two>"])
         self.assertTrue(message["Subject"].endswith("[rec:0123abcd]"))
         self.assertEqual(message["X-Indefinite-Articles-Digest"], "0123abcd")
@@ -180,16 +181,16 @@ class InboxTests(unittest.TestCase):
         for expected, message in cases.items():
             with self.subTest(expected=expected):
                 self.assertEqual(inbox.process_message(self.config, self.database, None, message),
-                                 (expected, []))
+                                 inbox.ReplyResult(expected))
 
     def test_process_message_records_feedback(self):
         message = reply("+1\n2 meh, too long\nmore like the first", subject="Re: [rec:abcd1234]")
-        status, summary = inbox.process_message(self.config, self.database, None, message)
-        self.assertEqual(status, "ok")
-        self.assertEqual(summary, ["👍 liked #1: Article 1", '👎 disliked #2: Article 2 — "too long"',
+        result = inbox.process_message(self.config, self.database, None, message)
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.summary, ["👍 liked #1: Article 1", '👎 disliked #2: Article 2 — "too long"',
                                    '💬 general: "more like the first"'])
         self.database.connection.commit()
-        self.assertEqual(self.database.source_statistics(), {"S": (1, 1)})
+        self.assertEqual(self.database.source_statistics(), {"S": SourceStatistics(1, 1)})
 
     def test_poll_without_imap_host(self):
         self.config.email.imap.host = ""

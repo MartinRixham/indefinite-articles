@@ -68,12 +68,13 @@ def _digest_part(template_name: str, items, token: str, note: str, debug: list[s
                  escape, item_separator: str) -> str:
     sections = _sections(template_name)
     rendered = []
-    for position, (article, exploratory) in enumerate(items, start=1):
+    for position, pick in enumerate(items, start=1):
+        article = pick.article
         rendered.append(_render(sections["item"], {
             "position": str(position),
             "title": escape(article["title"]),
             "source": escape(article["source"]),
-            "exploratory": _render(sections["exploratory"], {}) if exploratory else "",
+            "exploratory": _render(sections["exploratory"], {}) if pick.exploratory else "",
             "url": escape(article["url"]),
             "reason": escape(article["reason"] or ""),
             "blurb": escape(_blurb(article)),
@@ -90,7 +91,7 @@ def _digest_part(template_name: str, items, token: str, note: str, debug: list[s
 
 def build_digest(config, items, token: str, note: str = "",
                  debug: list[str] | None = None) -> EmailMessage:
-    """items: list of (article_row, exploratory). debug: lines appended after the footer.
+    """items: the `ranker.DigestPick`s to send. debug: lines appended after the footer.
 
     The layout comes from templates/digest.txt and templates/digest.html.
     """

@@ -5,9 +5,11 @@ import hashlib
 import logging
 import random
 from collections import Counter
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
+from .database import SourceStatistics
 from .llm import LLM, LLMError, LLMUnavailable
 
 log = logging.getLogger(__name__)
@@ -94,7 +96,21 @@ class JSONChat(Protocol):
     def chat_json(self, system: str, user: str) -> Any: ...
 
 
-def score_one(llm: JSONChat, prefix: str, article, per_article: int = 1500) -> tuple[float, str]:
+@dataclass
+class ArticleScore:
+    """The LLM's 0-10 score for one article, and its reason."""
+    score: float
+    reason: str
+
+
+@dataclass
+class DigestPick:
+    """An article chosen for the digest; exploratory picks are random, to keep learning."""
+    article: Any
+    exploratory: bool
+
+
+def score_one(llm: JSONChat, prefix: str, article, per_article: int = 1500) -> ArticleScore:
     """Score a single article from 0 to 10 for the reader described in `prefix`."""
     source = f"{article['source']} ({article['category']})" if article["category"] else article["source"]
     user = (
@@ -112,7 +128,7 @@ def score_one(llm: JSONChat, prefix: str, article, per_article: int = 1500) -> t
         score = max(0.0, min(10.0, float(data["score"])))
     except (KeyError, TypeError, ValueError):
         raise LLMError(f"no score in LLM output: {str(data)[:200]}") from None
-    return score, str(data.get("reason", ""))[:200]
+    return ArticleScore(score, str(data.get("reason", ""))[:200])
 
 
 def shortlist(config, database) -> list:
@@ -169,13 +185,13 @@ def score_candidates(config, database, llm: LLM, stop=None) -> int:
         if stop is not None and stop.is_set():
             break
         try:
-            score, reason = score_one(llm, prefix, article, per_article)
+            result = score_one(llm, prefix, article, per_article)
         except LLMError as error:
             log.warning("scoring article %d failed: %s", article["id"], error)
             if isinstance(error, LLMUnavailable):
                 break  # leave the rest for the next round
             continue
-        database.set_score(article["id"], score, reason, profile["id"])
+        database.set_score(article["id"], result.score, result.reason, profile["id"])
         database.connection.commit()
         done += 1
     log.info("scored %d/%d candidate articles", done, len(todo))
@@ -183,10 +199,8 @@ def score_candidates(config, database, llm: LLM, stop=None) -> int:
 
 
 def _source_bonus(statistics: dict, source: str) -> float:
-    likes, dislikes = statistics.get(source, (0, 0))
-    # Beta(2,2) prior -> smoothed like rate in (0,1); bonus in [-1.5, 1.5]
-    rate = (likes + 2) / (likes + dislikes + 4)
-    return 3.0 * (rate - 0.5)
+    """In [-1.5, 1.5], from how much the reader liked the source's articles."""
+    return 3.0 * (statistics.get(source, SourceStatistics()).smoothed_like_rate - 0.5)
 
 
 def _breakdown(article, statistics: dict, prefilter_ranks: list[float]) -> dict:
@@ -206,22 +220,23 @@ def _breakdown(article, statistics: dict, prefilter_ranks: list[float]) -> dict:
             "final": article["score"] + agree + bonus}
 
 
-def _add_capped(chosen: list, articles, limit: int, exploratory: bool, max_per_source: int) -> None:
+def _add_capped(chosen: list[DigestPick], articles, limit: int, exploratory: bool, max_per_source: int) -> None:
     """Append articles to `chosen` until it has `limit`, at most `max_per_source` per source."""
-    per_source = Counter(article["source"] for article, _ in chosen)
+    per_source = Counter(pick.article["source"] for pick in chosen)
     for article in articles:
         if len(chosen) >= limit:
             break
         if per_source[article["source"]] >= max_per_source:
             continue
         per_source[article["source"]] += 1
-        chosen.append((article, exploratory))
+        chosen.append(DigestPick(article, exploratory))
 
 
-def select(config, database, randomizer: random.Random | None = None, debug: dict | None = None):
+def select(config, database, randomizer: random.Random | None = None,
+           debug: dict | None = None) -> list[DigestPick]:
     """Choose the digest: top-ranked articles plus a few exploratory picks.
 
-    Returns a list of (article_row, exploratory: bool). If `debug` is a dict it is
+    If `debug` is a dict it is
     filled with candidate counts and each candidate's score breakdown.
     """
     randomizer = randomizer or random.Random()
@@ -246,24 +261,24 @@ def select(config, database, randomizer: random.Random | None = None, debug: dic
         debug["rank"] = {article["id"]: rank for rank, article in enumerate(ranked, start=1)}
     limit = config.articles_per_digest
     explore_count = min(config.exploration, max(0, limit - 1))
-    chosen: list = []
+    chosen: list[DigestPick] = []
     _add_capped(chosen, ranked, limit - explore_count, False, config.max_per_source)
 
     # Exploration: random picks from the rest, biased towards less-seen sources,
     # so the model keeps learning about things outside its current beliefs.
-    picked = {article["id"] for article, _ in chosen}
+    picked = {pick.article["id"] for pick in chosen}
     rest = [article for article in ranked if article["id"] not in picked]
     randomizer.shuffle(rest)
-    rest.sort(key=lambda article: sum(statistics.get(article["source"], (0, 0))))
+    rest.sort(key=lambda article: statistics.get(article["source"], SourceStatistics()).total)
     _add_capped(chosen, rest, limit, True, config.max_per_source)
 
     # Too few sources to honour the cap: fill remaining slots ignoring it.
-    picked = {article["id"] for article, _ in chosen}
+    picked = {pick.article["id"] for pick in chosen}
     for article in ranked:
         if len(chosen) >= limit:
             break
         if article["id"] not in picked:
-            chosen.append((article, False))
+            chosen.append(DigestPick(article, False))
     return chosen
 
 
@@ -281,7 +296,8 @@ def update_profile(config, database, llm: LLM) -> bool:
     is unavailable, so this is safe to call repeatedly.
     """
     profile = ensure_profile(config, database)
-    feedback, comments = database.feedback_since(profile["created_at"])
+    pending = database.feedback_since(profile["created_at"])
+    feedback, comments = pending.feedback, pending.comments
     if not feedback and not comments:
         return False
     liked = [row for row in feedback if row["rating"] > 0]

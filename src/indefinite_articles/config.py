@@ -18,6 +18,21 @@ class ConfigError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class TimeOfDay:
+    hour: int
+    minute: int
+
+    def has_passed(self, now: datetime) -> bool:
+        """True from this time of day until midnight."""
+        return (now.hour, now.minute) >= (self.hour, self.minute)
+
+    def next_after(self, now: datetime) -> datetime:
+        """The next occurrence of this time of day, strictly after `now`."""
+        at = now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
+        return at if at > now else at + timedelta(days=1)
+
+
 @dataclass
 class Feed:
     url: str
@@ -149,23 +164,18 @@ class Config:
     feeds: list[Feed] = field(default_factory=list)
 
     @property
-    def digest_hour_minute(self) -> tuple[int, int]:
+    def digest_hour_minute(self) -> TimeOfDay:
         match = re.fullmatch(r"(\d{1,2}):(\d{2})", self.digest_time.strip())
         if not match or int(match.group(1)) > 23 or int(match.group(2)) > 59:
             raise ConfigError(f"digest_time must be HH:MM, got {self.digest_time!r}")
-        return int(match.group(1)), int(match.group(2))
+        return TimeOfDay(int(match.group(1)), int(match.group(2)))
 
     def next_digest_time(self) -> float:
         """When the next digest is due (epoch seconds), always in the future.
 
         Long-running work (LLM requests, the hourly job) must be finished by then.
         """
-        hour, minute = self.digest_hour_minute
-        now = datetime.now()
-        at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if at <= now:
-            at += timedelta(days=1)
-        return at.timestamp()
+        return self.digest_hour_minute.next_after(datetime.now()).timestamp()
 
     def problems(self) -> list[str]:
         """Human-readable problems that would stop the daemon working."""

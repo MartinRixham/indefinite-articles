@@ -125,7 +125,7 @@ class ExtractTests(unittest.TestCase):
         rows = [{"title": f"Article {index}", "content": "x" * 3000, "summary": "", "source": "S",
                  "category": ""} for index in range(3)]
         results = [ranker.score_one(llm, prefix, article, 500) for article in rows]
-        self.assertEqual(results[0], (10.0, "fits"))  # clamped to 0-10
+        self.assertEqual(results[0], ranker.ArticleScore(10.0, "fits"))  # clamped to 0-10
         self.assertTrue(all(prompt.startswith(prefix) for prompt in prompts))
         self.assertTrue(all(len(prompt) < len(prefix) + 600 for prompt in prompts))
         self.assertIn("Title: Article 2", prompts[2])

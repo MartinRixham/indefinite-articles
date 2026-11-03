@@ -8,6 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from functools import partial
 from html.parser import HTMLParser
 
@@ -212,17 +213,24 @@ def fetch_page(url: str, max_characters: int, allow_private: bool = False) -> st
     return extract_text(html, max_characters)
 
 
-def _fetch_article(config, stop, article) -> tuple[int, str | None, str]:
-    """(article id, text, content status) for one article."""
+@dataclass
+class ArticleContent:
+    """The page text fetched for one article, and its content status."""
+    article_id: int
+    text: str | None
+    status: str
+
+
+def _fetch_article(config, stop, article) -> ArticleContent:
     if stop is not None and stop.is_set():
-        return article["id"], None, "skipped"
+        return ArticleContent(article["id"], None, "skipped")
     try:
         text = fetch_page(article["url"], config.article_chars, config.allow_private_addresses)
-        return article["id"], text, "ok" if text else "empty"
+        return ArticleContent(article["id"], text, "ok" if text else "empty")
     except BlockedAddress as error:
-        return article["id"], "", f"blocked: {error}"
+        return ArticleContent(article["id"], "", f"blocked: {error}")
     except Exception as error:
-        return article["id"], "", f"failed: {str(error)[:150]}"
+        return ArticleContent(article["id"], "", f"failed: {str(error)[:150]}")
 
 
 def enrich_candidates(config, database, stop=None) -> int:
@@ -235,15 +243,15 @@ def enrich_candidates(config, database, stop=None) -> int:
         return 0
     ok = 0
     with ThreadPoolExecutor(max_workers=max(1, config.fetch_workers)) as pool:
-        for article_id, text, status in pool.map(partial(_fetch_article, config, stop), todo):
-            if status == "skipped":
+        for content in pool.map(partial(_fetch_article, config, stop), todo):
+            if content.status == "skipped":
                 continue
-            database.set_content(article_id, text or "", status)
+            database.set_content(content.article_id, content.text or "", content.status)
             database.connection.commit()  # don't hold the write lock while waiting for more pages
-            if status == "ok":
+            if content.status == "ok":
                 ok += 1
             else:
-                log.debug("article %d: %s", article_id, status)
+                log.debug("article %d: %s", content.article_id, content.status)
     database.connection.commit()
     log.info("fetched full text for %d/%d articles", ok, len(todo))
     return ok

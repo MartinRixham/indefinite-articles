@@ -3,11 +3,12 @@ import shutil
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles.config import (Config, ConfigError, EmailConfig, Feed, LLMConfig, ServerConfig,
+from indefinite_articles.config import (Config, ConfigError, EmailConfig, Feed, LLMConfig, ServerConfig, TimeOfDay,
                                         load, load_feed_dir, parse_feed_list, parse_opml)
 
 
@@ -104,7 +105,14 @@ class EmailConfigTests(unittest.TestCase):
 class ConfigTests(unittest.TestCase):
     def test_digest_hour_minute(self):
         config = Config(digest_time=" 7:05 ")
-        self.assertEqual(config.digest_hour_minute, (7, 5))
+        self.assertEqual(config.digest_hour_minute, TimeOfDay(7, 5))
+
+    def test_time_of_day(self):
+        seven = TimeOfDay(7, 5)
+        self.assertFalse(seven.has_passed(datetime(2026, 11, 3, 7, 4, 59)))
+        self.assertTrue(seven.has_passed(datetime(2026, 11, 3, 7, 5)))
+        self.assertEqual(seven.next_after(datetime(2026, 11, 3, 7, 4, 59)), datetime(2026, 11, 3, 7, 5))
+        self.assertEqual(seven.next_after(datetime(2026, 11, 3, 7, 5)), datetime(2026, 11, 4, 7, 5))
 
     def test_digest_hour_minute_rejects_bad_times(self):
         for value in ("24:00", "07:60", "7am", "", "07:5"):

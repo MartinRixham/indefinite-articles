@@ -70,13 +70,15 @@ class FeedListTests(unittest.TestCase):
 class LenientParseTests(unittest.TestCase):
     def test_html_entities_and_leading_junk(self):
         data = b"\n\n<?xml version='1.0'?><rss><channel><title>X&nbsp;Y</title><item><title>A &mdash; B</title><link>https://e/1</link></item></channel></rss>"
-        title, entries = feeds.parse_feed(data)
+        parsed = feeds.parse_feed(data)
+        title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "X\xa0Y".replace("\xa0", " ").strip() or title)
         self.assertEqual(entries[0].title, "A — B")
 
     def test_broken_markup_regex_fallback(self):
         data = b"<rss><channel><title>T</title><item><title>Good</title><link>https://e/1</link><description><![CDATA[<p>hi</p>]]></description></item><br></channel></rss>"
-        title, entries = feeds.parse_feed(data)
+        parsed = feeds.parse_feed(data)
+        title, entries = parsed.title, parsed.entries
         self.assertEqual((entries[0].title, entries[0].summary), ("Good", "hi"))
 
     def test_html_page_rejected(self):
@@ -215,18 +217,18 @@ class PrefilterTests(unittest.TestCase):
         texts = ["rust code compilers", "rust borrow checker", "systems code",
                  "garden soil", "tomatoes compost", "celebrity gossip"]
         vectors = [embed.pack(fake_embedding(text)) for text in texts]
-        weights, bias = embed.train_classifier(vectors, [1, 1, 1, 0, 0, 0], [0, 30, 400, 10, 0, 900])
-        probabilities = embed.predict(vectors, weights, bias)
+        classifier = embed.train_classifier(vectors, [1, 1, 1, 0, 0, 0], [0, 30, 400, 10, 0, 900])
+        probabilities = classifier.predict(vectors)
         self.assertTrue(all(probability > 0.5 for probability in probabilities[:3]))
         self.assertTrue(all(probability < 0.5 for probability in probabilities[3:]))
 
     def test_split_profile(self):
-        likes, avoid = embed.split_profile(
+        phrases = embed.split_profile(
             "- Likes Rust and compilers, but not marketing posts\n"
             "- Dislikes celebrity gossip. Enjoys long science features.\n"
             "* Fewer product announcements")
-        self.assertEqual(likes, ["Likes Rust and compilers", "Enjoys long science features"])
-        self.assertEqual(avoid, ["not marketing posts", "Dislikes celebrity gossip",
+        self.assertEqual(phrases.wanted, ["Likes Rust and compilers", "Enjoys long science features"])
+        self.assertEqual(phrases.unwanted, ["not marketing posts", "Dislikes celebrity gossip",
                                  "Fewer product announcements"])
 
     def test_profile_dislikes_push_articles_down(self):
@@ -244,10 +246,10 @@ class PrefilterTests(unittest.TestCase):
         llm = self._llm()
         llm.chat_json.return_value = {"likes": ["rust compilers"], "avoid": ["celebrity gossip"]}
         self.assertEqual(embed.profile_phrases(llm, "whatever"),
-                         (["rust compilers"], ["celebrity gossip"]))
+                         embed.ProfilePhrases(["rust compilers"], ["celebrity gossip"]))
         llm.chat_json.return_value = {"oops": 1}  # unusable answer: keyword split
         self.assertEqual(embed.profile_phrases(llm, "Likes rust. Avoids gossip."),
-                         (["Likes rust"], ["Avoids gossip"]))
+                         embed.ProfilePhrases(["Likes rust"], ["Avoids gossip"]))
 
 
 if __name__ == "__main__":

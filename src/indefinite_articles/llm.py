@@ -12,6 +12,9 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
+
+from .sent_request import SentRequest
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +39,14 @@ class LLMUnavailable(LLMError):
     move on to the next item."""
 
 
+@dataclass
+class WaitLimit:
+    """Seconds to wait for the next data (None: no limit), and whether that is the
+    stall limit rather than the deadline."""
+    seconds: float | None
+    by_stall: bool
+
+
 class LLM:
     def __init__(self, config, deadline=None):
         """`deadline`, if given, returns the epoch time by which every request must
@@ -46,9 +57,7 @@ class LLM:
         self._slowest: dict[str, float] = {}  # longest silence seen, per kind of wait
 
     # -- timeouts ------------------------------------------------------------------
-    def _limit(self, kind: str) -> tuple[float | None, bool]:
-        """Seconds to wait for the next data, and whether that is the stall limit
-        (rather than the deadline)."""
+    def _limit(self, kind: str) -> WaitLimit:
         with self._lock:
             slowest = self._slowest.get(kind)
         stall = None if slowest is None else max(MIN_STALL, STALL_FACTOR * slowest)
@@ -58,18 +67,18 @@ class LLM:
             if left <= 0:
                 raise LLMUnavailable("no time left before the next digest")
         if stall is not None and (left is None or stall < left):
-            return stall, True
-        return left, False
+            return WaitLimit(stall, True)
+        return WaitLimit(left, False)
 
     def _observe(self, kind: str, seconds: float):
         with self._lock:
             if seconds > self._slowest.get(kind, 0.0):
                 self._slowest[kind] = seconds
 
-    def _stalled(self, kind: str, waited: float, by_stall: bool) -> LLMUnavailable:
-        # Closing the connection makes Ollama and llama-server abandon the request.
-        if not by_stall:
+    def _stalled(self, kind: str, limit: WaitLimit) -> LLMUnavailable:
+        if not limit.by_stall:
             return LLMUnavailable("LLM request stopped: the next digest is due")
+        waited = limit.seconds or 0
         with self._lock:  # next time, wait twice as long as the limit that just fired
             self._slowest[kind] = max(self._slowest.get(kind, 0.0), 2 * waited / STALL_FACTOR)
         log.warning("LLM sent nothing for %.1fs (%s); next time waiting up to %.1fs",
@@ -77,13 +86,12 @@ class LLM:
         return LLMUnavailable(f"LLM stopped responding ({kind}, {waited:.0f}s without data)")
 
     # -- transport -----------------------------------------------------------------
-    def _send(self, path: str, body: dict, kind: str):
-        """POST `body`; returns (connection, socket, response, timeout, by_stall) once
-        the response headers have arrived."""
+    def _send(self, path: str, body: dict, kind: str) -> SentRequest:
+        """POST `body` and wait for the response headers."""
         parts = urllib.parse.urlsplit(self.config.base_url)
         cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
-        timeout, by_stall = self._limit(kind)
-        connection = cls(parts.hostname, parts.port, timeout=timeout)
+        limit = self._limit(kind)
+        connection = cls(parts.hostname, parts.port, timeout=limit.seconds)
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
@@ -94,7 +102,7 @@ class LLM:
             response = connection.getresponse()
         except TimeoutError:
             connection.close()
-            raise self._stalled(kind, timeout or 0, by_stall) from None
+            raise self._stalled(kind, limit) from None
         except OSError as error:
             connection.close()
             raise LLMUnavailable(f"cannot reach LLM at {self.config.base_url}: {error}") from None
@@ -102,23 +110,22 @@ class LLM:
             detail = response.read(500).decode(errors="replace")
             connection.close()
             raise LLMError(f"LLM HTTP {response.status}: {detail}")
-        return connection, stream_socket, response, timeout, by_stall
+        return SentRequest(connection, stream_socket, response, limit)
 
     def _post(self, path: str, body: dict, kind: str) -> dict:
         """POST and read a whole JSON response (no progress to watch until it's done)."""
         started = time.monotonic()
-        connection, _, response, timeout, by_stall = self._send(path, body, kind)
+        sent = self._send(path, body, kind)
         try:
-            data = json.loads(response.read())
+            data = json.loads(sent.response.read())
         except TimeoutError:
-            raise self._stalled(kind, timeout or 0, by_stall) from None
+            raise self._stalled(kind, sent.limit) from None
         except OSError as error:
             raise LLMUnavailable(f"connection to LLM lost: {error}") from None
         except ValueError:
             raise LLMError("LLM returned invalid JSON") from None
         finally:
-            response.close()
-            connection.close()
+            sent.close()
         self._observe(kind, time.monotonic() - started)
         return data
 
@@ -128,7 +135,8 @@ class LLM:
         The wait for the first token (prompt processing, maybe loading the model) and
         the gaps between tokens are timed separately, as "first" and "gap"."""
         started = time.monotonic()
-        connection, stream_socket, response, timeout, by_stall = self._send(path, {**body, "stream": True}, "first")
+        sent = self._send(path, {**body, "stream": True}, "first")
+        response, limit = sent.response, sent.limit
         kind = "first"
         try:
             if "text/event-stream" not in (response.getheader("Content-Type") or ""):
@@ -147,8 +155,8 @@ class LLM:
                 self._observe(kind, now - last)
                 last = now
                 kind = "gap"
-                timeout, by_stall = self._limit(kind)
-                stream_socket.settimeout(timeout)
+                limit = self._limit(kind)
+                sent.stream_socket.settimeout(limit.seconds)
                 payload = line[5:].strip()
                 if payload == b"[DONE]":
                     break
@@ -161,14 +169,13 @@ class LLM:
                     pass  # e.g. a final usage-only event
             return "".join(parts)
         except TimeoutError:
-            raise self._stalled(kind, timeout or 0, by_stall) from None
+            raise self._stalled(kind, limit) from None
         except OSError as error:
             raise LLMUnavailable(f"connection to LLM lost: {error}") from None
         except ValueError:
             raise LLMError("LLM returned invalid JSON") from None
         finally:
-            response.close()
-            connection.close()
+            sent.close()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embedding vectors for `texts`, using the configured embedding model."""
@@ -215,7 +222,7 @@ class LLM:
         """True if Ollama has the chat model loaded with nothing in GPU memory."""
         try:
             url = self.config.base_url.removesuffix("/v1") + "/api/ps"
-            with urllib.request.urlopen(url, timeout=self._limit("status")[0]) as response:
+            with urllib.request.urlopen(url, timeout=self._limit("status").seconds) as response:
                 models = json.load(response)["models"]
         except Exception:  # not Ollama (e.g. llama.cpp) or unreachable: can't tell
             return False

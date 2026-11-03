@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from indefinite_articles.database import Database
+from indefinite_articles.database import Database, PendingFeedback, SourceStatistics
 
 DAY = 86400
 
@@ -166,17 +166,17 @@ class DatabaseTests(unittest.TestCase):
         for index, rating in enumerate((1, 1, -1, 0)):
             self.database.add_feedback(self._article(f"https://a/{index}", source="A"), rating, "")
         self.database.add_feedback(self._article("https://b", source="B"), -1, "")
-        self.assertEqual(self.database.source_statistics(), {"A": (2, 1), "B": (0, 1)})
+        self.assertEqual(self.database.source_statistics(), {"A": SourceStatistics(2, 1), "B": SourceStatistics(0, 1)})
 
     def test_feedback_since(self):
         article_id = self._article("https://a")
         self.database.add_feedback(article_id, 1, "nice")
         self.database.add_general_comment(None, "more science")
-        feedback, comments = self.database.feedback_since(0)
-        self.assertEqual([(row["title"], row["rating"], row["comment"]) for row in feedback],
+        pending = self.database.feedback_since(0)
+        self.assertEqual([(row["title"], row["rating"], row["comment"]) for row in pending.feedback],
                          [("https://a", 1, "nice")])
-        self.assertEqual([row["comment"] for row in comments], ["more science"])
-        self.assertEqual(self.database.feedback_since(time.time() + 1), ([], []))
+        self.assertEqual([row["comment"] for row in pending.comments], ["more science"])
+        self.assertEqual(self.database.feedback_since(time.time() + 1), PendingFeedback([], []))
 
     def test_processed_messages(self):
         self.assertFalse(self.database.message_processed("<a@x>"))

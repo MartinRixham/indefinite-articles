@@ -51,13 +51,14 @@ class StripQuotedTests(unittest.TestCase):
 
 class ParseStructuredTests(unittest.TestCase):
     def test_compact_ignores_out_of_range(self):
-        ratings, general, unresolved = replies.parse_structured("+1 -9; 2+", 3)
-        self.assertEqual(ratings, {1: (1, ""), 2: (1, "")})
+        parsed = replies.parse_structured("+1 -9; 2+", 3)
+        ratings, general, unresolved = parsed.ratings, parsed.general, parsed.unresolved
+        self.assertEqual(ratings, {1: replies.Rating(1), 2: replies.Rating(1)})
         self.assertEqual((general, unresolved), ([], 0))
 
     def test_item_line_formats(self):
-        ratings, _, _ = replies.parse_structured("#1) 👍 lovely\n2. nope.\n3, boring!", 3)
-        self.assertEqual(ratings, {1: (1, "lovely"), 2: (-1, ""), 3: (-1, "")})
+        ratings = replies.parse_structured("#1) 👍 lovely\n2. nope.\n3, boring!", 3).ratings
+        self.assertEqual(ratings, {1: replies.Rating(1, "lovely"), 2: replies.Rating(-1), 3: replies.Rating(-1)})
 
 
 class InterpretWithLLMTests(unittest.TestCase):
@@ -67,10 +68,11 @@ class InterpretWithLLMTests(unittest.TestCase):
                                     {"item": 3, "rating": "unsure", "comment": None},
                                     {"item": 9, "rating": "like"}, {"rating": "like"}, {"item": "two"}],
                         "general_comment": "  more science  "})
-        ratings, general = replies.interpret_with_llm(llm, "free text", ITEMS)
-        self.assertEqual(ratings[1], (1, "x" * 500))
-        self.assertEqual(ratings[2], (-1, ""))
-        self.assertEqual(ratings[3], (0, ""))
+        interpretation = replies.interpret_with_llm(llm, "free text", ITEMS)
+        ratings, general = interpretation.ratings, interpretation.general
+        self.assertEqual(ratings[1], replies.Rating(1, "x" * 500))
+        self.assertEqual(ratings[2], replies.Rating(-1))
+        self.assertEqual(ratings[3], replies.Rating(0))
         self.assertEqual(sorted(ratings), [1, 2, 3])
         self.assertEqual(general, ["more science"])
         prompt = llm.chat_json.call_args[0][1]
@@ -78,7 +80,8 @@ class InterpretWithLLMTests(unittest.TestCase):
         self.assertIn("free text", prompt)
 
     def test_empty_answer(self):
-        self.assertEqual(replies.interpret_with_llm(stub_llm({"ratings": None}), "x", ITEMS), ({}, []))
+        self.assertEqual(replies.interpret_with_llm(stub_llm({"ratings": None}), "x", ITEMS),
+                         replies.Interpretation({}, []))
 
     def test_rejects_non_object(self):
         with self.assertRaises(LLMError):
@@ -88,12 +91,14 @@ class InterpretWithLLMTests(unittest.TestCase):
 class UnderstandTests(unittest.TestCase):
     def test_structured_reply_needs_no_llm(self):
         llm = stub_llm({})
-        self.assertEqual(replies.understand(llm, "+1 -3", ITEMS), ({1: (1, ""), 3: (-1, "")}, []))
+        self.assertEqual(replies.understand(llm, "+1 -3", ITEMS),
+                         replies.Interpretation({1: replies.Rating(1), 3: replies.Rating(-1)}, []))
         llm.chat_json.assert_not_called()
 
     def test_without_llm_keeps_structured_part(self):
-        ratings, general = replies.understand(None, "1 hmm\n+2\nlove the variety", ITEMS)
-        self.assertEqual(ratings, {1: (0, "hmm"), 2: (1, "")})
+        interpretation = replies.understand(None, "1 hmm\n+2\nlove the variety", ITEMS)
+        ratings, general = interpretation.ratings, interpretation.general
+        self.assertEqual(ratings, {1: replies.Rating(0, "hmm"), 2: replies.Rating(1)})
         self.assertEqual(general, ["love the variety"])
 
     def test_llm_fills_gaps_but_explicit_ratings_win(self):
@@ -101,14 +106,16 @@ class UnderstandTests(unittest.TestCase):
                                     {"item": 2, "rating": "dislike"},
                                     {"item": 3, "rating": "like"}],
                         "general_comment": "variety is good"})
-        ratings, general = replies.understand(llm, "1 hmm\n+2\nthe garden one was great", ITEMS)
-        self.assertEqual(ratings, {1: (1, "hmm, actually yes"), 2: (1, ""), 3: (1, "")})
+        interpretation = replies.understand(llm, "1 hmm\n+2\nthe garden one was great", ITEMS)
+        ratings, general = interpretation.ratings, interpretation.general
+        self.assertEqual(ratings, {1: replies.Rating(1, "hmm, actually yes"), 2: replies.Rating(1), 3: replies.Rating(1)})
         self.assertEqual(general, ["variety is good"])
 
     def test_llm_failure_falls_back(self):
         with self.assertLogs("indefinite_articles.replies", "WARNING"):
-            ratings, general = replies.understand(stub_llm(error=LLMError("down")), "+1\nnice list", ITEMS)
-        self.assertEqual(ratings, {1: (1, "")})
+            interpretation = replies.understand(stub_llm(error=LLMError("down")), "+1\nnice list", ITEMS)
+            ratings, general = interpretation.ratings, interpretation.general
+        self.assertEqual(ratings, {1: replies.Rating(1)})
         self.assertEqual(general, ["nice list"])
 
 

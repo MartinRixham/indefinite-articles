@@ -7,6 +7,7 @@ from unittest import mock
 import numpy as np
 
 from indefinite_articles import embed, ranker
+from indefinite_articles.classifier import Classifier
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError, LLMUnavailable
@@ -47,13 +48,11 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(max(range(3), key=lambda index: scores[index]), 1)
         self.assertEqual(min(range(3), key=lambda index: scores[index]), 2)
 
-    def test_predict_and_score_with_classifier(self):
-        self.assertEqual(embed.predict([], [1.0], 0.0), [])
+    def test_score_with_classifier(self):
+        classifier = Classifier(np.array([10.0, -10.0]), 0.0)
         vectors = [unit(1, 0), unit(0, 1)]
-        probabilities = embed.predict(vectors, [10.0, -10.0], 0.0)
-        self.assertGreater(probabilities[0], 0.99)
-        self.assertLess(probabilities[1], 0.01)
-        scores = embed.score_with_classifier(vectors, [unit(1, 1)], [], [10.0, -10.0], 0.0)
+        probabilities = classifier.predict(vectors)
+        scores = embed.score_with_classifier(vectors, [unit(1, 1)], [], classifier)
         matches = embed.profile_match(vectors, [unit(1, 1)], [])
         self.assertAlmostEqual(scores[0] - matches[0], embed.CLASSIFIER_WEIGHT * (probabilities[0] - 0.5))
         self.assertGreater(scores[0], scores[1])
@@ -72,14 +71,14 @@ class EmbedTests(unittest.TestCase):
         for index in range(6, 10):
             rate(index, unit(0.1 * index, 1), -1)
         rate(10, unit(1, 0, 0), -1)  # another model's vector: ignored
-        weights, _, like_count, dislike_count = embed.fit_from_database(database, len(unit(1, 0)))
-        self.assertIsNone(weights)
-        self.assertEqual((like_count, dislike_count), (5, 4))
+        fit = embed.fit_from_database(database, len(unit(1, 0)))
+        self.assertIsNone(fit.classifier)
+        self.assertEqual((fit.like_count, fit.dislike_count), (5, 4))
         rate(11, unit(0, 1), -1)
-        weights, bias, _, dislike_count = embed.fit_from_database(database, len(unit(1, 0)))
-        assert weights is not None
-        self.assertEqual(dislike_count, 5)
-        liked, disliked = embed.predict([unit(1, 0), unit(0, 1)], weights, bias)
+        fit = embed.fit_from_database(database, len(unit(1, 0)))
+        assert fit.classifier is not None
+        self.assertEqual(fit.dislike_count, 5)
+        liked, disliked = fit.classifier.predict([unit(1, 0), unit(0, 1)])
         self.assertGreater(liked, disliked)
 
     def test_embed_new_stops_when_asked(self):
@@ -148,9 +147,9 @@ class RankerTests(unittest.TestCase):
 
     def test_score_one_answer_shapes(self):
         llm = mock.Mock()
-        for answer, expected in (({"ratings": [{"score": "6", "reason": "r"}]}, (6.0, "r")),
-                                 ([{"score": -3}], (0.0, "")),
-                                 ({"score": 4, "reason": "x" * 300}, (4.0, "x" * 200))):
+        for answer, expected in (({"ratings": [{"score": "6", "reason": "r"}]}, ranker.ArticleScore(6.0, "r")),
+                                 ([{"score": -3}], ranker.ArticleScore(0.0, "")),
+                                 ({"score": 4, "reason": "x" * 300}, ranker.ArticleScore(4.0, "x" * 200))):
             llm.chat_json.return_value = answer
             with self.subTest(answer=answer):
                 self.assertEqual(ranker.score_one(llm, "", article()), expected)
@@ -202,21 +201,21 @@ class RankerTests(unittest.TestCase):
         self._add("https://d/1", "D", 0.5, profile_id)
         debug: dict = {}
         chosen = ranker.select(self.config, self.database, random.Random(1), debug)
-        self.assertEqual([(row["url"], exploratory) for row, exploratory in chosen[:3]],
+        self.assertEqual([(pick.article["url"], pick.exploratory) for pick in chosen[:3]],
                          [("https://a/1", False), ("https://a/2", False), ("https://b/1", False)])
         self.assertEqual(len(chosen), 4)
-        self.assertTrue(chosen[3][1])
-        self.assertIn(chosen[3][0]["url"], ("https://c/1", "https://d/1"))
+        self.assertTrue(chosen[3].exploratory)
+        self.assertIn(chosen[3].article["url"], ("https://c/1", "https://d/1"))
         self.assertEqual((debug["candidates"], debug["llm_scored"], debug["stale_scored"]), (6, 6, 0))
-        self.assertEqual(debug["rank"][chosen[0][0]["id"]], 1)
-        self.assertEqual(set(debug["scores"][chosen[0][0]["id"]]), {"llm", "base", "bonus", "final"})
+        self.assertEqual(debug["rank"][chosen[0].article["id"]], 1)
+        self.assertEqual(set(debug["scores"][chosen[0].article["id"]]), {"llm", "base", "bonus", "final"})
 
     def test_select_fills_past_cap_with_few_sources(self):
         for index in range(5):
             self._add(f"https://a/{index}", "A")
         chosen = ranker.select(self.config, self.database, random.Random(1))
         self.assertEqual(len(chosen), 4)
-        self.assertEqual(sum(exploratory for _, exploratory in chosen), 0)  # cap filled, exploration impossible
+        self.assertEqual(sum(pick.exploratory for pick in chosen), 0)  # cap filled, exploration impossible
 
     def test_select_source_ratings_move_unscored_articles(self):
         self._add("https://liked/new", "Liked")
@@ -231,7 +230,7 @@ class RankerTests(unittest.TestCase):
         self.database.connection.commit()
         self.config.articles_per_digest, self.config.exploration = 1, 0
         chosen = ranker.select(self.config, self.database, random.Random(1))
-        self.assertEqual(chosen[0][0]["url"], "https://liked/new")
+        self.assertEqual(chosen[0].article["url"], "https://liked/new")
 
     def test_update_profile(self):
         llm = mock.Mock(spec=LLM)

@@ -8,7 +8,7 @@ import sys
 
 from . import __version__, extract, feeds, inbox, mailer, ranker
 from .config import DEFAULT_CONFIG_PATH, ConfigError, load as load_config
-from .database import Database
+from .database import Database, SourceStatistics
 from .llm import LLM, LLMError
 
 
@@ -84,9 +84,9 @@ def command_feeds(config, args):
                 health = f"ok {int((now - state['last_success']) / 60)}m ago"
             if args.broken and (state is None or not state["failures"]):
                 continue
-            likes, dislikes = statistics.get(source, (0, 0))
+            votes = statistics.get(source, SourceStatistics())
             print(f"{feed.category[:18]:18}  {source[:34]:34}  {counts.get(source, 0):4}/wk  "
-                  f"+{likes}/-{dislikes}  {health}")
+                  f"+{votes.likes}/-{votes.dislikes}  {health}")
             if args.broken:
                 print(f"{'':18}  {feed.url}")
             shown += 1
@@ -126,13 +126,13 @@ def command_feedback(config, args):
         import hashlib
         # Same exactly-once bookkeeping as IMAP polling, so a later poll won't count it again.
         reply_id = inbox.message_id(message, "file-" + hashlib.sha256(raw).hexdigest()[:16])
-        status, summary = inbox.handle_message(config, database, llm, message, reply_id)
-        print(status)
-        for line in summary:
+        result = inbox.handle_message(config, database, llm, message, reply_id)
+        print(result.status)
+        for line in result.summary:
             print(" ", line)
         if ranker.update_profile(config, database, llm):
             print("profile updated")
-        return 0 if status == "ok" else 1
+        return 0 if result.status == "ok" else 1
 
 
 def command_profile(config, args):
@@ -185,8 +185,8 @@ def command_check(config, args):
     print(f"[info] {len(config.feeds)} feeds configured")
     for feed in config.feeds[: args.feeds]:
         try:
-            title, entries = feeds.parse_feed(feeds.fetch(feed.url))
-            print(f"[ok]   feed {feed.name or title}: {len(entries)} entries")
+            parsed = feeds.parse_feed(feeds.fetch(feed.url))
+            print(f"[ok]   feed {feed.name or parsed.title}: {len(parsed.entries)} entries")
         except Exception as error:
             ok = False
             print(f"[FAIL] feed {feed.url}: {error}")

@@ -3,8 +3,31 @@
 import sqlite3
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import overload
+
+
+@dataclass(frozen=True)
+class SourceStatistics:
+    likes: int = 0
+    dislikes: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.likes + self.dislikes
+
+    @property
+    def smoothed_like_rate(self) -> float:
+        """The like rate with a Beta(2,2) prior, so a source with few votes stays near 0.5."""
+        return (self.likes + 2) / (self.total + 4)
+
+
+@dataclass
+class PendingFeedback:
+    """Ratings (title, source, rating, comment rows) and general comments received since a time."""
+    feedback: list[sqlite3.Row]
+    comments: list[sqlite3.Row]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS articles (
@@ -306,13 +329,12 @@ class Database:
             (rating, limit),
         ).fetchall()
 
-    def source_statistics(self) -> dict[str, tuple[int, int]]:
-        """source -> (likes, dislikes)"""
+    def source_statistics(self) -> dict[str, SourceStatistics]:
         rows = self.connection.execute(
             "SELECT a.source, SUM(f.rating > 0) AS likes, SUM(f.rating < 0) AS dislikes "
             "FROM feedback f JOIN articles a ON a.id = f.article_id GROUP BY a.source"
         ).fetchall()
-        return {row["source"]: (row["likes"] or 0, row["dislikes"] or 0) for row in rows}
+        return {row["source"]: SourceStatistics(row["likes"] or 0, row["dislikes"] or 0) for row in rows}
 
     def prune(self, keep_days: int = 30):
         """Drop old articles that were never sent (sent/rated ones are training data)."""
@@ -377,7 +399,7 @@ class Database:
             (article_id, rating, comment, time.time()),
         )
 
-    def feedback_since(self, timestamp: float):
+    def feedback_since(self, timestamp: float) -> PendingFeedback:
         feedback = self.connection.execute(
             "SELECT a.title, a.source, f.rating, f.comment FROM feedback f "
             "JOIN articles a ON a.id = f.article_id WHERE f.received_at > ? "
@@ -388,7 +410,7 @@ class Database:
             "SELECT comment FROM general_comments WHERE received_at > ? ORDER BY received_at",
             (timestamp,),
         ).fetchall()
-        return feedback, comments
+        return PendingFeedback(feedback, comments)
 
     def add_general_comment(self, digest_id: int | None, comment: str):
         self.connection.execute(

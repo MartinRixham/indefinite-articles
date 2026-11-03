@@ -80,7 +80,8 @@ class ParseFeedTests(unittest.TestCase):
 <channel><title>RDF feed</title></channel>
 <item><title>First</title><link>https://example.com/first</link><dc:date>2026-11-02T08:00:00Z</dc:date></item>
 </rdf:RDF>"""
-        title, entries = feeds.parse_feed(data)
+        parsed = feeds.parse_feed(data)
+        title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "RDF feed")
         self.assertEqual([entry.url for entry in entries], ["https://example.com/first"])
         self.assertEqual(entries[0].published, datetime(2026, 11, 2, 8, tzinfo=timezone.utc).timestamp())
@@ -89,19 +90,19 @@ class ParseFeedTests(unittest.TestCase):
         data = rss(item("", "https://example.com/untitled"),
                    '<item><title>No link</title><guid isPermaLink="false">id-1</guid></item>',
                    item("Kept", "https://example.com/kept"))
-        self.assertEqual([entry.title for entry in feeds.parse_feed(data)[1]], ["Kept"])
+        self.assertEqual([entry.title for entry in feeds.parse_feed(data).entries], ["Kept"])
 
     def test_long_summary_truncated_at_word(self):
         summary = "word " * 300
         data = rss(f"<item><title>T</title><link>https://e/1</link><description>{summary}</description></item>")
-        result = feeds.parse_feed(data)[1][0].summary
+        result = feeds.parse_feed(data).entries[0].summary
         self.assertLessEqual(len(result), feeds.SUMMARY_CHARACTERS)
         self.assertTrue(result.endswith("word…"))
 
     def test_dates(self):
         data = rss(item("A", "https://e/a", "Mon, 02 Nov 2026 10:00:00 GMT"),
                    item("B", "https://e/b", "not a date"))
-        first, second = feeds.parse_feed(data)[1]
+        first, second = feeds.parse_feed(data).entries
         self.assertEqual(first.published, datetime(2026, 11, 2, 10, tzinfo=timezone.utc).timestamp())
         self.assertIsNone(second.published)
 
@@ -110,7 +111,8 @@ class ParseFeedTests(unittest.TestCase):
                 b'<entry><title type="html">&lt;b&gt;Bold&lt;/b&gt;</title><link href="https://e/1"/>'
                 b'<content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Body</p></div></content>'
                 b'<published>2026-11-02T08:00:00+00:00</published></entry></feed>')
-        title, entries = feeds.parse_feed(data)
+        parsed = feeds.parse_feed(data)
+        title, entries = parsed.title, parsed.entries
         self.assertEqual((title, entries[0].title, entries[0].summary), ("A", "Bold", "Body"))
 
     def test_unparseable(self):
@@ -134,12 +136,11 @@ class FetchTests(unittest.TestCase):
         Server.requests.clear()
 
     def test_fetch_conditional_sends_validators(self):
-        data, metadata = feeds.fetch_conditional(self.base + "/not-modified")
-        self.assertEqual(data, Server.body)
-        self.assertEqual(metadata["last_modified"], "Mon, 02 Nov 2026 10:00:00 GMT")
-        data, metadata = feeds.fetch_conditional(self.base + "/not-modified", '"tag"', "yesterday")
-        self.assertIsNone(data)
-        self.assertEqual(metadata, {"etag": '"tag"', "last_modified": "yesterday"})
+        fetched = feeds.fetch_conditional(self.base + "/not-modified")
+        self.assertEqual(fetched.data, Server.body)
+        self.assertEqual(fetched.last_modified, "Mon, 02 Nov 2026 10:00:00 GMT")
+        fetched = feeds.fetch_conditional(self.base + "/not-modified", '"tag"', "yesterday")
+        self.assertEqual(fetched, feeds.FetchResult(None, '"tag"', "yesterday"))
         headers = Server.requests[-1][1]
         self.assertEqual((headers["If-None-Match"], headers["If-Modified-Since"]), ('"tag"', "yesterday"))
         self.assertTrue(headers["User-Agent"].startswith("indefinite-articles/"))
