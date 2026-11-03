@@ -384,13 +384,19 @@
       <outline type="rss" text="BBC World" title="BBC World" xmlUrl="https://feeds.bbci.co.uk/news/world/rss.xml" maxItems="25"/>
       <outline type="rss" text="CBC World" title="CBC World" xmlUrl="https://www.cbc.ca/webfeed/rss/rss-world" maxItems="25"/>
       <outline type="rss" text="Channel NewsAsia" title="Channel NewsAsia" xmlUrl="https://www.channelnewsasia.com/rssfeeds/8395986" maxItems="20"/>
+      <outline type="rss" text="Coda Story" title="Coda Story" xmlUrl="https://www.codastory.com/feed/"/>
+      <outline type="rss" text="Committee to Protect Journalists" title="Committee to Protect Journalists" xmlUrl="https://cpj.org/feed/"/>
       <outline type="rss" text="Der Spiegel International" title="Der Spiegel International" xmlUrl="https://www.spiegel.de/international/index.rss"/>
+      <outline type="rss" text="Dialogue Earth" title="Dialogue Earth" xmlUrl="https://dialogue.earth/en/feed/"/>
       <outline type="rss" text="DW (Deutsche Welle)" title="DW (Deutsche Welle)" xmlUrl="https://rss.dw.com/rdf/rss-en-all" maxItems="25"/>
       <outline type="rss" text="Euronews" title="Euronews" xmlUrl="https://www.euronews.com/rss" maxItems="20"/>
       <outline type="rss" text="Foreign Affairs" title="Foreign Affairs" xmlUrl="https://www.foreignaffairs.com/rss.xml"/>
       <outline type="rss" text="Foreign Policy" title="Foreign Policy" xmlUrl="https://foreignpolicy.com/feed/"/>
       <outline type="rss" text="France 24" title="France 24" xmlUrl="https://www.france24.com/en/rss" maxItems="25"/>
+      <outline type="rss" text="Global Voices" title="Global Voices" xmlUrl="https://globalvoices.org/feed/"/>
       <outline type="rss" text="Guardian World" title="Guardian World" xmlUrl="https://www.theguardian.com/world/rss" maxItems="25"/>
+      <outline type="rss" text="ICIJ" title="ICIJ" xmlUrl="https://www.icij.org/feed/"/>
+      <outline type="rss" text="Inter Press Service" title="Inter Press Service" xmlUrl="https://www.ipsnews.net/feed/"/>
       <outline type="rss" text="Kyiv Independent" title="Kyiv Independent" xmlUrl="https://kyivindependent.com/news-archive/rss/"/>
       <outline type="rss" text="Le Monde in English" title="Le Monde in English" xmlUrl="https://www.lemonde.fr/en/rss/une.xml"/>
       <outline type="rss" text="Middle East Eye" title="Middle East Eye" xmlUrl="https://www.middleeasteye.net/rss"/>
@@ -399,6 +405,7 @@
       <outline type="rss" text="NPR World" title="NPR World" xmlUrl="https://feeds.npr.org/1004/rss.xml" maxItems="25"/>
       <outline type="rss" text="NYT Home Page" title="NYT Home Page" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml" maxItems="25"/>
       <outline type="rss" text="NYT World" title="NYT World" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/World.xml" maxItems="25"/>
+      <outline type="rss" text="OCCRP" title="OCCRP" xmlUrl="https://www.occrp.org/en/feed" maxItems="25"/>
       <outline type="rss" text="Politico Europe" title="Politico Europe" xmlUrl="https://www.politico.eu/feed/"/>
       <outline type="rss" text="ProPublica" title="ProPublica" xmlUrl="https://www.propublica.org/feeds/propublica/main"/>
       <outline type="rss" text="Semafor" title="Semafor" xmlUrl="https://www.semafor.com/rss.xml"/>
@@ -413,6 +420,7 @@
       <outline type="rss" text="The Independent: World" title="The Independent: World" xmlUrl="https://www.independent.co.uk/news/world/rss" maxItems="20"/>
       <outline type="rss" text="The Japan Times" title="The Japan Times" xmlUrl="https://www.japantimes.co.jp/feed/" maxItems="25"/>
       <outline type="rss" text="The Moscow Times" title="The Moscow Times" xmlUrl="https://www.themoscowtimes.com/rss/news"/>
+      <outline type="rss" text="The New Humanitarian" title="The New Humanitarian" xmlUrl="https://www.thenewhumanitarian.org/rss/all.xml"/>
       <outline type="rss" text="Times of Israel" title="Times of Israel" xmlUrl="https://www.timesofisrael.com/feed/" maxItems="20"/>
       <outline type="rss" text="Vox" title="Vox" xmlUrl="https://www.vox.com/rss/index.xml"/>
       <outline type="rss" text="War on the Rocks" title="War on the Rocks" xmlUrl="https://warontherocks.com/feed/"/>
@@ -441,6 +449,624 @@
       <outline type="rss" text="The UnPopulist" title="The UnPopulist" xmlUrl="https://www.theunpopulist.net/feed"/>
       <outline type="rss" text="The Volokh Conspiracy" title="The Volokh Conspiracy" xmlUrl="https://reason.com/volokh/feed/"/>
       <outline type="rss" text="UnHerd" title="UnHerd" xmlUrl="https://unherd.com/feed/"/>
+    </outline>
+    <outline text="Afghanistan" title="Afghanistan">
+      <outline type="rss" text="Afghanistan Analysts Network" title="Afghanistan Analysts Network" xmlUrl="https://www.afghanistan-analysts.org/en/feed/"/>
+      <outline type="rss" text="Amu TV" title="Amu TV" xmlUrl="https://amu.tv/feed/"/>
+      <outline type="rss" text="Hasht-e Subh" title="Hasht-e Subh" xmlUrl="https://8am.media/eng/feed/"/>
+      <outline type="rss" text="KabulNow" title="KabulNow" xmlUrl="https://kabulnow.com/feed/"/>
+      <outline type="rss" text="Zan Times" title="Zan Times" xmlUrl="https://zantimes.com/feed/"/>
+    </outline>
+    <outline text="Africa" title="Africa">
+      <outline type="rss" text="African Arguments" title="African Arguments" xmlUrl="https://africanarguments.org/feed/"/>
+      <outline type="rss" text="Africanews" title="Africanews" xmlUrl="https://www.africanews.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Albania" title="Albania">
+      <outline type="rss" text="Euronews Albania" title="Euronews Albania" xmlUrl="https://euronews.al/en/feed/"/>
+    </outline>
+    <outline text="Argentina" title="Argentina">
+      <outline type="rss" text="Buenos Aires Herald" title="Buenos Aires Herald" xmlUrl="https://buenosairesherald.com/feed"/>
+      <outline type="rss" text="Buenos Aires Times" title="Buenos Aires Times" xmlUrl="https://www.batimes.com.ar/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Armenia" title="Armenia">
+      <outline type="rss" text="Hetq" title="Hetq" xmlUrl="https://hetq.am/en/rss" maxItems="25"/>
+    </outline>
+    <outline text="Australia" title="Australia">
+      <outline type="rss" text="Crikey" title="Crikey" xmlUrl="https://www.crikey.com.au/feed/"/>
+      <outline type="rss" text="Independent Australia" title="Independent Australia" xmlUrl="https://feeds.feedburner.com/IndependentAustralia" maxItems="25"/>
+      <outline type="rss" text="National Indigenous Times" title="National Indigenous Times" xmlUrl="https://www.nit.com.au/feed/" maxItems="25"/>
+      <outline type="rss" text="RenewEconomy" title="RenewEconomy" xmlUrl="https://reneweconomy.com.au/feed/"/>
+      <outline type="rss" text="The Conversation (Australia)" title="The Conversation (Australia)" xmlUrl="https://theconversation.com/au/articles.atom" maxItems="25"/>
+      <outline type="rss" text="The Klaxon" title="The Klaxon" xmlUrl="https://theklaxon.com.au/feed/"/>
+      <outline type="rss" text="The Mandarin" title="The Mandarin" xmlUrl="https://www.themandarin.com.au/feed/"/>
+      <outline type="rss" text="The Monthly" title="The Monthly" xmlUrl="https://www.themonthly.com.au/feed.xml"/>
+      <outline type="rss" text="The Saturday Paper" title="The Saturday Paper" xmlUrl="https://www.thesaturdaypaper.com.au/feed.xml"/>
+      <outline type="rss" text="The Spectator Australia" title="The Spectator Australia" xmlUrl="https://www.spectator.com.au/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Austria" title="Austria">
+      <outline type="rss" text="The Local Austria" title="The Local Austria" xmlUrl="https://feeds.thelocal.com/rss/builder/at"/>
+    </outline>
+    <outline text="Azerbaijan" title="Azerbaijan">
+      <outline type="rss" text="Meydan TV" title="Meydan TV" xmlUrl="https://www.meydan.tv/en/feed/"/>
+    </outline>
+    <outline text="Balkans" title="Balkans">
+      <outline type="rss" text="Balkan Insight" title="Balkan Insight" xmlUrl="https://balkaninsight.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Bangladesh" title="Bangladesh">
+      <outline type="rss" text="Dhaka Tribune" title="Dhaka Tribune" xmlUrl="https://www.dhakatribune.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Barbados" title="Barbados">
+      <outline type="rss" text="Barbados Today" title="Barbados Today" xmlUrl="https://barbadostoday.bb/feed/"/>
+    </outline>
+    <outline text="Belgium" title="Belgium">
+      <outline type="rss" text="The Bulletin" title="The Bulletin" xmlUrl="https://www.thebulletin.be/rss.xml"/>
+    </outline>
+    <outline text="Belize" title="Belize">
+      <outline type="rss" text="Breaking Belize News" title="Breaking Belize News" xmlUrl="https://www.breakingbelizenews.com/feed/"/>
+    </outline>
+    <outline text="Bosnia and Herzegovina" title="Bosnia and Herzegovina">
+      <outline type="rss" text="Sarajevo Times" title="Sarajevo Times" xmlUrl="https://sarajevotimes.com/feed/"/>
+    </outline>
+    <outline text="Botswana" title="Botswana">
+      <outline type="rss" text="Weekend Post" title="Weekend Post" xmlUrl="https://weekendpost.co.bw/feed/"/>
+    </outline>
+    <outline text="Brazil" title="Brazil">
+      <outline type="rss" text="The Rio Times" title="The Rio Times" xmlUrl="https://www.riotimesonline.com/feed/"/>
+    </outline>
+    <outline text="Bulgaria" title="Bulgaria">
+      <outline type="rss" text="Novinite" title="Novinite" xmlUrl="https://www.novinite.com/services/news_rdf.php"/>
+    </outline>
+    <outline text="Burundi" title="Burundi">
+      <outline type="rss" text="SOS Médias Burundi" title="SOS Médias Burundi" xmlUrl="https://www.sosmediasburundi.org/en/feed/"/>
+    </outline>
+    <outline text="Cambodia" title="Cambodia">
+      <outline type="rss" text="CamboJA News" title="CamboJA News" xmlUrl="https://cambojanews.com/feed/"/>
+    </outline>
+    <outline text="Canada" title="Canada">
+      <outline type="rss" text="APTN News" title="APTN News" xmlUrl="https://www.aptnnews.ca/feed/"/>
+      <outline type="rss" text="Canadaland" title="Canadaland" xmlUrl="https://www.canadaland.com/feed/"/>
+      <outline type="rss" text="Canadian Affairs" title="Canadian Affairs" xmlUrl="https://www.canadianaffairs.news/feed/"/>
+      <outline type="rss" text="Halifax Examiner" title="Halifax Examiner" xmlUrl="https://www.halifaxexaminer.ca/feed/"/>
+      <outline type="rss" text="IndigiNews" title="IndigiNews" xmlUrl="https://indiginews.com/feed/"/>
+      <outline type="rss" text="Maclean&#x27;s" title="Maclean&#x27;s" xmlUrl="https://www.macleans.ca/feed/"/>
+      <outline type="rss" text="Ricochet" title="Ricochet" xmlUrl="https://ricochet.media/feed"/>
+      <outline type="rss" text="The Coast" title="The Coast" xmlUrl="https://www.thecoast.ca/feed/"/>
+      <outline type="rss" text="The Deep Dive" title="The Deep Dive" xmlUrl="https://thedeepdive.ca/feed/"/>
+      <outline type="rss" text="The Hub" title="The Hub" xmlUrl="https://thehub.ca/feed/"/>
+      <outline type="rss" text="The Local (Toronto)" title="The Local (Toronto)" xmlUrl="https://thelocal.to/feed/"/>
+      <outline type="rss" text="The Logic" title="The Logic" xmlUrl="https://thelogic.co/feed/"/>
+      <outline type="rss" text="The Narwhal" title="The Narwhal" xmlUrl="https://thenarwhal.ca/feed/"/>
+      <outline type="rss" text="The Trillium" title="The Trillium" xmlUrl="https://thetrillium.ca/rss"/>
+      <outline type="rss" text="The Tyee" title="The Tyee" xmlUrl="https://thetyee.ca/rss2.xml"/>
+      <outline type="rss" text="The Walrus" title="The Walrus" xmlUrl="https://thewalrus.ca/feed/"/>
+    </outline>
+    <outline text="Cayman Islands" title="Cayman Islands">
+      <outline type="rss" text="Cayman Compass" title="Cayman Compass" xmlUrl="https://www.caymancompass.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Central Asia" title="Central Asia">
+      <outline type="rss" text="Eurasianet" title="Eurasianet" xmlUrl="https://eurasianet.org/rss"/>
+      <outline type="rss" text="The Times of Central Asia" title="The Times of Central Asia" xmlUrl="https://timesca.com/feed/"/>
+    </outline>
+    <outline text="China" title="China">
+      <outline type="rss" text="China Digital Times" title="China Digital Times" xmlUrl="https://chinadigitaltimes.net/feed/"/>
+      <outline type="rss" text="China Media Project" title="China Media Project" xmlUrl="https://chinamediaproject.org/feed/"/>
+      <outline type="rss" text="What&#x27;s on Weibo" title="What&#x27;s on Weibo" xmlUrl="https://www.whatsonweibo.com/feed/"/>
+    </outline>
+    <outline text="Colombia" title="Colombia">
+      <outline type="rss" text="Colombia Reports" title="Colombia Reports" xmlUrl="https://colombiareports.com/feed/"/>
+      <outline type="rss" text="The City Paper Bogotá" title="The City Paper Bogotá" xmlUrl="https://thecitypaperbogota.com/feed/"/>
+    </outline>
+    <outline text="Costa Rica" title="Costa Rica">
+      <outline type="rss" text="The Tico Times" title="The Tico Times" xmlUrl="https://ticotimes.net/feed"/>
+    </outline>
+    <outline text="Croatia" title="Croatia">
+      <outline type="rss" text="Croatia Week" title="Croatia Week" xmlUrl="https://www.croatiaweek.com/feed/"/>
+      <outline type="rss" text="Total Croatia News" title="Total Croatia News" xmlUrl="https://total-croatia-news.com/feed/"/>
+    </outline>
+    <outline text="Cuba" title="Cuba">
+      <outline type="rss" text="Havana Times" title="Havana Times" xmlUrl="https://havanatimes.org/feed/"/>
+      <outline type="rss" text="OnCuba News" title="OnCuba News" xmlUrl="https://oncubanews.com/en/feed/"/>
+    </outline>
+    <outline text="Cyprus" title="Cyprus">
+      <outline type="rss" text="Cyprus Mail" title="Cyprus Mail" xmlUrl="https://cyprus-mail.com/feed/"/>
+      <outline type="rss" text="in-cyprus" title="in-cyprus" xmlUrl="https://en.philenews.com/feed/"/>
+    </outline>
+    <outline text="Czech Republic" title="Czech Republic">
+      <outline type="rss" text="Expats.cz" title="Expats.cz" xmlUrl="https://www.expats.cz/feed/"/>
+    </outline>
+    <outline text="Denmark" title="Denmark">
+      <outline type="rss" text="The Copenhagen Post" title="The Copenhagen Post" xmlUrl="https://cphpost.dk/feed/"/>
+      <outline type="rss" text="The Local Denmark" title="The Local Denmark" xmlUrl="https://feeds.thelocal.com/rss/builder/dk"/>
+    </outline>
+    <outline text="Dominican Republic" title="Dominican Republic">
+      <outline type="rss" text="Dominican Today" title="Dominican Today" xmlUrl="https://www.dominicantoday.com/feed/"/>
+    </outline>
+    <outline text="Egypt" title="Egypt">
+      <outline type="rss" text="Daily News Egypt" title="Daily News Egypt" xmlUrl="https://dailynewsegypt.com/feed/"/>
+      <outline type="rss" text="Egypt Independent" title="Egypt Independent" xmlUrl="https://www.egyptindependent.com/feed/"/>
+      <outline type="rss" text="Egyptian Streets" title="Egyptian Streets" xmlUrl="https://egyptianstreets.com/feed/"/>
+      <outline type="rss" text="Enterprise" title="Enterprise" xmlUrl="https://enterpriseam.com/egypt/feed/"/>
+      <outline type="rss" text="Mada Masr" title="Mada Masr" xmlUrl="https://www.madamasr.com/en/feed/"/>
+    </outline>
+    <outline text="Eswatini" title="Eswatini">
+      <outline type="rss" text="Times of Eswatini" title="Times of Eswatini" xmlUrl="https://times.co.sz/feed/"/>
+    </outline>
+    <outline text="Ethiopia" title="Ethiopia">
+      <outline type="rss" text="Addis Fortune" title="Addis Fortune" xmlUrl="https://addisfortune.news/feed"/>
+      <outline type="rss" text="Ethiopia Insight" title="Ethiopia Insight" xmlUrl="https://www.ethiopia-insight.com/feed/"/>
+    </outline>
+    <outline text="Europe" title="Europe">
+      <outline type="rss" text="EUobserver" title="EUobserver" xmlUrl="https://euobserver.com/feed/"/>
+      <outline type="rss" text="Euractiv" title="Euractiv" xmlUrl="https://www.euractiv.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Finland" title="Finland">
+      <outline type="rss" text="Helsinki Times" title="Helsinki Times" xmlUrl="https://www.helsinkitimes.fi/?format=feed&amp;type=rss"/>
+    </outline>
+    <outline text="France" title="France">
+      <outline type="rss" text="Disclose" title="Disclose" xmlUrl="https://disclose.ngo/feed/?lang=en"/>
+      <outline type="rss" text="The Local France" title="The Local France" xmlUrl="https://feeds.thelocal.com/rss/builder/fr"/>
+    </outline>
+    <outline text="Gambia" title="Gambia">
+      <outline type="rss" text="Malagen" title="Malagen" xmlUrl="https://malagen.org/feed/"/>
+      <outline type="rss" text="The Point" title="The Point" xmlUrl="https://thepoint.gm/posts/rss/xml"/>
+    </outline>
+    <outline text="Georgia" title="Georgia">
+      <outline type="rss" text="Civil.ge" title="Civil.ge" xmlUrl="https://civil.ge/feed"/>
+      <outline type="rss" text="JAMnews" title="JAMnews" xmlUrl="https://jam-news.net/feed/"/>
+      <outline type="rss" text="OC Media" title="OC Media" xmlUrl="https://oc-media.org/feed/"/>
+    </outline>
+    <outline text="Germany" title="Germany">
+      <outline type="rss" text="Berlin Spectator" title="Berlin Spectator" xmlUrl="https://berlinspectator.com/feed/"/>
+      <outline type="rss" text="Correctiv" title="Correctiv" xmlUrl="https://correctiv.org/en/feed/" maxItems="25"/>
+      <outline type="rss" text="The Local Germany" title="The Local Germany" xmlUrl="https://feeds.thelocal.com/rss/builder/de"/>
+    </outline>
+    <outline text="Ghana" title="Ghana">
+      <outline type="rss" text="MyJoyOnline" title="MyJoyOnline" xmlUrl="https://www.myjoyonline.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Greece" title="Greece">
+      <outline type="rss" text="Keep Talking Greece" title="Keep Talking Greece" xmlUrl="https://www.keeptalkinggreece.com/feed/"/>
+    </outline>
+    <outline text="Haiti" title="Haiti">
+      <outline type="rss" text="The Haitian Times" title="The Haitian Times" xmlUrl="https://haitiantimes.com/feed/"/>
+    </outline>
+    <outline text="Hong Kong" title="Hong Kong">
+      <outline type="rss" text="Hong Kong Free Press" title="Hong Kong Free Press" xmlUrl="https://hongkongfp.com/feed/"/>
+    </outline>
+    <outline text="Hungary" title="Hungary">
+      <outline type="rss" text="Direkt36" title="Direkt36" xmlUrl="https://www.direkt36.hu/en/feed/"/>
+    </outline>
+    <outline text="Iceland" title="Iceland">
+      <outline type="rss" text="Iceland Review" title="Iceland Review" xmlUrl="https://www.icelandreview.com/feed/"/>
+      <outline type="rss" text="The Reykjavík Grapevine" title="The Reykjavík Grapevine" xmlUrl="https://grapevine.is/feed/" maxItems="25"/>
+    </outline>
+    <outline text="India" title="India">
+      <outline type="rss" text="Alt News" title="Alt News" xmlUrl="https://www.altnews.in/feed/"/>
+      <outline type="rss" text="Bar &amp; Bench" title="Bar &amp; Bench" xmlUrl="https://www.barandbench.com/feed/" maxItems="25"/>
+      <outline type="rss" text="BehanBox" title="BehanBox" xmlUrl="https://behanbox.com/feed/"/>
+      <outline type="rss" text="Citizen Matters" title="Citizen Matters" xmlUrl="https://citizenmatters.in/feed/"/>
+      <outline type="rss" text="EastMojo" title="EastMojo" xmlUrl="https://eastmojo.com/feed/"/>
+      <outline type="rss" text="ED Times" title="ED Times" xmlUrl="https://edtimes.in/feed/"/>
+      <outline type="rss" text="eNewsroom India" title="eNewsroom India" xmlUrl="https://enewsroom.in/feed/"/>
+      <outline type="rss" text="Fact Crescendo" title="Fact Crescendo" xmlUrl="https://english.factcrescendo.com/feed/"/>
+      <outline type="rss" text="Feminism in India" title="Feminism in India" xmlUrl="https://feminisminindia.com/feed/"/>
+      <outline type="rss" text="Finshots" title="Finshots" xmlUrl="https://finshots.in/archive/rss/"/>
+      <outline type="rss" text="Ground Report" title="Ground Report" xmlUrl="https://www.groundreport.in/feed/"/>
+      <outline type="rss" text="GuwahatiPlus" title="GuwahatiPlus" xmlUrl="https://www.guwahatiplus.com/feed/" maxItems="25"/>
+      <outline type="rss" text="India News Stream" title="India News Stream" xmlUrl="https://www.indianewsstream.com/feed/"/>
+      <outline type="rss" text="Kafila" title="Kafila" xmlUrl="https://kafila.online/feed/"/>
+      <outline type="rss" text="MediaNama" title="MediaNama" xmlUrl="https://www.medianama.com/feed/"/>
+      <outline type="rss" text="Millat Times" title="Millat Times" xmlUrl="https://millattimes.com/feed/"/>
+      <outline type="rss" text="MxMIndia" title="MxMIndia" xmlUrl="https://www.mxmindia.com/feed/"/>
+      <outline type="rss" text="Newslaundry" title="Newslaundry" xmlUrl="https://www.newslaundry.com/feed/"/>
+      <outline type="rss" text="Nicobar Times" title="Nicobar Times" xmlUrl="https://nicobartimes.com/feed/"/>
+      <outline type="rss" text="NorthEast Now" title="NorthEast Now" xmlUrl="https://nenow.in/feed"/>
+      <outline type="rss" text="SabrangIndia" title="SabrangIndia" xmlUrl="https://sabrangindia.in/feed/"/>
+      <outline type="rss" text="Scroll" title="Scroll" xmlUrl="https://feeds.feedburner.com/ScrollinArticles.rss" maxItems="25"/>
+      <outline type="rss" text="The Better India" title="The Better India" xmlUrl="https://thebetterindia.com/rss" maxItems="25"/>
+      <outline type="rss" text="The Chenab Times" title="The Chenab Times" xmlUrl="https://thechenabtimes.com/feed/"/>
+      <outline type="rss" text="The Ken" title="The Ken" xmlUrl="https://the-ken.com/feed/"/>
+      <outline type="rss" text="The Leaflet" title="The Leaflet" xmlUrl="https://theleaflet.in/feed/"/>
+      <outline type="rss" text="The Migration Story" title="The Migration Story" xmlUrl="https://themigrationstory.com/feed/"/>
+      <outline type="rss" text="The News Mill" title="The News Mill" xmlUrl="https://feeds.feedburner.com/thenewsmill"/>
+      <outline type="rss" text="The News Minute" title="The News Minute" xmlUrl="https://www.thenewsminute.com/feed/"/>
+      <outline type="rss" text="The Probe" title="The Probe" xmlUrl="https://theprobe.in/rss" maxItems="25"/>
+      <outline type="rss" text="The Quint" title="The Quint" xmlUrl="https://www.thequint.com/stories.rss"/>
+      <outline type="rss" text="The Sikkim Chronicle" title="The Sikkim Chronicle" xmlUrl="https://www.thesikkimchronicle.com/feed/"/>
+      <outline type="rss" text="TimelineDaily" title="TimelineDaily" xmlUrl="https://timelinedaily.com/feed"/>
+      <outline type="rss" text="Vibes of India" title="Vibes of India" xmlUrl="https://www.vibesofindia.com/feed/"/>
+    </outline>
+    <outline text="Indonesia" title="Indonesia">
+      <outline type="rss" text="Indonesia at Melbourne" title="Indonesia at Melbourne" xmlUrl="https://indonesiaatmelbourne.unimelb.edu.au/feed/"/>
+    </outline>
+    <outline text="Iran" title="Iran">
+      <outline type="rss" text="Amwaj.media" title="Amwaj.media" xmlUrl="https://www.amwaj.media/feed/" maxItems="25"/>
+      <outline type="rss" text="Iran International" title="Iran International" xmlUrl="https://www.iranintl.com/en/feed/" maxItems="25"/>
+      <outline type="rss" text="IranWire" title="IranWire" xmlUrl="https://iranwire.com/en/feed/" maxItems="25"/>
+      <outline type="rss" text="Radio Zamaneh" title="Radio Zamaneh" xmlUrl="https://en.radiozamaneh.com/feed/"/>
+    </outline>
+    <outline text="Ireland" title="Ireland">
+      <outline type="rss" text="Dublin Inquirer" title="Dublin Inquirer" xmlUrl="https://www.dublininquirer.com/latest/rss/"/>
+      <outline type="rss" text="Gript" title="Gript" xmlUrl="https://gript.ie/feed/"/>
+      <outline type="rss" text="Irish Examiner" title="Irish Examiner" xmlUrl="https://www.irishexaminer.com/feed/35-top_news.xml"/>
+      <outline type="rss" text="The Currency" title="The Currency" xmlUrl="https://www.thecurrency.news/feed/"/>
+      <outline type="rss" text="TheJournal.ie" title="TheJournal.ie" xmlUrl="https://www.thejournal.ie/feed/"/>
+    </outline>
+    <outline text="Israel" title="Israel">
+      <outline type="rss" text="+972 Magazine" title="+972 Magazine" xmlUrl="https://www.972mag.com/feed/"/>
+      <outline type="rss" text="Haaretz" title="Haaretz" xmlUrl="https://www.haaretz.com/srv/haaretz-latest-headlines" maxItems="25"/>
+    </outline>
+    <outline text="Italy" title="Italy">
+      <outline type="rss" text="Decode39" title="Decode39" xmlUrl="https://decode39.com/feed/"/>
+      <outline type="rss" text="The Local Italy" title="The Local Italy" xmlUrl="https://feeds.thelocal.com/rss/builder/it"/>
+      <outline type="rss" text="Wanted in Rome" title="Wanted in Rome" xmlUrl="https://www.wantedinrome.com?format=rss" maxItems="25"/>
+    </outline>
+    <outline text="Jamaica" title="Jamaica">
+      <outline type="rss" text="Jamaica Gleaner" title="Jamaica Gleaner" xmlUrl="https://jamaica-gleaner.com/feed/rss.xml"/>
+      <outline type="rss" text="Jamaica Observer" title="Jamaica Observer" xmlUrl="https://www.jamaicaobserver.com/feed/"/>
+    </outline>
+    <outline text="Japan" title="Japan">
+      <outline type="rss" text="Nippon.com" title="Nippon.com" xmlUrl="https://www.nippon.com/en/feed/"/>
+      <outline type="rss" text="The Mainichi" title="The Mainichi" xmlUrl="https://mainichi.jp/rss/etc/english_latest.rss"/>
+      <outline type="rss" text="Tokyo Reporter" title="Tokyo Reporter" xmlUrl="https://www.tokyoreporter.com/feed/"/>
+      <outline type="rss" text="Unseen Japan" title="Unseen Japan" xmlUrl="https://unseen-japan.com/feed/"/>
+    </outline>
+    <outline text="Kenya" title="Kenya">
+      <outline type="rss" text="Africa Uncensored" title="Africa Uncensored" xmlUrl="https://africauncensored.online/feed/"/>
+      <outline type="rss" text="Capital FM Kenya" title="Capital FM Kenya" xmlUrl="https://capitalfm.africa/feed/"/>
+      <outline type="rss" text="Citizen Digital" title="Citizen Digital" xmlUrl="https://www.citizen.digital/feed.xml" maxItems="25"/>
+      <outline type="rss" text="Kenyans.co.ke" title="Kenyans.co.ke" xmlUrl="https://www.kenyans.co.ke/feeds/news"/>
+      <outline type="rss" text="The East African" title="The East African" xmlUrl="https://www.theeastafrican.co.ke/rss.xml"/>
+      <outline type="rss" text="The Elephant" title="The Elephant" xmlUrl="https://www.theelephant.info/feed/"/>
+      <outline type="rss" text="The Standard (Kenya)" title="The Standard (Kenya)" xmlUrl="https://www.standardmedia.co.ke/rss/headlines.php"/>
+    </outline>
+    <outline text="Kyrgyzstan" title="Kyrgyzstan">
+      <outline type="rss" text="24.kg" title="24.kg" xmlUrl="https://24.kg/english/rss" maxItems="25"/>
+    </outline>
+    <outline text="Laos" title="Laos">
+      <outline type="rss" text="Laotian Times" title="Laotian Times" xmlUrl="https://laotiantimes.com/feed/"/>
+    </outline>
+    <outline text="Latin America" title="Latin America">
+      <outline type="rss" text="InSight Crime" title="InSight Crime" xmlUrl="https://insightcrime.org/feed/"/>
+      <outline type="rss" text="LatamList" title="LatamList" xmlUrl="https://latamlist.com/feed/"/>
+      <outline type="rss" text="Latin America Reports" title="Latin America Reports" xmlUrl="https://latinamericareports.com/feed/"/>
+      <outline type="rss" text="MercoPress" title="MercoPress" xmlUrl="https://en.mercopress.com/rss/"/>
+    </outline>
+    <outline text="Lebanon" title="Lebanon">
+      <outline type="rss" text="Beirut Today" title="Beirut Today" xmlUrl="https://beirut-today.com/feed/"/>
+      <outline type="rss" text="Naharnet" title="Naharnet" xmlUrl="https://www.naharnet.com/tags/lebanon/en/feed.atom"/>
+    </outline>
+    <outline text="Lesotho" title="Lesotho">
+      <outline type="rss" text="Lesotho Times" title="Lesotho Times" xmlUrl="https://lestimes.com/?feed=rss2"/>
+    </outline>
+    <outline text="Liberia" title="Liberia">
+      <outline type="rss" text="FrontPage Africa" title="FrontPage Africa" xmlUrl="https://frontpageafricaonline.com/feed/"/>
+    </outline>
+    <outline text="Libya" title="Libya">
+      <outline type="rss" text="Libya Herald" title="Libya Herald" xmlUrl="https://libyaherald.com/rss.xml" maxItems="25"/>
+      <outline type="rss" text="Libya Update" title="Libya Update" xmlUrl="https://libyaupdate.com/feed/"/>
+    </outline>
+    <outline text="Luxembourg" title="Luxembourg">
+      <outline type="rss" text="Luxembourg Times" title="Luxembourg Times" xmlUrl="https://www.luxtimes.lu/rss" maxItems="25"/>
+    </outline>
+    <outline text="Malawi" title="Malawi">
+      <outline type="rss" text="Nyasa Times" title="Nyasa Times" xmlUrl="https://www.nyasatimes.com/feed/"/>
+      <outline type="rss" text="The Nation (Malawi)" title="The Nation (Malawi)" xmlUrl="https://mwnation.com/feed/"/>
+      <outline type="rss" text="Times 360 Malawi" title="Times 360 Malawi" xmlUrl="https://times.mw/feed/"/>
+    </outline>
+    <outline text="Malaysia" title="Malaysia">
+      <outline type="rss" text="Aliran" title="Aliran" xmlUrl="https://www.aliran.com/feed/"/>
+      <outline type="rss" text="Free Malaysia Today" title="Free Malaysia Today" xmlUrl="https://www.freemalaysiatoday.com/feeds/rss/headlines" maxItems="25"/>
+      <outline type="rss" text="Malay Mail" title="Malay Mail" xmlUrl="https://www.malaymail.com/feed/rss/malaysia" maxItems="25"/>
+      <outline type="rss" text="Malaysiakini" title="Malaysiakini" xmlUrl="https://www.malaysiakini.com/rss/en/news.rss"/>
+      <outline type="rss" text="Sarawak Report" title="Sarawak Report" xmlUrl="https://www.sarawakreport.org/feed/"/>
+    </outline>
+    <outline text="Malta" title="Malta">
+      <outline type="rss" text="Newsbook" title="Newsbook" xmlUrl="https://newsbook.com.mt/en/feed/"/>
+      <outline type="rss" text="The Shift" title="The Shift" xmlUrl="https://theshiftnews.com/feed/"/>
+    </outline>
+    <outline text="Mauritius" title="Mauritius">
+      <outline type="rss" text="News Moris" title="News Moris" xmlUrl="https://newsmoris.com/feed/"/>
+    </outline>
+    <outline text="Mexico" title="Mexico">
+      <outline type="rss" text="Mexico News Daily" title="Mexico News Daily" xmlUrl="https://mexiconewsdaily.com/feed/"/>
+    </outline>
+    <outline text="Middle East" title="Middle East">
+      <outline type="rss" text="Al-Monitor" title="Al-Monitor" xmlUrl="https://www.al-monitor.com/feed/"/>
+      <outline type="rss" text="Middle East Monitor" title="Middle East Monitor" xmlUrl="https://www.middleeastmonitor.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Morocco" title="Morocco">
+      <outline type="rss" text="Hespress English" title="Hespress English" xmlUrl="https://en.hespress.com/feed/"/>
+    </outline>
+    <outline text="Mozambique" title="Mozambique">
+      <outline type="rss" text="Club of Mozambique" title="Club of Mozambique" xmlUrl="https://clubofmozambique.com/feed/"/>
+      <outline type="rss" text="Zitamar News" title="Zitamar News" xmlUrl="https://www.zitamar.com/rss/"/>
+    </outline>
+    <outline text="Myanmar" title="Myanmar">
+      <outline type="rss" text="DVB" title="DVB" xmlUrl="https://english.dvb.no/feed/"/>
+      <outline type="rss" text="Myanmar Now" title="Myanmar Now" xmlUrl="https://myanmar-now.org/en/feed/"/>
+      <outline type="rss" text="The Irrawaddy" title="The Irrawaddy" xmlUrl="https://www.irrawaddy.com/feed"/>
+    </outline>
+    <outline text="Namibia" title="Namibia">
+      <outline type="rss" text="The Economist (Namibia)" title="The Economist (Namibia)" xmlUrl="https://economist.com.na/feed/" maxItems="25"/>
+      <outline type="rss" text="The Namibian" title="The Namibian" xmlUrl="https://www.namibian.com.na/feed/"/>
+      <outline type="rss" text="Windhoek Observer" title="Windhoek Observer" xmlUrl="https://observer24.com.na/feed/"/>
+    </outline>
+    <outline text="Nepal" title="Nepal">
+      <outline type="rss" text="myRepublica" title="myRepublica" xmlUrl="https://myrepublica.nagariknetwork.com/feeds"/>
+      <outline type="rss" text="Nepali Times" title="Nepali Times" xmlUrl="https://nepalitimes.com/feed"/>
+      <outline type="rss" text="Onlinekhabar English" title="Onlinekhabar English" xmlUrl="https://english.onlinekhabar.com/feed"/>
+      <outline type="rss" text="The Kathmandu Post" title="The Kathmandu Post" xmlUrl="https://kathmandupost.com/rss"/>
+    </outline>
+    <outline text="Netherlands" title="Netherlands">
+      <outline type="rss" text="DutchNews.nl" title="DutchNews.nl" xmlUrl="https://www.dutchnews.nl/feed/"/>
+      <outline type="rss" text="Follow the Money" title="Follow the Money" xmlUrl="https://www.ftm.eu/feed/"/>
+    </outline>
+    <outline text="New Zealand" title="New Zealand">
+      <outline type="rss" text="Newsroom" title="Newsroom" xmlUrl="https://newsroom.co.nz/feed/"/>
+      <outline type="rss" text="RNZ" title="RNZ" xmlUrl="https://www.rnz.co.nz/rss/national.xml"/>
+      <outline type="rss" text="Stuff" title="Stuff" xmlUrl="https://www.stuff.co.nz/feed/" maxItems="25"/>
+      <outline type="rss" text="The Daily Blog" title="The Daily Blog" xmlUrl="https://thedailyblog.co.nz/feed/"/>
+      <outline type="rss" text="The Platform" title="The Platform" xmlUrl="https://www.theplatform.kiwi/feed"/>
+      <outline type="rss" text="Waatea News" title="Waatea News" xmlUrl="https://waateanews.com/feed/"/>
+    </outline>
+    <outline text="Nigeria" title="Nigeria">
+      <outline type="rss" text="BusinessDay" title="BusinessDay" xmlUrl="https://www.businessday.ng/feed/"/>
+      <outline type="rss" text="Channels TV" title="Channels TV" xmlUrl="https://www.channelstv.com/feed/"/>
+      <outline type="rss" text="Daily Trust" title="Daily Trust" xmlUrl="https://dailytrust.com/feed/"/>
+      <outline type="rss" text="Dubawa" title="Dubawa" xmlUrl="https://www.dubawa.org/feed/"/>
+      <outline type="rss" text="ICIR" title="ICIR" xmlUrl="https://www.icirnigeria.org/feed/"/>
+      <outline type="rss" text="Peoples Gazette" title="Peoples Gazette" xmlUrl="https://gazettengr.com/feed/"/>
+      <outline type="rss" text="Premium Times" title="Premium Times" xmlUrl="https://www.premiumtimesng.com/feed"/>
+      <outline type="rss" text="Punch" title="Punch" xmlUrl="https://punchng.com/feed/"/>
+      <outline type="rss" text="Ripples Nigeria" title="Ripples Nigeria" xmlUrl="https://www.ripplesnigeria.com/feed/" maxItems="25"/>
+      <outline type="rss" text="Sahara Reporters" title="Sahara Reporters" xmlUrl="https://saharareporters.com/rss.xml"/>
+    </outline>
+    <outline text="Norway" title="Norway">
+      <outline type="rss" text="News in English" title="News in English" xmlUrl="https://www.newsinenglish.no/feed/"/>
+      <outline type="rss" text="The Local Norway" title="The Local Norway" xmlUrl="https://feeds.thelocal.com/rss/builder/no"/>
+    </outline>
+    <outline text="Pacific" title="Pacific">
+      <outline type="rss" text="Asia Pacific Report" title="Asia Pacific Report" xmlUrl="https://asiapacificreport.nz/feed/" maxItems="25"/>
+      <outline type="rss" text="Matangi Tonga" title="Matangi Tonga" xmlUrl="https://matangitonga.to/rss.xml"/>
+      <outline type="rss" text="Pacific Island Times" title="Pacific Island Times" xmlUrl="https://www.pacificislandtimes.com/blog-feed.xml"/>
+      <outline type="rss" text="Post-Courier" title="Post-Courier" xmlUrl="https://www.postcourier.com.pg/feed/"/>
+      <outline type="rss" text="RNZ Pacific" title="RNZ Pacific" xmlUrl="https://www.rnz.co.nz/rss/pacific.xml"/>
+    </outline>
+    <outline text="Pakistan" title="Pakistan">
+      <outline type="rss" text="Business Recorder" title="Business Recorder" xmlUrl="https://www.brecorder.com/feeds/latest-news"/>
+      <outline type="rss" text="Dawn" title="Dawn" xmlUrl="https://www.dawn.com/feeds/home/"/>
+      <outline type="rss" text="Geo News" title="Geo News" xmlUrl="https://www.geo.tv/rss/1/1"/>
+      <outline type="rss" text="Voicepk" title="Voicepk" xmlUrl="https://voicepk.net/feed/"/>
+    </outline>
+    <outline text="Palestine" title="Palestine">
+      <outline type="rss" text="Drop Site News" title="Drop Site News" xmlUrl="https://www.dropsitenews.com/feed"/>
+      <outline type="rss" text="Mondoweiss" title="Mondoweiss" xmlUrl="https://mondoweiss.net/feed/"/>
+      <outline type="rss" text="The Electronic Intifada" title="The Electronic Intifada" xmlUrl="https://electronicintifada.net/rss.xml"/>
+    </outline>
+    <outline text="Panama" title="Panama">
+      <outline type="rss" text="Newsroom Panama" title="Newsroom Panama" xmlUrl="https://newsroompanama.com/feed/"/>
+    </outline>
+    <outline text="Peru" title="Peru">
+      <outline type="rss" text="Peru Reports" title="Peru Reports" xmlUrl="https://www.perureports.com/feed/"/>
+    </outline>
+    <outline text="Philippines" title="Philippines">
+      <outline type="rss" text="BusinessWorld" title="BusinessWorld" xmlUrl="https://bworldonline.com/feed/"/>
+      <outline type="rss" text="Inquirer.net" title="Inquirer.net" xmlUrl="https://www.inquirer.net/feed/"/>
+      <outline type="rss" text="PCIJ" title="PCIJ" xmlUrl="https://pcij.org/feed/"/>
+      <outline type="rss" text="Philstar" title="Philstar" xmlUrl="https://www.philstar.com/rss/headlines"/>
+      <outline type="rss" text="Rappler" title="Rappler" xmlUrl="https://www.rappler.com/feed/"/>
+    </outline>
+    <outline text="Poland" title="Poland">
+      <outline type="rss" text="Notes from Poland" title="Notes from Poland" xmlUrl="https://notesfrompoland.com/feed/"/>
+    </outline>
+    <outline text="Portugal" title="Portugal">
+      <outline type="rss" text="Portugal Resident" title="Portugal Resident" xmlUrl="https://www.portugalresident.com/feed/"/>
+      <outline type="rss" text="The Portugal News" title="The Portugal News" xmlUrl="https://www.theportugalnews.com/rss" maxItems="25"/>
+    </outline>
+    <outline text="Puerto Rico" title="Puerto Rico">
+      <outline type="rss" text="Centro de Periodismo Investigativo" title="Centro de Periodismo Investigativo" xmlUrl="https://periodismoinvestigativo.com/en/feed/"/>
+    </outline>
+    <outline text="Romania" title="Romania">
+      <outline type="rss" text="Romania Insider" title="Romania Insider" xmlUrl="https://www.romania-insider.com/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Russia" title="Russia">
+      <outline type="rss" text="Meduza" title="Meduza" xmlUrl="https://meduza.io/rss/en/all"/>
+      <outline type="rss" text="The Insider" title="The Insider" xmlUrl="https://theins.press/en/feed/" maxItems="25"/>
+    </outline>
+    <outline text="Sierra Leone" title="Sierra Leone">
+      <outline type="rss" text="Awoko" title="Awoko" xmlUrl="https://awokonewspaper.sl/feed.xml"/>
+      <outline type="rss" text="Sierraloaded" title="Sierraloaded" xmlUrl="https://www.sierraloaded.sl/feed/"/>
+    </outline>
+    <outline text="Singapore" title="Singapore">
+      <outline type="rss" text="Mothership" title="Mothership" xmlUrl="https://mothership.sg/feed/"/>
+      <outline type="rss" text="New Naratif" title="New Naratif" xmlUrl="https://newnaratif.com/feed/"/>
+      <outline type="rss" text="Rice Media" title="Rice Media" xmlUrl="https://www.ricemedia.co/feed/"/>
+      <outline type="rss" text="The Online Citizen" title="The Online Citizen" xmlUrl="https://www.theonlinecitizen.com/rss.xml" maxItems="25"/>
+    </outline>
+    <outline text="Slovakia" title="Slovakia">
+      <outline type="rss" text="The Slovak Spectator" title="The Slovak Spectator" xmlUrl="https://spectator.sme.sk/rss"/>
+    </outline>
+    <outline text="Somalia" title="Somalia">
+      <outline type="rss" text="Hiiraan Online" title="Hiiraan Online" xmlUrl="https://hiiraan.com/news.xml"/>
+      <outline type="rss" text="Somali Guardian" title="Somali Guardian" xmlUrl="https://www.somaliguardian.com/feed/"/>
+    </outline>
+    <outline text="South Africa" title="South Africa">
+      <outline type="rss" text="amaBhungane" title="amaBhungane" xmlUrl="https://amabhungane.org/feed/"/>
+      <outline type="rss" text="Bhekisisa" title="Bhekisisa" xmlUrl="https://bhekisisa.org/feed/"/>
+      <outline type="rss" text="BusinessDay (South Africa)" title="BusinessDay (South Africa)" xmlUrl="https://www.businesslive.co.za/arc/outboundfeeds/rss/?outputType=xml" maxItems="25"/>
+      <outline type="rss" text="Daily Maverick" title="Daily Maverick" xmlUrl="https://www.dailymaverick.co.za/rss" maxItems="25"/>
+      <outline type="rss" text="GroundUp" title="GroundUp" xmlUrl="https://www.groundup.org.za/sitenews/rss/"/>
+      <outline type="rss" text="IOL" title="IOL" xmlUrl="https://iol.co.za/rss/"/>
+      <outline type="rss" text="Mail &amp; Guardian" title="Mail &amp; Guardian" xmlUrl="https://mg.co.za/atom/" maxItems="25"/>
+      <outline type="rss" text="The Citizen (South Africa)" title="The Citizen (South Africa)" xmlUrl="https://www.citizen.co.za/feed/" maxItems="25"/>
+      <outline type="rss" text="The South African" title="The South African" xmlUrl="https://www.thesouthafrican.com/feed/" maxItems="25"/>
+      <outline type="rss" text="TimesLIVE" title="TimesLIVE" xmlUrl="https://www.timeslive.co.za/arc/outboundfeeds/rss/?outputType=xml" maxItems="25"/>
+      <outline type="rss" text="Viewfinder" title="Viewfinder" xmlUrl="https://viewfinder.org.za/feed/"/>
+    </outline>
+    <outline text="South Korea" title="South Korea">
+      <outline type="rss" text="NK News" title="NK News" xmlUrl="https://www.nknews.org/feed/" maxItems="25"/>
+      <outline type="rss" text="The Korea Herald" title="The Korea Herald" xmlUrl="https://www.koreaherald.com/rss/newsAll" maxItems="25"/>
+      <outline type="rss" text="The Korea Times" title="The Korea Times" xmlUrl="https://feed.koreatimes.co.kr/k/allnews.xml"/>
+    </outline>
+    <outline text="South Sudan" title="South Sudan">
+      <outline type="rss" text="Eye Radio" title="Eye Radio" xmlUrl="https://eyeradio.org/feed/"/>
+      <outline type="rss" text="Radio Tamazuj" title="Radio Tamazuj" xmlUrl="https://www.radiotamazuj.org/en/feed"/>
+    </outline>
+    <outline text="Spain" title="Spain">
+      <outline type="rss" text="Majorca Daily Bulletin" title="Majorca Daily Bulletin" xmlUrl="https://www.majorcadailybulletin.com/feed.rss"/>
+      <outline type="rss" text="SUR in English" title="SUR in English" xmlUrl="https://www.surinenglish.com/rss/2.0/?section=" maxItems="25"/>
+      <outline type="rss" text="The Local Spain" title="The Local Spain" xmlUrl="https://feeds.thelocal.com/rss/builder/es"/>
+      <outline type="rss" text="The Olive Press" title="The Olive Press" xmlUrl="https://www.theolivepress.es/feed/"/>
+    </outline>
+    <outline text="Sri Lanka" title="Sri Lanka">
+      <outline type="rss" text="EconomyNext" title="EconomyNext" xmlUrl="https://economynext.com/feed/"/>
+      <outline type="rss" text="Himal Southasian" title="Himal Southasian" xmlUrl="https://www.himalmag.com/rss/"/>
+      <outline type="rss" text="Newswire" title="Newswire" xmlUrl="https://www.newswire.lk/feed/"/>
+    </outline>
+    <outline text="Sudan" title="Sudan">
+      <outline type="rss" text="Sudans Post" title="Sudans Post" xmlUrl="https://www.sudanspost.com/feed/"/>
+    </outline>
+    <outline text="Sweden" title="Sweden">
+      <outline type="rss" text="The Local Sweden" title="The Local Sweden" xmlUrl="https://feeds.thelocal.com/rss/builder/se"/>
+    </outline>
+    <outline text="Switzerland" title="Switzerland">
+      <outline type="rss" text="The Local Switzerland" title="The Local Switzerland" xmlUrl="https://feeds.thelocal.com/rss/builder/ch"/>
+    </outline>
+    <outline text="Syria" title="Syria">
+      <outline type="rss" text="Syria Direct" title="Syria Direct" xmlUrl="https://syriadirect.org/feed/"/>
+    </outline>
+    <outline text="Taiwan" title="Taiwan">
+      <outline type="rss" text="New Bloom" title="New Bloom" xmlUrl="https://newbloommag.net/feed/"/>
+      <outline type="rss" text="Taipei Times" title="Taipei Times" xmlUrl="https://www.taipeitimes.com/xml/index.rss"/>
+    </outline>
+    <outline text="Tanzania" title="Tanzania">
+      <outline type="rss" text="The Chanzo" title="The Chanzo" xmlUrl="https://thechanzo.com/feed/"/>
+      <outline type="rss" text="The Citizen (Tanzania)" title="The Citizen (Tanzania)" xmlUrl="https://www.thecitizen.co.tz/rss.xml"/>
+    </outline>
+    <outline text="Thailand" title="Thailand">
+      <outline type="rss" text="Bangkok Post" title="Bangkok Post" xmlUrl="https://www.bangkokpost.com/rss/data/topstories.xml"/>
+      <outline type="rss" text="Khaosod English" title="Khaosod English" xmlUrl="https://www.khaosodenglish.com/feed/"/>
+      <outline type="rss" text="Prachatai English" title="Prachatai English" xmlUrl="https://prachataienglish.com/rss.xml?rsd="/>
+      <outline type="rss" text="Thai Enquirer" title="Thai Enquirer" xmlUrl="https://www.thaienquirer.com/feed/"/>
+    </outline>
+    <outline text="Trinidad and Tobago" title="Trinidad and Tobago">
+      <outline type="rss" text="Trinidad Express" title="Trinidad Express" xmlUrl="https://www.trinidadexpress.com/search/?f=rss&amp;t=article&amp;c=news&amp;l=50&amp;s=start_time&amp;sd=desc" maxItems="25"/>
+    </outline>
+    <outline text="Turkey" title="Turkey">
+      <outline type="rss" text="Bianet English" title="Bianet English" xmlUrl="https://bianet.org/english/rss" maxItems="25"/>
+      <outline type="rss" text="Stockholm Center for Freedom" title="Stockholm Center for Freedom" xmlUrl="https://stockholmcf.org/feed/"/>
+      <outline type="rss" text="Turkey Recap" title="Turkey Recap" xmlUrl="https://www.turkeyrecap.com/feed"/>
+      <outline type="rss" text="Turkish Minute" title="Turkish Minute" xmlUrl="https://www.turkishminute.com/feed/"/>
+    </outline>
+    <outline text="Uganda" title="Uganda">
+      <outline type="rss" text="Daily Monitor" title="Daily Monitor" xmlUrl="https://www.monitor.co.ug/rss.xml"/>
+      <outline type="rss" text="Nile Post" title="Nile Post" xmlUrl="https://nilepost.co.ug/feed/" maxItems="25"/>
+      <outline type="rss" text="The Independent (Uganda)" title="The Independent (Uganda)" xmlUrl="https://www.independent.co.ug/feed/"/>
+      <outline type="rss" text="The Observer (Uganda)" title="The Observer (Uganda)" xmlUrl="https://observer.ug/feed/"/>
+    </outline>
+    <outline text="Ukraine" title="Ukraine">
+      <outline type="rss" text="Euromaidan Press" title="Euromaidan Press" xmlUrl="https://euromaidanpress.com/feed/"/>
+      <outline type="rss" text="Ukrainska Pravda" title="Ukrainska Pravda" xmlUrl="https://www.pravda.com.ua/eng/rss"/>
+    </outline>
+    <outline text="United Kingdom" title="United Kingdom">
+      <outline type="rss" text="Bellingcat" title="Bellingcat" xmlUrl="https://www.bellingcat.com/feed/"/>
+      <outline type="rss" text="Byline Times" title="Byline Times" xmlUrl="https://bylinetimes.com/feed/"/>
+      <outline type="rss" text="Declassified UK" title="Declassified UK" xmlUrl="https://www.declassifieduk.org/feed/"/>
+      <outline type="rss" text="DeSmog" title="DeSmog" xmlUrl="https://www.desmog.com/feed/"/>
+      <outline type="rss" text="Lighthouse Reports" title="Lighthouse Reports" xmlUrl="https://www.lighthousereports.com/feed/"/>
+      <outline type="rss" text="London Centric" title="London Centric" xmlUrl="https://www.londoncentric.media/feed"/>
+      <outline type="rss" text="Nation.Cymru" title="Nation.Cymru" xmlUrl="https://nation.cymru/feed/"/>
+      <outline type="rss" text="Novara Media" title="Novara Media" xmlUrl="https://novaramedia.com/feed/"/>
+      <outline type="rss" text="openDemocracy" title="openDemocracy" xmlUrl="https://www.opendemocracy.net/rss/"/>
+      <outline type="rss" text="Politics.co.uk" title="Politics.co.uk" xmlUrl="https://www.politics.co.uk/feed/"/>
+      <outline type="rss" text="The Bristol Cable" title="The Bristol Cable" xmlUrl="https://thebristolcable.org/feed/"/>
+      <outline type="rss" text="The Canary" title="The Canary" xmlUrl="https://www.thecanary.co/feed/" maxItems="25"/>
+      <outline type="rss" text="The Critic" title="The Critic" xmlUrl="https://www.thecritic.co.uk/feed/" maxItems="25"/>
+      <outline type="rss" text="The Detail" title="The Detail" xmlUrl="https://thedetail.tv/feed" maxItems="25"/>
+      <outline type="rss" text="The Ferret" title="The Ferret" xmlUrl="https://www.theferret.scot/latest/rss/"/>
+      <outline type="rss" text="The Manchester Mill" title="The Manchester Mill" xmlUrl="https://manchestermill.co.uk/rss/"/>
+      <outline type="rss" text="The National (Scotland)" title="The National (Scotland)" xmlUrl="https://www.thenational.scot/news/rss/" maxItems="25"/>
+      <outline type="rss" text="The Sheffield Tribune" title="The Sheffield Tribune" xmlUrl="https://www.sheffieldtribune.co.uk/rss/"/>
+    </outline>
+    <outline text="United States" title="United States">
+      <outline type="rss" text="Berkeleyside" title="Berkeleyside" xmlUrl="https://www.berkeleyside.org/feed"/>
+      <outline type="rss" text="Block Club Chicago" title="Block Club Chicago" xmlUrl="https://blockclubchicago.org/feed/"/>
+      <outline type="rss" text="Bolts" title="Bolts" xmlUrl="https://boltsmag.org/feed/"/>
+      <outline type="rss" text="Bridge Michigan" title="Bridge Michigan" xmlUrl="https://bridgemi.com/feed/"/>
+      <outline type="rss" text="CalMatters" title="CalMatters" xmlUrl="https://calmatters.org/feed/"/>
+      <outline type="rss" text="Capital B" title="Capital B" xmlUrl="https://capitalbnews.org/feed/"/>
+      <outline type="rss" text="Civil Beat" title="Civil Beat" xmlUrl="https://www.civilbeat.org/feed/"/>
+      <outline type="rss" text="Columbia Journalism Review" title="Columbia Journalism Review" xmlUrl="https://www.cjr.org/feed/"/>
+      <outline type="rss" text="Common Dreams" title="Common Dreams" xmlUrl="https://www.commondreams.org/feeds/feed.rss"/>
+      <outline type="rss" text="Democracy Now!" title="Democracy Now!" xmlUrl="https://www.democracynow.org/democracynow.rss"/>
+      <outline type="rss" text="Documented" title="Documented" xmlUrl="https://documentedny.com/feed/"/>
+      <outline type="rss" text="High Country News" title="High Country News" xmlUrl="https://www.hcn.org/feed/"/>
+      <outline type="rss" text="inewsource" title="inewsource" xmlUrl="https://inewsource.org/feed/" maxItems="25"/>
+      <outline type="rss" text="Injustice Watch" title="Injustice Watch" xmlUrl="https://www.injusticewatch.org/feed/"/>
+      <outline type="rss" text="InvestigateWest" title="InvestigateWest" xmlUrl="https://www.investigatewest.org/latest/rss/"/>
+      <outline type="rss" text="Jacobin" title="Jacobin" xmlUrl="https://jacobin.com/feed"/>
+      <outline type="rss" text="L.A. Taco" title="L.A. Taco" xmlUrl="https://lataco.com/feed"/>
+      <outline type="rss" text="LA Public Press" title="LA Public Press" xmlUrl="https://lapublicpress.org/feed/"/>
+      <outline type="rss" text="Madison365" title="Madison365" xmlUrl="https://madison365.com/feed/"/>
+      <outline type="rss" text="MinnPost" title="MinnPost" xmlUrl="https://www.minnpost.com/feed/"/>
+      <outline type="rss" text="Mississippi Today" title="Mississippi Today" xmlUrl="https://www.mississippitoday.org/feed/"/>
+      <outline type="rss" text="MLK50" title="MLK50" xmlUrl="https://mlk50.com/feed/"/>
+      <outline type="rss" text="Mother Jones" title="Mother Jones" xmlUrl="https://www.motherjones.com/feed/"/>
+      <outline type="rss" text="Mountain State Spotlight" title="Mountain State Spotlight" xmlUrl="https://mountainstatespotlight.org/feed/"/>
+      <outline type="rss" text="MuckRock" title="MuckRock" xmlUrl="https://www.muckrock.com/news/feeds/"/>
+      <outline type="rss" text="Outlier Media" title="Outlier Media" xmlUrl="https://outliermedia.org/feed/"/>
+      <outline type="rss" text="Poynter" title="Poynter" xmlUrl="https://www.poynter.org/feed/"/>
+      <outline type="rss" text="Searchlight New Mexico" title="Searchlight New Mexico" xmlUrl="https://searchlightnm.org/feed/"/>
+      <outline type="rss" text="Stateline" title="Stateline" xmlUrl="https://stateline.org/feed/localFeed/" maxItems="25"/>
+      <outline type="rss" text="Talking Points Memo" title="Talking Points Memo" xmlUrl="https://talkingpointsmemo.com/feed"/>
+      <outline type="rss" text="Texas Tribune" title="Texas Tribune" xmlUrl="https://www.texastribune.org/feed/"/>
+      <outline type="rss" text="The 19th" title="The 19th" xmlUrl="https://19thnews.org/feed"/>
+      <outline type="rss" text="The American Prospect" title="The American Prospect" xmlUrl="https://prospect.org/feed/"/>
+      <outline type="rss" text="The Appeal" title="The Appeal" xmlUrl="https://theappeal.org/theappeal"/>
+      <outline type="rss" text="The City" title="The City" xmlUrl="https://www.thecity.nyc/feed/"/>
+      <outline type="rss" text="The Colorado Sun" title="The Colorado Sun" xmlUrl="https://coloradosun.com/feed/"/>
+      <outline type="rss" text="The Free Press" title="The Free Press" xmlUrl="https://www.thefp.com/feed"/>
+      <outline type="rss" text="The Intercept" title="The Intercept" xmlUrl="https://theintercept.com/feed/"/>
+      <outline type="rss" text="The Lever" title="The Lever" xmlUrl="https://www.levernews.com/rss/"/>
+      <outline type="rss" text="The Nation" title="The Nation" xmlUrl="https://www.thenation.com/feed/?post_type=article" maxItems="25"/>
+      <outline type="rss" text="The Nevada Independent" title="The Nevada Independent" xmlUrl="https://www.thenevadaindependent.com/feed/" maxItems="25"/>
+      <outline type="rss" text="The Oaklandside" title="The Oaklandside" xmlUrl="https://oaklandside.org/feed/"/>
+      <outline type="rss" text="The San Francisco Standard" title="The San Francisco Standard" xmlUrl="https://sfstandard.com/feed/"/>
+      <outline type="rss" text="The Trace" title="The Trace" xmlUrl="https://www.thetrace.org/feed/"/>
+      <outline type="rss" text="Truthout" title="Truthout" xmlUrl="https://www.truthout.org/feed/" maxItems="25"/>
+      <outline type="rss" text="Voice of San Diego" title="Voice of San Diego" xmlUrl="https://voiceofsandiego.org/feed/"/>
+      <outline type="rss" text="Votebeat" title="Votebeat" xmlUrl="https://www.votebeat.org/arc/outboundfeeds/rss/" maxItems="25"/>
+      <outline type="rss" text="Wisconsin Watch" title="Wisconsin Watch" xmlUrl="https://wisconsinwatch.org/feed/"/>
+    </outline>
+    <outline text="Uzbekistan" title="Uzbekistan">
+      <outline type="rss" text="Gazeta.uz" title="Gazeta.uz" xmlUrl="https://www.gazeta.uz/en/rss/"/>
+      <outline type="rss" text="Kun.uz" title="Kun.uz" xmlUrl="https://kun.uz/news/rss?lang=en"/>
+    </outline>
+    <outline text="Venezuela" title="Venezuela">
+      <outline type="rss" text="Caracas Chronicles" title="Caracas Chronicles" xmlUrl="https://www.caracaschronicles.com/feed/"/>
+      <outline type="rss" text="Venezuelanalysis" title="Venezuelanalysis" xmlUrl="https://venezuelanalysis.com/feed/"/>
+    </outline>
+    <outline text="Vietnam" title="Vietnam">
+      <outline type="rss" text="VnExpress International" title="VnExpress International" xmlUrl="https://e.vnexpress.net/rss/news.rss" maxItems="25"/>
+    </outline>
+    <outline text="Yemen" title="Yemen">
+      <outline type="rss" text="Sanaa Center" title="Sanaa Center" xmlUrl="https://sanaacenter.org/feed/"/>
+      <outline type="rss" text="Yemen Monitor" title="Yemen Monitor" xmlUrl="https://www.yemenmonitor.com/en/feed"/>
+    </outline>
+    <outline text="Zambia" title="Zambia">
+      <outline type="rss" text="Diggers" title="Diggers" xmlUrl="https://diggers.news/feed/"/>
+      <outline type="rss" text="Lusaka Times" title="Lusaka Times" xmlUrl="https://www.lusakatimes.com/feed/"/>
+      <outline type="rss" text="Zambia Monitor" title="Zambia Monitor" xmlUrl="https://www.zambiamonitor.com/feed/"/>
+    </outline>
+    <outline text="Zimbabwe" title="Zimbabwe">
+      <outline type="rss" text="CITE" title="CITE" xmlUrl="https://cite.org.zw/feed/"/>
+      <outline type="rss" text="Nehanda Radio" title="Nehanda Radio" xmlUrl="https://nehandaradio.com/feed/"/>
+      <outline type="rss" text="NewsDay" title="NewsDay" xmlUrl="https://newsday.co.zw/feed/"/>
+      <outline type="rss" text="NewZimbabwe" title="NewZimbabwe" xmlUrl="https://www.newzimbabwe.com/feed/"/>
+      <outline type="rss" text="The NewsHawks" title="The NewsHawks" xmlUrl="https://thenewshawks.com/feed/"/>
+      <outline type="rss" text="The Zimbabwe Independent" title="The Zimbabwe Independent" xmlUrl="https://www.theindependent.co.zw/feed/"/>
+      <outline type="rss" text="The Zimbabwean" title="The Zimbabwean" xmlUrl="https://www.thezimbabwean.co/feed/"/>
+      <outline type="rss" text="ZimEye" title="ZimEye" xmlUrl="https://www.zimeye.net/feed/"/>
     </outline>
     <outline text="Long-form &amp; Essays" title="Long-form &amp; Essays">
       <outline type="rss" text="Aeon" title="Aeon" xmlUrl="https://aeon.co/feed.rss"/>
