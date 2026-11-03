@@ -4,7 +4,7 @@ import logging
 import signal
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from . import __version__, embed, extract, feeds, inbox, mailer, ranker
 from .db import DB
@@ -65,7 +65,7 @@ def debug_report(cfg, db: DB, items, info: dict) -> list[str]:
     t = info.get("timings", {})
     lines = [
         f"version {__version__}, built {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"llm: {cfg.llm.model} at {cfg.llm.base_url}: {info.get('llm_status', '?')}",
+        f"llm: {cfg.llm.model} at {cfg.llm.base_url}",
         f"embeddings: {cfg.llm.embedding_model or 'disabled'}, {st['embedded']} stored",
         f"feeds: {len(cfg.feeds)} configured, {st['feeds_failing']} failing, {never} never fetched,"
         f" last success {_ago(last_ok)}",
@@ -97,10 +97,15 @@ def debug_report(cfg, db: DB, items, info: dict) -> list[str]:
     return lines
 
 
-def send_digest(cfg, db: DB, llm: LLM, dry_run: bool = False, stop=None):
-    """Score, select and send today's digest. Returns the EmailMessage or None."""
+def send_digest(cfg, db: DB, dry_run: bool = False):
+    """Select and send today's digest from the scores the hourly runs left behind.
+
+    It never calls the LLM, so the email goes out on time however slow the LLM is.
+    Articles not scored yet stay candidates for later digests. Returns the
+    EmailMessage or None.
+    """
     note = ""
-    info: dict = {"timings": {}, "select": {}, "llm_status": "ok"}
+    info: dict = {"timings": {}, "select": {}}
 
     def timed(name, fn, *a, **kw):
         t0 = time.monotonic()
@@ -109,17 +114,10 @@ def send_digest(cfg, db: DB, llm: LLM, dry_run: bool = False, stop=None):
         finally:
             info["timings"][name] = time.monotonic() - t0
 
-    timed("prefilter", prefilter, cfg, db, llm, stop)
-    timed("extract", extract.enrich_candidates, cfg, db, stop=stop)
-    try:
-        timed("ping", llm.ping)
-        n = timed("score", ranker.score_candidates, cfg, db, llm, stop=stop)
-        info["llm_status"] = f"ok, scored {n} articles now"
-    except LLMError as e:
-        log.warning("LLM unavailable for digest, using heuristic ranking: %s", e)
-        note = "(The local LLM was unavailable, so today's list was ranked by simple heuristics.)"
-        info["llm_status"] = f"UNAVAILABLE: {e}"[:200]
-    items = ranker.select(cfg, db, debug=info["select"])
+    items = timed("select", ranker.select, cfg, db, debug=info["select"])
+    sel = info["select"]
+    if items and not sel.get("llm_scored") and not sel.get("stale_scored"):
+        note = "(The local LLM has not scored any of these yet, so today's list was ranked by simple heuristics.)"
     if not items:
         log.warning("no candidate articles for today's digest")
         return None
@@ -137,6 +135,19 @@ def send_digest(cfg, db: DB, llm: LLM, dry_run: bool = False, stop=None):
     db.record_digest(token, msg["Message-ID"], datetime.now().date().isoformat(),
                      [(a["id"], exp) for a, exp in items])
     return msg
+
+
+class _StopAt:
+    """Stop flag that is also set once a wall-clock deadline passes.
+
+    Only reads the clock, so the feed fetcher's worker threads can check it too.
+    """
+
+    def __init__(self, stop: threading.Event, deadline: float):
+        self.stop, self.deadline = stop, deadline
+
+    def is_set(self) -> bool:
+        return self.stop.is_set() or time.time() >= self.deadline
 
 
 class Service:
@@ -160,6 +171,15 @@ class Service:
             return False
         return (now.hour, now.minute) >= (h, m)
 
+    def _next_digest_time(self) -> float:
+        """When the next digest is due (epoch seconds), at least a moment from now."""
+        h, m = self.cfg.digest_hour_minute
+        now = datetime.now()
+        at = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if at <= now:
+            at += timedelta(days=1)
+        return at.timestamp()
+
     def _run_job(self, name, fn):
         try:
             fn()
@@ -167,7 +187,8 @@ class Service:
             log.exception("%s failed", name)
 
     def fetch_and_score(self):
-        refresh(self.cfg, self.db, self.llm, stop=self.stop)
+        # Give way to the digest: stop at digest time and leave the rest for the next run.
+        refresh(self.cfg, self.db, self.llm, stop=_StopAt(self.stop, self._next_digest_time()))
 
     def poll_and_learn(self):
         used = inbox.poll(self.cfg, self.db, self.llm)
@@ -178,7 +199,7 @@ class Service:
 
     def digest(self):
         today = datetime.now().date().isoformat()
-        msg = send_digest(self.cfg, self.db, self.llm, stop=self.stop)
+        msg = send_digest(self.cfg, self.db)
         # Mark the day done even if there was nothing to send, so we don't retry every tick.
         self.db.set_state("last_digest_date", today)
         if msg is not None:
@@ -192,6 +213,11 @@ class Service:
                  len(self.cfg.feeds), self.cfg.digest_time, self.cfg.llm.model, self.cfg.llm.base_url)
         while not self.stop.is_set():
             now = time.monotonic()
+            # The digest goes first, so other jobs never delay it.
+            if now >= self.next_digest_attempt and self._digest_due():
+                # If sending fails (e.g. SMTP down) retry in 15 minutes, not every tick.
+                self.next_digest_attempt = now + 900
+                self._run_job("digest", self.digest)
             if not self.last_fetch or now - self.last_fetch >= self.cfg.fetch_interval_minutes * 60:
                 self.last_fetch = now
                 self._run_job("feed fetch", self.fetch_and_score)
@@ -202,10 +228,6 @@ class Service:
                 self._run_job("inbox poll", self.poll_and_learn)
             if self.stop.is_set():
                 break
-            if now >= self.next_digest_attempt and self._digest_due():
-                # If sending fails (e.g. SMTP down) retry in 15 minutes, not every tick.
-                self.next_digest_attempt = now + 900
-                self._run_job("digest", self.digest)
             if now - self.last_prune >= 86400:
                 self.last_prune = now
                 self._run_job("prune", self.db.prune)

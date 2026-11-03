@@ -96,7 +96,7 @@ def cmd_feeds(cfg, args):
 def cmd_digest(cfg, args):
     from .daemon import send_digest
     db = DB(cfg.database)
-    msg = send_digest(cfg, db, LLM(cfg.llm), dry_run=args.dry_run)
+    msg = send_digest(cfg, db, dry_run=args.dry_run)
     if msg is None:
         print("no candidate articles; run `indefinite-articles fetch` first", file=sys.stderr)
         return 1

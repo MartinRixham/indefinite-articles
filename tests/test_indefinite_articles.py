@@ -143,12 +143,19 @@ class EndToEndTests(unittest.TestCase):
         self.db = DB(":memory:")
         self.llm = LLM(self.cfg.llm)
 
-    def _load_articles(self):
+    def _load_articles(self, score=True):
         for data in (RSS, ATOM):
             title, entries = feeds.parse_feed(data)
             for e in entries:
                 self.db.add_article(e.url, e.title, feeds.title_key(e.title), e.summary, title, None)
         self.db.conn.commit()
+        if score:
+            self._score(self.db)
+
+    def _score(self, db):
+        """What the hourly run does after fetching: pre-filter and LLM-score the shortlist."""
+        daemon.prefilter(self.cfg, db, self.llm)
+        ranker.score_candidates(self.cfg, db, self.llm)
 
     def test_example_config_loads(self):
         self.assertEqual(self.cfg.digest_hour_minute, (7, 0))
@@ -161,7 +168,7 @@ class EndToEndTests(unittest.TestCase):
         self._load_articles()
         sent = []
         with mock.patch.object(mailer, "send", lambda cfg, m: sent.append(m)):
-            msg = daemon.send_digest(self.cfg, self.db, self.llm)
+            msg = daemon.send_digest(self.cfg, self.db)
         self.assertEqual(len(sent), 1)
         body = msg.get_body(preferencelist=("plain",)).get_content()
         token = msg["X-Indefinite-Articles-Digest"]
@@ -206,8 +213,9 @@ class EndToEndTests(unittest.TestCase):
             for e in entries:
                 db.add_article(e.url, e.title, feeds.title_key(e.title), e.summary, title, None)
         db.conn.commit()
+        self._score(db)
         with mock.patch.object(mailer, "send", lambda cfg, m: None):
-            msg = daemon.send_digest(self.cfg, db, self.llm)
+            msg = daemon.send_digest(self.cfg, db)
         reply = EmailMessage()
         reply["From"] = "you@example.com"
         reply["Subject"] = "Re: " + msg["Subject"]
@@ -258,7 +266,7 @@ class EndToEndTests(unittest.TestCase):
 
     def test_debug_info_appended(self):
         self._load_articles()
-        msg = daemon.send_digest(self.cfg, self.db, self.llm, dry_run=True)
+        msg = daemon.send_digest(self.cfg, self.db, dry_run=True)
         body = msg.get_body(preferencelist=("plain",)).get_content()
         self.assertIn("-- debug --", body)
         self.assertIn("selection:", body)
@@ -269,7 +277,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertNotIn("selection:", replies.strip_quoted("+1\n\n" + body))
 
         self.cfg.email.debug_info = False
-        msg = daemon.send_digest(self.cfg, self.db, self.llm, dry_run=True)
+        msg = daemon.send_digest(self.cfg, self.db, dry_run=True)
         self.assertNotIn("-- debug --", msg.get_body(preferencelist=("plain",)).get_content())
 
     def test_on_cpu_only(self):
@@ -280,11 +288,27 @@ class EndToEndTests(unittest.TestCase):
         finally:
             FakeLLM.size_vram = 1
 
-    def test_llm_down_falls_back(self):
+    def test_unscored_falls_back(self):
+        self._load_articles(score=False)
+        msg = daemon.send_digest(self.cfg, self.db, dry_run=True)
+        self.assertIn("simple heuristics", msg.get_body(preferencelist=("plain",)).get_content())
+
+    def test_digest_never_calls_llm(self):
         self._load_articles()
-        self.cfg.llm.base_url = "http://127.0.0.1:1/v1"
-        msg = daemon.send_digest(self.cfg, self.db, LLM(self.cfg.llm), dry_run=True)
-        self.assertIn("unavailable", msg.get_body(preferencelist=("plain",)).get_content())
+        with mock.patch.object(LLM, "_post", side_effect=AssertionError("LLM called")), \
+             mock.patch.object(LLM, "ping", side_effect=AssertionError("LLM called")):
+            msg = daemon.send_digest(self.cfg, self.db, dry_run=True)
+        self.assertNotIn("simple heuristics", msg.get_body(preferencelist=("plain",)).get_content())
+
+    def test_hourly_scoring_stops_at_digest_time(self):
+        self._load_articles(score=False)
+        stop = threading.Event()
+        self.assertFalse(daemon._StopAt(stop, 2e9).is_set())
+        past = daemon._StopAt(stop, 0)
+        self.assertTrue(past.is_set())
+        self.assertEqual(ranker.score_candidates(self.cfg, self.db, self.llm, stop=past), 0)
+        stop.set()
+        self.assertTrue(daemon._StopAt(stop, 2e9).is_set())
 
 
 if __name__ == "__main__":
