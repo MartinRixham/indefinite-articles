@@ -35,10 +35,10 @@ product announcements, celebrity news and listicles.
 [llm]
 # Any OpenAI-compatible endpoint running locally.
 #   Ollama:      sudo dnf install ollama && sudo systemctl enable --now ollama
-#                ollama pull llama3.1:8b
+#                ollama pull qwen2.5:14b
 #   llama.cpp:   llama-server -m model.gguf --port 8080   -> http://127.0.0.1:8080/v1
 base_url = "http://127.0.0.1:11434/v1"
-model = "llama3.1:8b"
+model = "qwen2.5:14b"
 api_key = ""
 timeout_seconds = 600
 embedding_model = "nomic-embed-text"   # first-pass ranking of every article:

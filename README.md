@@ -41,7 +41,7 @@ sudo dnf install ./indefinite-articles-0.4.0-1.fc44.noarch.rpm
 # 1. A local LLM (Ollama is in the Fedora repos)
 sudo dnf install ollama
 sudo systemctl enable --now ollama
-ollama pull llama3.1:8b                 # or qwen2.5:7b, gemma2:9b, ...
+ollama pull qwen2.5:14b                 # ~9 GB; or qwen2.5:32b, gemma2:27b, llama3.1:8b ...
 ollama pull nomic-embed-text            # small (274 MB) model for the first-pass ranking
 
 # 2. Configure email and your starting interests
@@ -172,9 +172,9 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
 ## Notes
 
 * **Hardware.** Embedding a few thousand articles a day takes a few minutes of CPU in
-  total. An 8B model on CPU scores a batch of articles in about 10–60 s, and with about 150
+  total. A 14B model on CPU scores a batch of articles in about 30–120 s, and with about 150
   articles a day that runs in the background after each hourly fetch, so the digest goes
-  out quickly. With no GPU, lower `max_candidates` or use a smaller model (`qwen2.5:3b`).
+  out quickly. With no GPU, lower `max_candidates` or use a smaller model (`llama3.1:8b` or `qwen2.5:3b`).
   Installing `python3-numpy` makes the first-pass rank much faster.
 * **No embedding model?** Set `embedding_model = ""` and it falls back to the newest
   articles, balanced across sources. With hundreds of feeds, that misses most of the

@@ -27,7 +27,7 @@ class Feed:
 @dataclass
 class LLMConfig:
     base_url: str = "http://127.0.0.1:11434/v1"
-    model: str = "llama3.1:8b"
+    model: str = "qwen2.5:14b"
     api_key: str = ""
     timeout_seconds: int = 600
     batch_size: int = 8
