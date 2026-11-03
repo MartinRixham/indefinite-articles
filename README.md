@@ -57,6 +57,66 @@ Use a dedicated mailbox (e.g. `indefinite-articles@yourdomain`) as `from`. It se
 receives your replies. For Gmail or Fastmail, use an app password. Only replies **from**
 `email.to` (or `allowed_senders`) are read. Other mail in the mailbox is left alone.
 
+## Run in a container
+
+Each push to `main` publishes `ghcr.io/martinrixham/indefinite-articles:edge`. Each `v*`
+tag publishes `:latest`, `:X.Y.Z` and `:X.Y`. Images are built for amd64 and arm64. The
+image installs the same RPM, so the paths match those above. It runs as the
+unprivileged `indefinite-articles` user (UID 999).
+
+```sh
+# Config: start from the packaged one. It must be readable by UID 999 inside the
+# container, so keep passwords out of it and use podman secrets instead.
+podman run --rm --entrypoint cat ghcr.io/martinrixham/indefinite-articles \
+  /etc/indefinite-articles/indefinite-articles.toml > indefinite-articles.toml
+chmod 644 indefinite-articles.toml
+#   set password_file = "/run/secrets/smtp-password" under [email.smtp]
+#   and password_file = "/run/secrets/imap-password" under [email.imap]
+printf '%s' 'app-password' | podman secret create smtp-password -
+printf '%s' 'app-password' | podman secret create imap-password -
+
+podman run -d --name indefinite-articles \
+  --network=host \
+  -e TZ=Europe/London \
+  -v indefinite-articles:/var/lib/indefinite-articles \
+  -v ./indefinite-articles.toml:/etc/indefinite-articles/indefinite-articles.toml:ro,Z \
+  --secret smtp-password,uid=999,mode=0400 \
+  --secret imap-password,uid=999,mode=0400 \
+  ghcr.io/martinrixham/indefinite-articles
+
+podman exec indefinite-articles indefinite-articles check --send-test
+podman logs -f indefinite-articles
+```
+
+* `--network=host` lets the default `base_url` (`http://127.0.0.1:11434/v1`) reach Ollama
+  on the host. Without it, point `base_url` at `http://host.containers.internal:11434/v1`
+  and make Ollama listen on more than localhost (`OLLAMA_HOST=0.0.0.0`).
+* `digest_time` uses the container's time zone, so set `TZ`.
+* The other commands work the same way: `podman exec indefinite-articles indefinite-articles status`.
+
+To run it under systemd, save this as
+`~/.config/containers/systemd/indefinite-articles.container` (Quadlet), then run
+`systemctl --user daemon-reload && systemctl --user start indefinite-articles`.
+Run `loginctl enable-linger` once so it keeps running after you log out.
+
+```ini
+[Container]
+Image=ghcr.io/martinrixham/indefinite-articles:latest
+Network=host
+Environment=TZ=Europe/London
+Volume=indefinite-articles:/var/lib/indefinite-articles
+Volume=%h/indefinite-articles.toml:/etc/indefinite-articles/indefinite-articles.toml:ro,Z
+Secret=smtp-password,uid=999,mode=0400
+Secret=imap-password,uid=999,mode=0400
+AutoUpdate=registry
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
 ## Feeds
 
 All feeds come from files in `/etc/indefinite-articles/feeds.d/`:
