@@ -15,6 +15,8 @@ BuildRequires:  systemd-rpm-macros
 
 # Any OpenAI-compatible local server works; Ollama is the default configuration.
 Recommends:     (ollama or llama-cpp)
+# GPU support for AMD (incl. integrated Radeon); the service won't start on CPU only.
+Recommends:     (ollama-rocm if ollama)
 
 %description
 indefinite-articles is a service that reads RSS/Atom feeds, ranks new articles
@@ -35,6 +37,7 @@ preferences.
 %pyproject_install
 %pyproject_save_files -l indefinite_articles
 install -Dpm 0644 dist/indefinite-articles.service %{buildroot}%{_unitdir}/indefinite-articles.service
+install -Dpm 0644 dist/ollama-igpu.conf %{buildroot}%{_unitdir}/ollama.service.d/50-indefinite-articles-igpu.conf
 install -Dpm 0644 dist/indefinite-articles.sysusers %{buildroot}%{_sysusersdir}/indefinite-articles.conf
 install -Dpm 0640 dist/indefinite-articles.toml %{buildroot}%{_sysconfdir}/indefinite-articles/indefinite-articles.toml
 install -Dpm 0644 dist/feeds.d/default.opml %{buildroot}%{_sysconfdir}/indefinite-articles/feeds.d/default.opml
@@ -57,6 +60,8 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %doc README.md
 %{_bindir}/indefinite-articles
 %{_unitdir}/indefinite-articles.service
+%dir %{_unitdir}/ollama.service.d
+%{_unitdir}/ollama.service.d/50-indefinite-articles-igpu.conf
 %{_sysusersdir}/indefinite-articles.conf
 %dir %attr(0750,root,indefinite-articles) %{_sysconfdir}/indefinite-articles
 %config(noreplace) %attr(0640,root,indefinite-articles) %{_sysconfdir}/indefinite-articles/indefinite-articles.toml

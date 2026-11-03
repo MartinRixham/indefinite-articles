@@ -35,6 +35,7 @@ class LLMConfig:
     embedding_batch: int = 64
     max_prompt_chars: int = 12000
     temperature: float = 0.2
+    require_gpu: bool = True  # refuse to run if Ollama loads the model on CPU only
 
 
 @dataclass
@@ -139,7 +140,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     l = raw.get("llm", {})
     for k in ("base_url", "model", "api_key", "timeout_seconds",
               "max_prompt_chars", "temperature", "embedding_model", "embedding_prefix",
-              "embedding_batch"):
+              "embedding_batch", "require_gpu"):
         if k in l:
             setattr(cfg.llm, k, type(getattr(cfg.llm, k))(l[k]))
     if l.get("api_key_file"):

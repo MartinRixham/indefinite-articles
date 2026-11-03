@@ -41,9 +41,13 @@ def fake_embedding(text, dim=64):
 class FakeLLM(BaseHTTPRequestHandler):
     """OpenAI-compatible endpoint: scores titles containing 'Rust'/'Linux' highly."""
     requests = []
+    size_vram = 1
 
     def log_message(self, *a):
         pass
+
+    def do_GET(self):
+        self._json({"models": [{"name": "qwen2.5:14b", "size_vram": FakeLLM.size_vram}]})
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -267,6 +271,14 @@ class EndToEndTests(unittest.TestCase):
         self.cfg.email.debug_info = False
         msg = daemon.send_digest(self.cfg, self.db, self.llm, dry_run=True)
         self.assertNotIn("-- debug --", msg.get_body(preferencelist=("plain",)).get_content())
+
+    def test_on_cpu_only(self):
+        self.assertFalse(self.llm.on_cpu_only())
+        FakeLLM.size_vram = 0
+        try:
+            self.assertTrue(self.llm.on_cpu_only())
+        finally:
+            FakeLLM.size_vram = 1
 
     def test_llm_down_falls_back(self):
         self._load_articles()

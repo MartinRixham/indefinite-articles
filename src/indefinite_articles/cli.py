@@ -30,6 +30,17 @@ def cmd_run(cfg, args):
     if not cfg.feeds or not cfg.email.smtp.host:
         logging.error("cannot start: fix %s", args.config or config.DEFAULT_CONFIG_PATH)
         return 1
+    if cfg.llm.require_gpu:
+        llm = LLM(cfg.llm)
+        try:
+            llm.ping()  # makes Ollama load the model
+        except LLMError as e:
+            logging.error("cannot start: %s", e)
+            return 1  # systemd retries
+        if llm.on_cpu_only():
+            logging.error("cannot start: %s is running on the CPU (no compatible GPU);"
+                          " set require_gpu = false in [llm] to allow this", cfg.llm.model)
+            return 78  # RestartPreventExitStatus in the unit file
     Service(cfg).run()
     return 0
 

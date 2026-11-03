@@ -88,6 +88,17 @@ class LLM:
     def ping(self) -> str:
         return self.chat("Reply with the single word OK.", "Are you there?")
 
+    def on_cpu_only(self) -> bool:
+        """True if Ollama has the chat model loaded with nothing in GPU memory."""
+        try:
+            url = self.cfg.base_url.removesuffix("/v1") + "/api/ps"
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                models = json.load(resp)["models"]
+        except Exception:  # not Ollama (e.g. llama.cpp) or unreachable: can't tell
+            return False
+        names = {self.cfg.model, self.cfg.model + ":latest"}
+        return any(m.get("name") in names and not m.get("size_vram") for m in models)
+
 
 def extract_json(text: str):
     """Parse JSON from model output, tolerating code fences and surrounding prose."""

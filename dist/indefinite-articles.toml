@@ -51,6 +51,8 @@ max_prompt_chars = 12000         # ~3k tokens per scoring request (one article e
                                  # prompts set OLLAMA_CONTEXT_LENGTH=16384 for ollama.service
                                  # and raise this to ~50000.
 temperature = 0.2
+require_gpu = true               # don't start if Ollama runs the model on the CPU only
+                                 # (no compatible GPU). Can't be checked with llama.cpp.
 
 [email]
 to = "you@example.com"           # where digests are sent; replies from here are read

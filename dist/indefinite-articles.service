@@ -11,6 +11,8 @@ Group=indefinite-articles
 ExecStart=/usr/bin/indefinite-articles --config /etc/indefinite-articles/indefinite-articles.toml run
 Restart=on-failure
 RestartSec=30s
+# 78: the LLM is running on the CPU only (no compatible GPU); don't keep retrying
+RestartPreventExitStatus=78
 TimeoutStopSec=30s
 StateDirectory=indefinite-articles
 StateDirectoryMode=0750

@@ -40,7 +40,7 @@ The packages are written to `build/rpmbuild/RPMS/noarch/` and `build/rpmbuild/SR
 sudo dnf install ./indefinite-articles-0.4.0-1.fc44.noarch.rpm
 
 # 1. A local LLM (Ollama is in the Fedora repos)
-sudo dnf install ollama
+sudo dnf install ollama ollama-rocm     # ollama-rocm: AMD GPUs, including integrated Radeon
 sudo systemctl enable --now ollama
 ollama pull qwen2.5:14b                 # ~9 GB; or qwen2.5:32b, gemma2:27b, llama3.1:8b ...
 ollama pull nomic-embed-text            # small (274 MB) model for the first-pass ranking
@@ -93,6 +93,10 @@ podman logs -f indefinite-articles
   on the host. Without it, point `base_url` at `http://host.containers.internal:11434/v1`
   and make Ollama listen on more than localhost (`OLLAMA_HOST=0.0.0.0`).
 * `digest_time` uses the container's time zone, so set `TZ`.
+* The container doesn't need the GPU, but the host's Ollama must be using it, or the
+  service exits at startup (`require_gpu`). For integrated Radeon GPUs, install
+  `ollama-rocm` on the host and add `Environment=OLLAMA_IGPU_ENABLE=1` with
+  `sudo systemctl edit ollama`. The RPM does this for you; the image can't.
 * The other commands work the same way: `podman exec indefinite-articles indefinite-articles status`.
 
 To run it under systemd, save this as
@@ -113,6 +117,10 @@ AutoUpdate=registry
 
 [Service]
 Restart=on-failure
+# Wait for Ollama to come up instead of giving up after 5 quick retries.
+RestartSec=30s
+# 78: the model is running on the CPU only (no usable GPU); don't keep retrying.
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=default.target
