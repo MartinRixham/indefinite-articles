@@ -37,8 +37,9 @@ def _blurb(a, limit=280) -> str:
     return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
-def build_digest(cfg, items, token: str, note: str = "") -> EmailMessage:
-    """items: list of (article_row, exploratory)."""
+def build_digest(cfg, items, token: str, note: str = "",
+                 debug: list[str] | None = None) -> EmailMessage:
+    """items: list of (article_row, exploratory). debug: lines appended after the footer."""
     today = datetime.now().strftime("%A %d %B %Y")
     msg = EmailMessage()
     msg["Subject"] = f"Your reading list for {today} [{TOKEN_PREFIX}{token}]"
@@ -61,6 +62,8 @@ def build_digest(cfg, items, token: str, note: str = "") -> EmailMessage:
             lines.append(f"   {_blurb(a)}")
         lines.append("")
     lines += ["--", INSTRUCTIONS, "", f"digest-id: {TOKEN_PREFIX}{token}"]
+    if debug:
+        lines += ["", "-- debug --", *debug]
     msg.set_content("\n".join(lines))
 
     e = html.escape
@@ -88,8 +91,14 @@ def build_digest(cfg, items, token: str, note: str = "") -> EmailMessage:
         "<hr style='border:none;border-top:1px solid #ddd'>"
         f"<pre style='font-size:13px;color:#555;white-space:pre-wrap'>{e(INSTRUCTIONS)}</pre>"
         f"<p style='font-size:11px;color:#aaa'>digest-id: {TOKEN_PREFIX}{token}</p>"
-        "</body></html>"
     )
+    if debug:
+        parts.append(
+            "<details><summary style='font-size:11px;color:#aaa'>debug</summary>"
+            f"<pre style='font-size:11px;color:#888;white-space:pre-wrap'>{e(chr(10).join(debug))}</pre>"
+            "</details>"
+        )
+    parts.append("</body></html>")
     msg.add_alternative("".join(parts), subtype="html")
     return msg
 

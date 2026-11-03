@@ -254,6 +254,22 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(db.conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0], 0)
             db.close()
 
+    def test_debug_info_appended(self):
+        self._load_articles()
+        msg = daemon.send_digest(self.cfg, self.db, self.llm, dry_run=True)
+        body = msg.get_body(preferencelist=("plain",)).get_content()
+        self.assertIn("-- debug --", body)
+        self.assertIn("selection:", body)
+        self.assertLess(body.index("digest-id:"), body.index("-- debug --"))
+        self.assertIn("debug</summary>", msg.get_body(preferencelist=("html",)).get_content())
+        # Replies quoting the debug table must not be read as ratings.
+        from indefinite_articles import replies
+        self.assertNotIn("selection:", replies.strip_quoted("+1\n\n" + body))
+
+        self.cfg.email.debug_info = False
+        msg = daemon.send_digest(self.cfg, self.db, self.llm, dry_run=True)
+        self.assertNotIn("-- debug --", msg.get_body(preferencelist=("plain",)).get_content())
+
     def test_llm_down_falls_back(self):
         self._load_articles()
         self.cfg.llm.base_url = "http://127.0.0.1:1/v1"

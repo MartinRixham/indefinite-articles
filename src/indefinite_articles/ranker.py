@@ -184,10 +184,11 @@ def _source_bonus(stats: dict, source: str) -> float:
     return 3.0 * (rate - 0.5)
 
 
-def select(cfg, db, rng: random.Random | None = None):
+def select(cfg, db, rng: random.Random | None = None, debug: dict | None = None):
     """Choose the digest: top-ranked articles plus a few exploratory picks.
 
-    Returns a list of (article_row, exploratory: bool).
+    Returns a list of (article_row, exploratory: bool). If `debug` is a dict it is
+    filled with candidate counts and each candidate's score breakdown.
     """
     rng = rng or random.Random()
     cands = shortlist(cfg, db)
@@ -207,17 +208,28 @@ def select(cfg, db, rng: random.Random | None = None):
             return 4.0
         return 2.0 + 4.0 * bisect.bisect_left(pre, a["prefilter"]) / len(pre)
 
-    def final(a):
+    def breakdown(a) -> dict:
+        bonus = _source_bonus(stats, a["source"])
         if a["score"] is None:
-            return fallback(a) + _source_bonus(stats, a["source"])
+            base = fallback(a)
+            return {"llm": None, "base": base, "bonus": bonus, "final": base + bonus}
         # The LLM score, nudged (by up to ±2) by the embedding rank, so that a single
         # over-enthusiastic LLM score can't put an unrelated article at the top.
         agree = 0.0
         if a["prefilter"] is not None and pre:
             agree = 4.0 * bisect.bisect_left(pre, a["prefilter"]) / len(pre) - 2.0
-        return a["score"] + agree + _source_bonus(stats, a["source"])
+        return {"llm": a["score"], "base": agree, "bonus": bonus,
+                "final": a["score"] + agree + bonus}
 
-    ranked = sorted(cands, key=final, reverse=True)
+    parts = {a["id"]: breakdown(a) for a in cands}
+    ranked = sorted(cands, key=lambda a: parts[a["id"]]["final"], reverse=True)
+    if debug is not None:
+        debug["candidates"] = len(cands)
+        debug["llm_scored"] = sum(a["score_profile_id"] == profile["id"] for a in cands)
+        debug["stale_scored"] = sum(a["score"] is not None and a["score_profile_id"] != profile["id"]
+                                    for a in cands)
+        debug["scores"] = parts
+        debug["rank"] = {a["id"]: i for i, a in enumerate(ranked, start=1)}
     n = cfg.articles_per_digest
     n_explore = min(cfg.exploration, max(0, n - 1))
     per_source: dict[str, int] = {}

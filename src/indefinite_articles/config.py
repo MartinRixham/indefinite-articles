@@ -57,6 +57,7 @@ class EmailConfig:
     processed_folder: str = ""
     allowed_senders: list[str] = field(default_factory=list)
     send_acknowledgement: bool = True
+    debug_info: bool = True  # append pipeline/scoring diagnostics to each digest
 
 
 @dataclass
@@ -158,6 +159,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
         [cfg.email.to.lower()] if cfg.email.to else []
     )
     cfg.email.send_acknowledgement = bool(e.get("send_acknowledgement", True))
+    cfg.email.debug_info = bool(e.get("debug_info", True))
 
     feeds: list[Feed] = []
     for f in raw.get("feeds", []):

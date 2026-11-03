@@ -57,6 +57,7 @@ to = "you@example.com"           # where digests are sent; replies from here are
 from = "indefinite-articles@example.com"
 # allowed_senders = ["you@example.com", "you@work.example"]   # default: [to]
 send_acknowledgement = true      # reply with what was understood from your feedback
+debug_info = true                # append diagnostics (feeds, LLM, scores) to each digest
 
 [email.smtp]
 host = "smtp.example.com"
