@@ -18,7 +18,7 @@ tarball:
 srpm: tarball
 	rpmbuild --define "_topdir $(TOPDIR)" -bs packaging/$(NAME).spec
 
-# Needs: sudo dnf install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros
+# Needs: sudo dnf install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros python3-numpy
 rpm: tarball
 	rpmbuild --define "_topdir $(TOPDIR)" -ba packaging/$(NAME).spec
 	@find $(TOPDIR)/RPMS $(TOPDIR)/SRPMS -name '*.rpm'
@@ -27,7 +27,7 @@ rpm: tarball
 FEDORA ?= 44
 container-rpm:
 	podman run --rm -v $(CURDIR):/src:Z -w /src registry.fedoraproject.org/fedora:$(FEDORA) \
-	  bash -c 'dnf -y -q install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros make tar python3-setuptools \
+	  bash -c 'dnf -y -q install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros python3-numpy make tar python3-setuptools \
 	           && make rpm'
 
 clean:

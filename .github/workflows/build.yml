@@ -16,17 +16,12 @@ concurrency:
 
 jobs:
   test:
-    name: Test (Python ${{ matrix.python }}${{ matrix.numpy && ', numpy' || '' }})
+    name: Test (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python: ["3.11", "3.12", "3.13", "3.14"]
-        numpy: [false]
-        include:
-          # numpy is optional (speeds up the embedding pre-filter); test that path too.
-          - python: "3.14"
-            numpy: true
     steps:
       - uses: actions/checkout@v5
 
@@ -35,7 +30,6 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Install numpy
-        if: matrix.numpy
         run: python -m pip install numpy
 
       - name: Run tests
@@ -57,7 +51,7 @@ jobs:
       - name: Install build tools
         run: >
           dnf -y -q install rpm-build rpmlint python3-devel pyproject-rpm-macros
-          systemd-rpm-macros python3-setuptools make tar
+          systemd-rpm-macros python3-setuptools python3-numpy make tar
 
       - uses: actions/checkout@v5
 

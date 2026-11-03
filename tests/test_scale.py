@@ -183,20 +183,38 @@ class PrefilterTests(unittest.TestCase):
         cfg.llm.embedding_model = "other-model"
         self.assertEqual(embed.embed_new(cfg, db, llm), 6)
 
-    def test_numpy_and_python_scores_agree(self):
-        if embed.np is None:
-            self.skipTest("numpy not installed")
+    def _rate(self, db, source, rating, n=6):
+        ids = [r["id"] for r in db.conn.execute(
+            "SELECT id FROM articles WHERE source=? LIMIT ?", (source, n))]
+        for i in ids:
+            db.conn.execute("UPDATE articles SET sent_digest_id=1 WHERE id=?", (i,))
+            db.add_feedback(i, rating, "")
+        db.conn.commit()
+
+    def test_classifier_learns_from_ratings(self):
+        cfg, db, llm = self._cfg(), self._db(), self._llm()
+        cfg.interests = "anything"
+        embed.embed_new(cfg, db, llm)
+        self._rate(db, "Garden", 1)
+        self._rate(db, "Celeb News", -1, n=4)  # too few dislikes: nearest-neighbour scoring
+        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
+        self.assertEqual(db.get_state("classifier"), "")
+        self._rate(db, "Celeb News", -1)
+        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
+        self.assertNotEqual(db.get_state("classifier"), "")
+        self.assertEqual(db.get_state("classifier_info"), "6:6")
+        ranked = sorted(db.pool(3), key=lambda a: a["prefilter"], reverse=True)
+        self.assertEqual(ranked[0]["source"], "Garden")
+        self.assertEqual(ranked[-1]["source"], "Celeb News")
+
+    def test_classifier_separates_training_data(self):
         from test_indefinite_articles import fake_embedding
-        vecs = [embed.pack(fake_embedding(t)) for t in ("rust code", "garden soil", "rust garden")]
-        wanted = [embed.pack(fake_embedding("rust compilers")), embed.pack(fake_embedding("tomatoes"))]
-        unwanted = [embed.pack(fake_embedding("garden"))]
-        likes = [embed.pack(fake_embedding("soil compost")), embed.pack(fake_embedding("code"))]
-        dis = [embed.pack(fake_embedding("gossip"))]
-        for args in ((wanted, unwanted, likes, dis), (wanted, [], [], [])):
-            a = embed._scores_numpy(vecs, *args)
-            b = embed._scores_python(vecs, *args)
-            for x, y in zip(a, b):
-                self.assertAlmostEqual(x, y, places=5)
+        texts = ["rust code compilers", "rust borrow checker", "systems code",
+                 "garden soil", "tomatoes compost", "celebrity gossip"]
+        vecs = [embed.pack(fake_embedding(t)) for t in texts]
+        w, b = embed.train_classifier(vecs, [1, 1, 1, 0, 0, 0], [0, 30, 400, 10, 0, 900])
+        p = embed.predict(vecs, w, b)
+        self.assertTrue(all(x > 0.5 for x in p[:3]) and all(x < 0.5 for x in p[3:]))
 
     def test_split_profile(self):
         likes, avoid = embed.split_profile(

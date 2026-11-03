@@ -2,30 +2,34 @@
 
 With hundreds of feeds there are thousands of new articles a day, far more than a
 local LLM can read. Every article is embedded (a few milliseconds each with a small
-embedding model) and compared with the reader profile and with articles the reader
-liked and disliked. Only the best matches, plus a few random ones, go on to full-text
-fetching and LLM scoring.
+embedding model) and compared with the reader profile. Once the reader has rated
+enough articles, a small logistic-regression classifier trained on the embeddings of
+every rated article adds what it has learned; before that, articles are compared with
+the most recent likes and dislikes. Only the best matches, plus a few random ones, go
+on to full-text fetching and LLM scoring.
 """
 
 from __future__ import annotations
 
 import base64
 import logging
-import math
 import re
-from array import array
+import time
+
+import numpy as np
 
 from .llm import LLM, LLMError
 
-try:  # optional: ~50x faster scoring for large pools
-    import numpy as np
-except ImportError:  # pragma: no cover
-    np = None
-
 log = logging.getLogger(__name__)
 
-N_LIKES = 20      # most recent liked/disliked articles compared against
-N_DISLIKES = 20
+N_LIKES = 20      # most recent liked/disliked articles compared against, until the
+N_DISLIKES = 20   #   classifier has enough ratings to take over
+MIN_PER_CLASS = 5           # likes and dislikes each needed to train the classifier
+MAX_TRAIN = 5000            # most recent ratings used for training
+EPOCHS = 100                # full-batch gradient descent steps
+L2 = 1e-3                   # weight decay; also keeps probabilities modest with little data
+HALF_LIFE_DAYS = 365        # older ratings count less, as tastes drift
+CLASSIFIER_WEIGHT = 0.5     # weight of (probability - 0.5) next to the profile match
 MAX_PHRASES = 12  # per side, from the reader profile
 DEFAULT_WANTED = "substantive, well-written, informative articles"
 
@@ -48,19 +52,10 @@ _CLAUSES = re.compile(r"\n+|(?<=[.!?;])\s+|,?\s+\b(?:but|except|however|whereas|
                       re.I)
 
 
-def _normalise(v) -> array:
-    norm = math.sqrt(sum(x * x for x in v)) or 1.0
-    return array("f", (x / norm for x in v))
-
-
 def pack(v) -> bytes:
-    return _normalise(v).tobytes()
-
-
-def unpack(b: bytes) -> array:
-    a = array("f")
-    a.frombytes(b)
-    return a
+    """Unit-length float32 bytes, as stored in the embeddings table."""
+    a = np.asarray(v, dtype=np.float32)
+    return (a / (np.linalg.norm(a) or 1.0)).astype(np.float32).tobytes()
 
 
 def article_text(a) -> str:
@@ -125,57 +120,107 @@ def embed_new(cfg, db, llm: LLM, stop=None, limit: int = 20000) -> int:
     return done
 
 
-def _max_sims_numpy(m, refs):
+def _max_sims(m, refs):
     if not refs:
         return np.zeros(len(m), dtype=np.float32)
     return (m @ np.frombuffer(b"".join(refs), dtype=np.float32).reshape(len(refs), -1).T).max(axis=1)
 
 
-def _scores_numpy(vecs, wanted, unwanted, likes, dislikes):
+def _scores(vecs, wanted, unwanted, likes, dislikes):
     m = np.frombuffer(b"".join(vecs), dtype=np.float32).reshape(len(vecs), -1)
-    p = _max_sims_numpy(m, wanted) - 0.5 * _max_sims_numpy(m, unwanted)
+    p = _max_sims(m, wanted) - 0.5 * _max_sims(m, unwanted)
     if likes:
         sims = m @ np.frombuffer(b"".join(likes), dtype=np.float32).reshape(len(likes), -1).T
         k = min(2, sims.shape[1])
         liked = np.sort(sims, axis=1)[:, -k:].mean(axis=1)
     else:
         liked = p
-    disliked = _max_sims_numpy(m, dislikes)
+    disliked = _max_sims(m, dislikes)
     return (0.4 * p + 0.6 * liked - 0.4 * disliked).tolist()
 
 
-def _scores_python(vecs, wanted, unwanted, likes, dislikes):
-    wv = [unpack(b) for b in wanted]
-    uv = [unpack(b) for b in unwanted]
-    lv = [unpack(b) for b in likes]
-    dv = [unpack(b) for b in dislikes]
-    dot = lambda a, b: math.fsum(map(float.__mul__, a, b))
-    out = []
-    for b in vecs:
-        v = unpack(b)
-        p = (max((dot(v, x) for x in wv), default=0.0)
-             - 0.5 * max((dot(v, x) for x in uv), default=0.0))
-        if lv:
-            sims = sorted((dot(v, x) for x in lv), reverse=True)[:2]
-            liked = sum(sims) / len(sims)
-        else:
-            liked = p
-        disliked = max((dot(v, x) for x in dv), default=0.0)
-        out.append(0.4 * p + 0.6 * liked - 0.4 * disliked)
-    return out
-
-
 def score(vecs, wanted, unwanted, likes, dislikes):
-    """Pre-filter score of each article vector.
+    """Pre-filter score of each article vector, used before the classifier is trained.
 
     `wanted`/`unwanted` are the profile's phrases (an article is judged by its closest
     phrase on each side); `likes`/`dislikes` are articles the reader rated.
     """
     if not vecs:
         return []
-    if np is not None:
-        return _scores_numpy(vecs, wanted, unwanted, likes, dislikes)
-    return _scores_python(vecs, wanted, unwanted, likes, dislikes)
+    return _scores(vecs, wanted, unwanted, likes, dislikes)
+
+
+# -- classifier ----------------------------------------------------------------
+
+def _sample_weights(labels, ages_days) -> list[float]:
+    """Each class gets half the total weight (likes usually outnumber dislikes), and
+    within a class older ratings count less."""
+    decay = [0.5 ** (max(0.0, a) / HALF_LIFE_DAYS) for a in ages_days]
+    tot = {c: sum(d for d, y in zip(decay, labels) if y == c) for c in (0, 1)}
+    return [0.5 * d / tot[y] for d, y in zip(decay, labels)]
+
+
+def _train(vecs, labels, weights):
+    x = np.frombuffer(b"".join(vecs), dtype=np.float32).reshape(len(vecs), -1).astype(np.float64)
+    y = np.asarray(labels, dtype=np.float64)
+    s = np.asarray(weights, dtype=np.float64)
+    mu = x.mean(axis=0)
+    xc = x - mu
+    lr = 1.0 / (0.25 * (float((xc * xc).sum(axis=1).max()) + 1.0) + L2)
+    w, b = np.zeros(x.shape[1]), 0.0
+    for _ in range(EPOCHS):
+        z = np.clip(xc @ w + b, -30, 30)
+        g = s * (1.0 / (1.0 + np.exp(-z)) - y)
+        w -= lr * (xc.T @ g + L2 * w)
+        b -= lr * float(g.sum())
+    return w, b - float(w @ mu)
+
+
+def train_classifier(vecs, labels, ages_days):
+    """L2-regularised logistic regression from article vectors to like (1) / dislike (0).
+
+    Features are centred (embeddings all point in roughly the same direction) and the
+    two classes weighted equally. Returns (weights, bias) for the uncentred vectors,
+    so prediction is a single dot product.
+    """
+    return _train(vecs, labels, _sample_weights(labels, ages_days))
+
+
+def predict(vecs, w, b) -> list[float]:
+    """Probability that the reader likes each article."""
+    if not vecs:
+        return []
+    m = np.frombuffer(b"".join(vecs), dtype=np.float32).reshape(len(vecs), -1)
+    z = np.clip(m.astype(np.float64) @ np.asarray(w) + b, -30, 30)
+    return (1.0 / (1.0 + np.exp(-z))).tolist()
+
+
+def profile_match(vecs, wanted, unwanted) -> list[float]:
+    """How well each article matches the profile's phrases (closest phrase on each side).
+
+    With no rated articles, `score` reduces to exactly this match.
+    """
+    return score(vecs, wanted, unwanted, [], [])
+
+
+def score_with_classifier(vecs, wanted, unwanted, w, b) -> list[float]:
+    p = profile_match(vecs, wanted, unwanted)
+    return [x + CLASSIFIER_WEIGHT * (q - 0.5) for x, q in zip(p, predict(vecs, w, b))]
+
+
+def fit_from_db(db, dim: int):
+    """Train on the reader's ratings. Returns (weights, bias, n_likes, n_dislikes);
+    weights is None when there are too few of either."""
+    rows = [r for r in db.training_vectors(MAX_TRAIN) if len(r["vec"]) == dim]
+    labels = [1 if r["rating"] > 0 else 0 for r in rows]
+    n_like = sum(labels)
+    n_dislike = len(labels) - n_like
+    if n_like < MIN_PER_CLASS or n_dislike < MIN_PER_CLASS:
+        return None, 0.0, n_like, n_dislike
+    now = time.time()
+    w, b = train_classifier([r["vec"] for r in rows], labels,
+                            [(now - r["received_at"]) / 86400 for r in rows])
+    return w, b, n_like, n_dislike
 
 
 def _join(vs: list[bytes]) -> str:
@@ -211,6 +256,17 @@ def update_prefilter(cfg, db, llm: LLM, profile) -> int:
             db.set_state("profile_dim", str(dim))
             db.set_state("profile_phrases_for", phrases_for)
             db.conn.commit()
+        w, b, n_like, n_dislike = fit_from_db(db, dim)
+        if w is None:
+            db.set_state("classifier", "")
+            log.info("classifier needs %d likes and %d dislikes (have %d and %d); "
+                     "comparing with recent ratings instead",
+                     MIN_PER_CLASS, MIN_PER_CLASS, n_like, n_dislike)
+        else:
+            db.set_state("classifier", _join([np.asarray(w, dtype=np.float32).tobytes()]))
+            db.set_state("classifier_bias", repr(b))
+            log.info("classifier trained on %d likes and %d dislikes", n_like, n_dislike)
+        db.set_state("classifier_info", f"{n_like}:{n_dislike}")
         version += 1
         db.set_state("prefilter_version", str(version))
         db.set_state("prefilter_sig", sig)
@@ -221,10 +277,18 @@ def update_prefilter(cfg, db, llm: LLM, profile) -> int:
     unwanted = _split(db.get_state("profile_unwanted", ""), dim)
     # Ignore vectors from a different model (e.g. after changing embedding_model).
     todo = [r for r in todo if len(r["vec"]) == dim]
-    likes = [v for v in db.rated_vectors(1, N_LIKES) if len(v) == dim]
-    dislikes = [v for v in db.rated_vectors(-1, N_DISLIKES) if len(v) == dim]
-    scores = score([r["vec"] for r in todo], wanted, unwanted, likes, dislikes)
+    vecs = [r["vec"] for r in todo]
+    model = db.get_state("classifier", "")
+    if model:
+        w = np.frombuffer(base64.b64decode(model), dtype=np.float32)
+        scores = score_with_classifier(vecs, wanted, unwanted, w,
+                                       float(db.get_state("classifier_bias", "0")))
+        log.info("pre-filter scored %d articles with the classifier", len(todo))
+    else:
+        likes = [v for v in db.rated_vectors(1, N_LIKES) if len(v) == dim]
+        dislikes = [v for v in db.rated_vectors(-1, N_DISLIKES) if len(v) == dim]
+        scores = score(vecs, wanted, unwanted, likes, dislikes)
+        log.info("pre-filter scored %d articles (%d likes, %d dislikes as reference)",
+                 len(todo), len(likes), len(dislikes))
     db.set_prefilter([(s, version, r["id"]) for s, r in zip(scores, todo)])
-    log.info("pre-filter scored %d articles (%d likes, %d dislikes as reference)",
-             len(todo), len(likes), len(dislikes))
     return len(todo)

@@ -15,8 +15,6 @@ BuildRequires:  systemd-rpm-macros
 
 # Any OpenAI-compatible local server works; Ollama is the default configuration.
 Recommends:     (ollama or llama-cpp)
-# Speeds up the embedding pre-filter ~50x; pure Python is used without it.
-Recommends:     python3-numpy
 
 %description
 indefinite-articles is a service that reads RSS/Atom feeds, ranks new articles

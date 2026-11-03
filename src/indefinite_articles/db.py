@@ -212,6 +212,13 @@ class DB:
             "SELECT e.vec FROM feedback f JOIN embeddings e ON e.article_id = f.article_id "
             "WHERE f.rating = ? ORDER BY f.received_at DESC LIMIT ?", (rating, limit))]
 
+    def training_vectors(self, limit: int) -> list[sqlite3.Row]:
+        """(vec, rating, received_at) of the most recently liked or disliked articles."""
+        return self.conn.execute(
+            "SELECT e.vec, f.rating, f.received_at FROM feedback f "
+            "JOIN embeddings e ON e.article_id = f.article_id WHERE f.rating != 0 "
+            "ORDER BY f.received_at DESC LIMIT ?", (limit,)).fetchall()
+
     def prefilter_todo(self, max_age_days: int, version: int):
         cutoff = time.time() - max_age_days * 86400
         return self.conn.execute(

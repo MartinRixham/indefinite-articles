@@ -8,8 +8,10 @@ How it works:
 1. Every hour it fetches about 500 RSS/Atom feeds across 31 categories, plus any you add,
    and saves new articles to SQLite. That's typically a few thousand articles a day.
 2. A small embedding model gives every article a quick first-pass rank against your
-   reader profile and the articles you liked and disliked. Only the best ~150 (plus some
-   random picks, so it keeps learning) go on to the next steps.
+   reader profile and the articles you liked and disliked. Once you have rated at least
+   5 of each, a small classifier trained on every rating you have given (newer ones count
+   more) does the like/dislike part. Only the best ~150 (plus some random picks, so it
+   keeps learning) go on to the next steps.
 3. For those, it downloads the page and extracts the article text. A local LLM
    (Ollama or llama.cpp) then reads each one and scores it from 0 to 10, using your
    *reader profile* plus your latest likes and dislikes.
@@ -19,15 +21,14 @@ How it works:
    dislikes and comments, and the LLM rewrites your reader profile. It can reply
    to confirm what it understood.
 
-It uses only the Python standard library. The only other thing it needs is a local
-LLM server.
+It needs only Python, numpy and a local LLM server.
 
 ## Build the RPM
 
 ```sh
 make container-rpm        # builds in a clean Fedora container with podman, no root needed
 # or, on a Fedora machine with build tools installed:
-sudo dnf install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros
+sudo dnf install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros python3-numpy
 make rpm
 ```
 
@@ -177,7 +178,6 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
   so Ollama and llama-server reuse their cached work and only process the article itself:
   a 14B model on CPU takes roughly 10–30 s per article. With about 150 articles a day that
   runs in the background after each hourly fetch, so the digest goes out quickly. With no GPU, lower `max_candidates` or use a smaller model (`llama3.1:8b` or `qwen2.5:3b`).
-  Installing `python3-numpy` makes the first-pass rank much faster.
 * **No embedding model?** Set `embedding_model = ""` and it falls back to the newest
   articles, balanced across sources. With hundreds of feeds, that misses most of the
   good articles.

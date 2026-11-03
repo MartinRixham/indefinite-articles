@@ -11,7 +11,7 @@ ARG FEDORA=44
 # The RPM is noarch: build it once on the native platform, even for multi-arch images.
 FROM --platform=$BUILDPLATFORM registry.fedoraproject.org/fedora:${FEDORA} AS build
 ENV LANG=C.UTF-8
-RUN dnf -y -q install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros \
+RUN dnf -y -q install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros python3-numpy \
         python3-setuptools make tar \
     && dnf clean all
 WORKDIR /src
@@ -26,7 +26,7 @@ LABEL org.opencontainers.image.title="indefinite-articles" \
 
 RUN --mount=type=bind,from=build,source=/src/build/rpmbuild/RPMS/noarch,target=/rpms \
     dnf -y install --setopt=install_weak_deps=False \
-        /rpms/indefinite-articles-*.noarch.rpm python3-numpy tzdata \
+        /rpms/indefinite-articles-*.noarch.rpm tzdata \
     && dnf clean all \
     && rm -rf /var/cache/* /var/log/dnf*
 

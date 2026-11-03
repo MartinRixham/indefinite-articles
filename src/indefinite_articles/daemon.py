@@ -45,6 +45,14 @@ def _ago(ts) -> str:
     return f"{mins}m ago" if mins < 120 else f"{mins // 60}h ago"
 
 
+def _classifier_status(db: DB) -> str:
+    likes, _, dislikes = db.get_state("classifier_info", "0:0").partition(":")
+    if db.get_state("classifier", ""):
+        return f"classifier: trained on {likes} likes / {dislikes} dislikes"
+    return (f"classifier: not trained yet ({likes} likes / {dislikes} dislikes with embeddings;"
+            f" needs {embed.MIN_PER_CLASS} of each)")
+
+
 def debug_report(cfg, db: DB, items, info: dict) -> list[str]:
     """Plain-text diagnostics appended to the digest: pipeline health and why each item was picked."""
     sel = info.get("select", {})
@@ -70,6 +78,7 @@ def debug_report(cfg, db: DB, items, info: dict) -> list[str]:
         f"profile: v{profile['id'] if profile else '-'} ({profile['note'] if profile else ''}),"
         f" {len(fb)} ratings + {len(comments)} comments pending",
         f"feedback total: +{st['likes']} / -{st['dislikes']}, {st['digests']} digests sent",
+        _classifier_status(db),
         "timings: " + ", ".join(f"{k} {v:.1f}s" for k, v in t.items()),
         "",
         "#   rank  final =   llm + adj  + src   text      source",
