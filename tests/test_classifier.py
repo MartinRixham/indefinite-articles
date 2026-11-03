@@ -7,7 +7,7 @@ from indefinite_articles.classifier import Classifier
 from indefinite_articles.database import Database
 
 
-def unit(*values) -> bytes:
+def unit(*values: float) -> bytes:
     return embed.pack(list(values))
 
 

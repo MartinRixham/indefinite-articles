@@ -17,7 +17,7 @@ class StubLLM:
         self.reply = reply
         self.prompts: list[str] = []
 
-    def chat_json(self, system, user):
+    def chat_json(self, system: str, user: str):
         self.prompts.append(user)
         return self.reply
 
@@ -40,7 +40,7 @@ mutable access is exclusive.</p>
 
 
 class Page(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object):
         pass
 
     def do_GET(self):
@@ -107,8 +107,8 @@ class ExtractTests(unittest.TestCase):
         config.allow_private_addresses = True
         database = Database(":memory:")
         self.addCleanup(database.close)
-        database.add_article(self.base + "/a", "Borrow checker", "borrowchecker", "Feed blurb.", "S", None)
-        database.add_article(self.base + "/b.pdf", "A paper", "apaper", "Abstract text.", "S", None)
+        database.add_article(feeds.Entry(self.base + "/a", "Borrow checker", "Feed blurb.", None), "S")
+        database.add_article(feeds.Entry(self.base + "/b.pdf", "A paper", "Abstract text.", None), "S")
         database.connection.commit()
         self.assertEqual(extract.enrich_candidates(config, database), 1)
         rows = {row["title"]: row for row in database.candidates(3, 10)}

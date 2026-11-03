@@ -19,7 +19,7 @@ FEED = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
 class FeedServer(BaseHTTPRequestHandler):
     hits: list = []
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object):
         pass
 
     def do_GET(self):
@@ -130,7 +130,7 @@ class PrefilterTests(unittest.TestCase):
         config.interests = "rust compilers systems programming"
         return config
 
-    def _database(self, per_topic=30):
+    def _database(self, per_topic: int = 30):
         database = Database(":memory:")
         self.addCleanup(database.close)
         topics = {"Rust Weekly": "rust compilers borrow checker systems programming",
@@ -138,8 +138,8 @@ class PrefilterTests(unittest.TestCase):
                   "Garden": "tomatoes compost garden soil"}
         for source, words in topics.items():
             for index in range(per_topic):
-                database.add_article(f"https://{source}/{index}", f"{words} {index}", f"{source}{index}",
-                                     words, source, None)
+                database.add_article(feeds.Entry(f"https://{source}/{index}", f"{words} {index}", words, None),
+                                     source)
         database.connection.commit()
         return database
 
@@ -188,7 +188,7 @@ class PrefilterTests(unittest.TestCase):
         config.llm.embedding_model = "other-model"
         self.assertEqual(embed.embed_new(config, database, llm), 6)
 
-    def _rate(self, database, source, rating, count=6):
+    def _rate(self, database: Database, source: str, rating: int, count: int = 6):
         ids = [row["id"] for row in database.connection.execute(
             "SELECT id FROM articles WHERE source=? LIMIT ?", (source, count))]
         for article_id in ids:
@@ -245,11 +245,11 @@ class PrefilterTests(unittest.TestCase):
     def test_profile_phrases_prefers_llm_split(self):
         llm = self._llm()
         llm.chat_json.return_value = {"likes": ["rust compilers"], "avoid": ["celebrity gossip"]}
-        self.assertEqual(embed.profile_phrases(llm, "whatever"),
-                         embed.ProfilePhrases(["rust compilers"], ["celebrity gossip"]))
+        phrases = embed.profile_phrases(llm, "whatever")
+        self.assertEqual((phrases.wanted, phrases.unwanted), (["rust compilers"], ["celebrity gossip"]))
         llm.chat_json.return_value = {"oops": 1}  # unusable answer: keyword split
-        self.assertEqual(embed.profile_phrases(llm, "Likes rust. Avoids gossip."),
-                         embed.ProfilePhrases(["Likes rust"], ["Avoids gossip"]))
+        phrases = embed.profile_phrases(llm, "Likes rust. Avoids gossip.")
+        self.assertEqual((phrases.wanted, phrases.unwanted), (["Likes rust"], ["Avoids gossip"]))
 
 
 if __name__ == "__main__":

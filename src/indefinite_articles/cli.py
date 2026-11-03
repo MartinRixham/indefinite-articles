@@ -5,9 +5,10 @@ import email
 import email.policy
 import logging
 import sys
+from collections.abc import Sequence
 
 from . import __version__, extract, feeds, inbox, mailer, ranker
-from .config import DEFAULT_CONFIG_PATH, ConfigError, load as load_config
+from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load as load_config
 from .database import Database, SourceStatistics
 from .llm import LLM, LLMError
 
@@ -21,7 +22,7 @@ def _setup_logging(verbose: bool):
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format=log_format)
 
 
-def command_run(config, args):
+def command_run(config: Config, args: argparse.Namespace):
     from .daemon import Service
     problems = config.problems()
     for problem in problems:
@@ -44,7 +45,7 @@ def command_run(config, args):
     return 0
 
 
-def command_fetch(config, args):
+def command_fetch(config: Config, args: argparse.Namespace):
     from .daemon import prefilter, refresh
     with Database(config.database) as database:
         llm = LLM(config.llm)
@@ -56,7 +57,7 @@ def command_fetch(config, args):
         return 0
 
 
-def command_feeds(config, args):
+def command_feeds(config: Config, args: argparse.Namespace):
     """List configured feeds with their health."""
     import time
     with Database(config.database) as database:
@@ -94,7 +95,7 @@ def command_feeds(config, args):
         return 0
 
 
-def command_digest(config, args):
+def command_digest(config: Config, args: argparse.Namespace):
     from .daemon import send_digest
     with Database(config.database) as database:
         message = send_digest(config, database, dry_run=args.dry_run)
@@ -108,7 +109,7 @@ def command_digest(config, args):
         return 0
 
 
-def command_poll(config, args):
+def command_poll(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         llm = LLM(config.llm)
         print(f"processed {inbox.poll(config, database, llm)} replies")
@@ -117,7 +118,7 @@ def command_poll(config, args):
         return 0
 
 
-def command_feedback(config, args):
+def command_feedback(config: Config, args: argparse.Namespace):
     """Process a reply saved as an .eml file (or stdin) without IMAP."""
     with Database(config.database) as database:
         llm = LLM(config.llm)
@@ -135,7 +136,7 @@ def command_feedback(config, args):
         return 0 if result.status == "ok" else 1
 
 
-def command_profile(config, args):
+def command_profile(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         if args.set:
             database.add_profile(args.set, note="set manually")
@@ -151,13 +152,13 @@ def command_profile(config, args):
         return 0
 
 
-def command_extract(config, args):
+def command_extract(config: Config, args: argparse.Namespace):
     """Show what the LLM would see for a URL."""
     print(extract.fetch_page(args.url, config.article_chars, config.allow_private_addresses))
     return 0
 
 
-def command_status(config, args):
+def command_status(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         for key, value in database.statistics().items():
             print(f"{key:18} {value}")
@@ -165,7 +166,7 @@ def command_status(config, args):
         return 0
 
 
-def command_check(config, args):
+def command_check(config: Config, args: argparse.Namespace):
     ok = True
     for problem in config.problems():
         print(f"[warn] config: {problem}")
@@ -216,7 +217,7 @@ def command_check(config, args):
     return 0 if ok else 1
 
 
-def main(argv=None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     arg_parser = argparse.ArgumentParser(
         prog="indefinite-articles",
         description="Daily article recommendations by email, trained on your replies with a local LLM.",

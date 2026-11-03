@@ -7,10 +7,11 @@ import unittest
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from indefinite_articles import daemon, feeds, inbox, mailer, ranker, replies
-from indefinite_articles.config import TimeOfDay, load as load_config
+from indefinite_articles.config import Config, TimeOfDay, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError, extract_json
 
@@ -32,7 +33,7 @@ ATOM = b"""<?xml version="1.0" encoding="utf-8"?>
 </feed>"""
 
 
-def send_digest(config, database, **kwargs) -> EmailMessage:
+def send_digest(config: Config, database: Database, **kwargs: Any) -> EmailMessage:
     message = daemon.send_digest(config, database, **kwargs)
     assert message is not None, "no digest built"
     return message
@@ -50,7 +51,7 @@ def stall_limit(llm: LLM) -> float:
     return limit
 
 
-def fake_embedding(text, dimension=64):
+def fake_embedding(text: str, dimension: int = 64):
     """Bag-of-words hashed vector: texts sharing words are similar, like real embeddings."""
     import zlib
     vector = [0.0] * dimension
@@ -65,9 +66,9 @@ class FakeLLM(BaseHTTPRequestHandler):
     size_vram = 1
     delay = 0.0      # seconds before the first token
     gap = 0.0        # seconds between tokens
-    hang_after = None  # stop sending after this many tokens (a hung server)
+    hang_after: int | None = None  # stop sending after this many tokens (a hung server)
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object):
         pass
 
     def do_GET(self):
@@ -114,7 +115,7 @@ class FakeLLM(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass  # the client gave up
 
-    def _json(self, payload):
+    def _json(self, payload: object):
         out = json.dumps(payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -227,18 +228,17 @@ class EndToEndTests(unittest.TestCase):
         self.addCleanup(self.database.close)
         self.llm = LLM(self.config.llm)
 
-    def _load_articles(self, score=True):
+    def _load_articles(self, score: bool = True):
         for data in (RSS, ATOM):
             parsed = feeds.parse_feed(data)
             title, entries = parsed.title, parsed.entries
             for entry in entries:
-                self.database.add_article(entry.url, entry.title, entry.title_key, entry.summary,
-                                          title, None)
+                self.database.add_article(entry, title)
         self.database.connection.commit()
         if score:
             self._score(self.database)
 
-    def _score(self, database):
+    def _score(self, database: Database):
         """What the hourly run does after fetching: pre-filter and LLM-score the shortlist."""
         daemon.prefilter(self.config, database, self.llm)
         ranker.score_candidates(self.config, database, self.llm)
@@ -291,14 +291,14 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("Rust", current_text(self.database))
         self.assertFalse(ranker.update_profile(self.config, self.database, self.llm))  # nothing pending
 
-    def _digest_and_reply(self, database_path):
+    def _digest_and_reply(self, database_path: str):
         """Send a digest from a file-backed DB and build a reply to it."""
         database = Database(database_path)
         for data in (RSS, ATOM):
             parsed = feeds.parse_feed(data)
             title, entries = parsed.title, parsed.entries
             for entry in entries:
-                database.add_article(entry.url, entry.title, entry.title_key, entry.summary, title, None)
+                database.add_article(entry, title)
         database.connection.commit()
         self._score(database)
         with mock.patch.object(mailer, "send", lambda config, sent_message: None):
@@ -385,7 +385,7 @@ class EndToEndTests(unittest.TestCase):
             message = send_digest(self.config, self.database, dry_run=True)
         self.assertNotIn("simple heuristics", mailer.part_text(message))
 
-    def _fake_speed(self, delay=0.0, gap=0.0, hang_after=None):
+    def _fake_speed(self, delay: float = 0.0, gap: float = 0.0, hang_after: int | None = None):
         FakeLLM.delay, FakeLLM.gap, FakeLLM.hang_after = delay, gap, hang_after
         self.addCleanup(setattr, FakeLLM, "delay", 0.0)
         self.addCleanup(setattr, FakeLLM, "gap", 0.0)
@@ -440,7 +440,8 @@ class EndToEndTests(unittest.TestCase):
         self.assertGreater(self.config.next_digest_time(), time.time())
         self.assertLessEqual(self.config.next_digest_time(), time.time() + 86400)
 
-    def _stuck_scoring(self, config, database, llm, stop=None):
+    def _stuck_scoring(self, config: Config, database: Database, llm: LLM,
+                       stop: threading.Event | None = None):
         self.scoring.set()
         self.release.wait(10)  # like an LLM request that takes ages
         return 0
@@ -462,8 +463,7 @@ class EndToEndTests(unittest.TestCase):
                 parsed = feeds.parse_feed(data)
                 title, entries = parsed.title, parsed.entries
                 for entry in entries:
-                    database.add_article(entry.url, entry.title, entry.title_key, entry.summary,
-                                         title, None)
+                    database.add_article(entry, title)
             database.connection.commit()
             database.close()
 

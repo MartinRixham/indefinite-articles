@@ -25,7 +25,7 @@ class Server(BaseHTTPRequestHandler):
     body = rss(item("One", "https://example.com/1"))
     requests: list = []
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object):
         pass
 
     def do_GET(self):
@@ -138,9 +138,10 @@ class FetchTests(unittest.TestCase):
     def test_fetch_conditional_sends_validators(self):
         fetched = feeds.fetch_conditional(self.base + "/not-modified")
         self.assertEqual(fetched.data, Server.body)
-        self.assertEqual(fetched.last_modified, "Mon, 02 Nov 2026 10:00:00 GMT")
-        fetched = feeds.fetch_conditional(self.base + "/not-modified", '"tag"', "yesterday")
-        self.assertEqual(fetched, feeds.FetchResult(None, '"tag"', "yesterday"))
+        self.assertEqual(fetched.validators.last_modified, "Mon, 02 Nov 2026 10:00:00 GMT")
+        validators = feeds.CacheValidators('"tag"', "yesterday")
+        fetched = feeds.fetch_conditional(self.base + "/not-modified", validators)
+        self.assertEqual(fetched, feeds.FetchResult(None, validators))
         headers = Server.requests[-1][1]
         self.assertEqual((headers["If-None-Match"], headers["If-Modified-Since"]), ('"tag"', "yesterday"))
         self.assertTrue(headers["User-Agent"].startswith("indefinite-articles/"))

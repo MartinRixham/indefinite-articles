@@ -8,8 +8,11 @@ import re
 import ssl
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from email.message import EmailMessage
 
 from . import mailer, replies
+from .config import Config
+from .database import Database
 from .llm import LLM
 
 log = logging.getLogger(__name__)
@@ -29,7 +32,7 @@ class ReplyResult:
         return self.status.startswith("ignored")
 
 
-def connect(config) -> imaplib.IMAP4:
+def connect(config: Config) -> imaplib.IMAP4:
     server = config.email.imap
     context = ssl.create_default_context()
     if server.security == "ssl":
@@ -42,13 +45,13 @@ def connect(config) -> imaplib.IMAP4:
     return connection
 
 
-def find_digest(database, message, text: str):
+def find_digest(database: Database, message: EmailMessage, text: str):
     match = TOKEN_RE.search(message.get("Subject", "") or "") or TOKEN_RE.search(text)
     refs = (message.get("In-Reply-To", "") or "").split() + (message.get("References", "") or "").split()
     return database.find_digest(match.group(1) if match else None, refs)
 
 
-def process_message(config, database, llm: LLM | None, message) -> ReplyResult:
+def process_message(config: Config, database: Database, llm: LLM | None, message: EmailMessage) -> ReplyResult:
     """Stage feedback from one reply in the open transaction (not committed).
 
     Use handle_message(), which commits it together with the processed-message marker.
@@ -83,11 +86,11 @@ def process_message(config, database, llm: LLM | None, message) -> ReplyResult:
     return ReplyResult("ok" if summary else "nothing-understood", summary)
 
 
-def message_id(message, fallback: str) -> str:
+def message_id(message: EmailMessage, fallback: str) -> str:
     return (message.get("Message-ID") or fallback).strip()
 
 
-def handle_message(config, database, llm: LLM | None, message, reply_id: str) -> ReplyResult:
+def handle_message(config: Config, database: Database, llm: LLM | None, message: EmailMessage, reply_id: str) -> ReplyResult:
     """Process a reply exactly once: its feedback and the processed marker are committed
     in one transaction, so a crash can never record one without the other."""
     if database.message_processed(reply_id):
@@ -102,7 +105,7 @@ def handle_message(config, database, llm: LLM | None, message, reply_id: str) ->
     return result
 
 
-def poll(config, database, llm: LLM | None) -> int:
+def poll(config: Config, database: Database, llm: LLM | None) -> int:
     """Fetch unread replies, record feedback. Returns number of replies used."""
     if not config.email.imap.host:
         return 0

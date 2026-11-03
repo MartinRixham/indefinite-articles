@@ -2,9 +2,11 @@
 
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from email.message import EmailMessage
 
+from .database import ArticleRow
 from .feeds import html_to_text
 from .llm import LLM, LLMError
 
@@ -150,7 +152,7 @@ INTERPRET_SYSTEM = (
 )
 
 
-def interpret_with_llm(llm: LLM, text: str, items) -> Interpretation:
+def interpret_with_llm(llm: LLM, text: str, items: Sequence[ArticleRow]) -> Interpretation:
     listing = "\n".join(f"{item_number}. {article['title']} ({article['source']})"
                         for item_number, article in enumerate(items, start=1))
     user = (
@@ -179,7 +181,7 @@ def interpret_with_llm(llm: LLM, text: str, items) -> Interpretation:
     return Interpretation(ratings, [general] if general else [])
 
 
-def understand(llm: LLM | None, text: str, items) -> Interpretation:
+def understand(llm: LLM | None, text: str, items: Sequence[ArticleRow]) -> Interpretation:
     """Combine the structured parser with LLM interpretation for free-form replies."""
     parsed = parse_structured(text, len(items))
     structured = Interpretation(parsed.ratings, parsed.general)

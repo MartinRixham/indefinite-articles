@@ -52,6 +52,8 @@ Exceptions:
 - Acronyms that are the normal name for the thing: `llm`, `url`, `html`, `json`, `sql`, `imap`, `smtp`, `ssl`, `ip`, `id`/`ids`, `uid`, `etag`, `guid`, `opml`, `rss`, `L2`.
 - Names fixed from outside: parameters of overridden library methods (e.g. `attrs` in `handle_starttag`), stdlib and third-party attributes and keyword arguments, TOML config keys (e.g. `max_prompt_chars`, `article_chars`), CLI flags and database column names.
 
+Every function parameter has a type annotation, in `src/` and `tests/` alike. This includes `*args`/`**kwargs`, overridden library methods (copy the typeshed signature) and nested helper functions. Only `self`, `cls` and lambda parameters are exempt, because Python has no syntax for annotating a lambda parameter. Use `Config`, `Database`, `threading.Event | None` for `stop`, `EmailMessage` for messages, and `database.ArticleRow` for an article that may be a `sqlite3.Row` or (in tests) a dict.
+
 Functions in `src/` never return a tuple: return an object with named attributes instead. This also applies to tuples inside returned containers (e.g. `dict[str, SourceStatistics]`). A class with no methods of its own is a `@dataclass` (e.g. `feeds.ParsedFeed`). A plain class with methods and an explicit `__init__` gets its own module and its own test file (e.g. `classifier.Classifier` and `tests/test_classifier.py`).
 
 Commit messages are short, sentence-style summaries ending with a period (e.g. "Feed fetch, scoring and digest on separate threads.").

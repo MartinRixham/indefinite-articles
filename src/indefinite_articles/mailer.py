@@ -8,9 +8,14 @@ import secrets
 import smtplib
 import ssl
 import string
+from collections.abc import Callable
 from datetime import datetime
 from importlib import resources
 from email.message import EmailMessage
+
+from .config import Config
+from .database import ArticleRow
+from .ranker import DigestPick
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +28,7 @@ def new_token() -> str:
     return secrets.token_hex(4)
 
 
-def _blurb(article, limit=280) -> str:
+def _blurb(article: ArticleRow, limit: int = 280) -> str:
     text = " ".join((article["summary"] or article["content"] or "").split())
     return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
@@ -64,8 +69,8 @@ def instructions() -> str:
     return (TEMPLATES / "instructions.txt").read_text().strip()
 
 
-def _digest_part(template_name: str, items, token: str, note: str, debug: list[str] | None,
-                 escape, item_separator: str) -> str:
+def _digest_part(template_name: str, items: list[DigestPick], token: str, note: str, debug: list[str] | None,
+                 escape: Callable[[str], str], item_separator: str) -> str:
     sections = _sections(template_name)
     rendered = []
     for position, pick in enumerate(items, start=1):
@@ -89,7 +94,7 @@ def _digest_part(template_name: str, items, token: str, note: str, debug: list[s
     })
 
 
-def build_digest(config, items, token: str, note: str = "",
+def build_digest(config: Config, items: list[DigestPick], token: str, note: str = "",
                  debug: list[str] | None = None) -> EmailMessage:
     """items: the `ranker.DigestPick`s to send. debug: lines appended after the footer.
 
@@ -107,7 +112,7 @@ def build_digest(config, items, token: str, note: str = "",
     return message
 
 
-def build_acknowledgement(config, original, summary_lines: list[str]) -> EmailMessage:
+def build_acknowledgement(config: Config, original: EmailMessage, summary_lines: list[str]) -> EmailMessage:
     message = config.email.new_message("ack")
     subject = original.get("Subject", "") or "your feedback"
     message["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
@@ -129,7 +134,7 @@ def part_text(message: EmailMessage, subtype: str = "plain") -> str:
     return part.get_content()
 
 
-def send(config, message: EmailMessage):
+def send(config: Config, message: EmailMessage):
     server = config.email.smtp
     context = ssl.create_default_context()
     if server.security == "ssl":

@@ -5,6 +5,8 @@ import html
 import html.entities
 import logging
 import re
+import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -16,7 +18,8 @@ from datetime import datetime
 from html.parser import HTMLParser
 
 from . import __version__
-from .config import Feed
+from .config import Config, Feed
+from .database import Database
 
 log = logging.getLogger(__name__)
 
@@ -44,11 +47,17 @@ class ParsedFeed:
 
 
 @dataclass
+class CacheValidators:
+    """The ETag and Last-Modified headers a server sent, for the next conditional GET."""
+    etag: str | None = None
+    last_modified: str | None = None
+
+
+@dataclass
 class FetchResult:
     """A fetched feed body (None when the server says it hasn't changed) and its validators."""
     data: bytes | None
-    etag: str | None
-    last_modified: str | None
+    validators: CacheValidators
 
 
 @dataclass
@@ -67,17 +76,17 @@ class _TextExtractor(HTMLParser):
         self.parts: list[str] = []
         self._skip = 0
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
         if tag in ("script", "style"):
             self._skip += 1
         elif tag in ("p", "br", "div", "li"):
             self.parts.append(" ")
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str):
         if tag in ("script", "style") and self._skip:
             self._skip -= 1
 
-    def handle_data(self, data):
+    def handle_data(self, data: str):
         if not self._skip:
             self.parts.append(data)
 
@@ -104,14 +113,14 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
 
 
-def _child(element, *names):
+def _child(element: ElementTree.Element, *names: str) -> ElementTree.Element | None:
     for child in element:
         if _local(child.tag) in names:
             return child
     return None
 
 
-def _text(element, *names) -> str:
+def _text(element: ElementTree.Element, *names: str) -> str:
     child = _child(element, *names)
     if child is None:
         return ""
@@ -157,7 +166,7 @@ def _numeric_entity(match: re.Match) -> str:
     return f"&#{codepoint};" if codepoint else "&amp;" + name + ";"
 
 
-def _tag_text(block: str, *names) -> str:
+def _tag_text(block: str, *names: str) -> str:
     """Text of the first of the named tags found in a block of feed XML."""
     for name in names:
         match = re.search(rf"<{name}(?:\s[^>]*)?>(.*?)</{name}>", block, re.S | re.I)
@@ -252,7 +261,7 @@ def _decompress(data: bytes, encoding: str) -> bytes:
     return out
 
 
-def fetch_conditional(url: str, etag: str | None = None, last_modified: str | None = None,
+def fetch_conditional(url: str, validators: CacheValidators | None = None,
                       timeout: int = 30) -> FetchResult:
     """GET a feed. `data` is None when the server says it hasn't changed."""
     headers = {
@@ -260,24 +269,24 @@ def fetch_conditional(url: str, etag: str | None = None, last_modified: str | No
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.5",
         "Accept-Encoding": "gzip",
     }
-    if etag:
-        headers["If-None-Match"] = etag
-    if last_modified:
-        headers["If-Modified-Since"] = last_modified
+    validators = validators or CacheValidators()
+    if validators.etag:
+        headers["If-None-Match"] = validators.etag
+    if validators.last_modified:
+        headers["If-Modified-Since"] = validators.last_modified
     request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read(MAX_FEED_BYTES + 1)
-            new_etag = response.headers.get("ETag")
-            new_last_modified = response.headers.get("Last-Modified")
+            new_validators = CacheValidators(response.headers.get("ETag"), response.headers.get("Last-Modified"))
             encoding = (response.headers.get("Content-Encoding") or "").lower()
     except urllib.error.HTTPError as error:
         if error.code == 304:
-            return FetchResult(None, etag, last_modified)
+            return FetchResult(None, validators)
         raise
     if len(data) > MAX_FEED_BYTES:
         raise ValueError("feed too large")
-    return FetchResult(_decompress(data, encoding), new_etag, new_last_modified)
+    return FetchResult(_decompress(data, encoding), new_validators)
 
 
 def fetch(url: str, timeout: int = 30) -> bytes:
@@ -287,7 +296,7 @@ def fetch(url: str, timeout: int = 30) -> bytes:
     return data
 
 
-def _fetch_group(feeds, states, stop) -> list[FeedResult]:
+def _fetch_group(feeds: list[Feed], states: dict[str, sqlite3.Row], stop: threading.Event | None) -> list[FeedResult]:
     """Fetch feeds that share a host one after another, to be polite to that host."""
     results: list[FeedResult] = []
     for feed in feeds:
@@ -295,8 +304,8 @@ def _fetch_group(feeds, states, stop) -> list[FeedResult]:
             break
         state = states.get(feed.url)
         try:
-            fetched = fetch_conditional(feed.url, state["etag"] if state else None,
-                                        state["last_modified"] if state else None)
+            validators = CacheValidators(state["etag"], state["last_modified"]) if state else None
+            fetched = fetch_conditional(feed.url, validators)
             if fetched.data is None:
                 results.append(FeedResult(feed, "not-modified", fetched=fetched))
             else:
@@ -306,13 +315,13 @@ def _fetch_group(feeds, states, stop) -> list[FeedResult]:
     return results
 
 
-def update_all(config, database, stop=None) -> int:
+def update_all(config: Config, database: Database, stop: threading.Event | None = None) -> int:
     """Fetch all due feeds; return number of new articles stored."""
     now = time.time()
     states = database.feed_states()
     due = [feed for feed in config.feeds
            if feed.url not in states or (states[feed.url]["next_attempt"] or 0) <= now]
-    groups: dict[str, list] = {}
+    groups: dict[str, list[Feed]] = {}
     for feed in due:
         groups.setdefault(feed.host, []).append(feed)
 
@@ -329,7 +338,7 @@ def update_all(config, database, stop=None) -> int:
                 assert result.fetched is not None
                 if result.status == "not-modified":
                     unchanged += 1
-                    database.feed_ok(feed.url, "", result.fetched.etag, result.fetched.last_modified)
+                    database.feed_ok(feed.url, "", result.fetched.validators)
                     continue
                 assert result.parsed is not None
                 title, entries = result.parsed.title, result.parsed.entries
@@ -337,10 +346,9 @@ def update_all(config, database, stop=None) -> int:
                 entries.sort(key=lambda entry: entry.published or 0, reverse=True)
                 added = 0
                 for entry in entries[: feed.max_items]:
-                    if database.add_article(entry.url, entry.title, entry.title_key, entry.summary,
-                                      source, entry.published, feed.category):
+                    if database.add_article(entry, source, feed.category):
                         added += 1
-                database.feed_ok(feed.url, title, result.fetched.etag, result.fetched.last_modified)
+                database.feed_ok(feed.url, title, result.fetched.validators)
                 changed += 1
                 new += added
             database.connection.commit()

@@ -12,8 +12,10 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 
+from .config import LLMConfig
 from .sent_request import SentRequest
 
 log = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ class WaitLimit:
 
 
 class LLM:
-    def __init__(self, config, deadline=None):
+    def __init__(self, config: LLMConfig, deadline: Callable[[], float] | None = None):
         """`deadline`, if given, returns the epoch time by which every request must
         finish (the service passes the next digest time)."""
         self.config = config
@@ -89,6 +91,8 @@ class LLM:
     def _send(self, path: str, body: dict, kind: str) -> SentRequest:
         """POST `body` and wait for the response headers."""
         parts = urllib.parse.urlsplit(self.config.base_url)
+        if not parts.hostname:
+            raise LLMError(f"base_url has no host: {self.config.base_url!r}")
         cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
         limit = self._limit(kind)
         connection = cls(parts.hostname, parts.port, timeout=limit.seconds)
@@ -230,7 +234,7 @@ class LLM:
         return any(model.get("name") in names and not model.get("size_vram") for model in models)
 
 
-def _message_text(data) -> str:
+def _message_text(data: dict) -> str:
     try:
         return data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError):

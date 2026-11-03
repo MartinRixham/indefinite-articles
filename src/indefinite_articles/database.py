@@ -2,10 +2,19 @@
 
 import sqlite3
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import overload
+from typing import TYPE_CHECKING, Any, overload
+
+if TYPE_CHECKING:
+    from .extract import ArticleContent
+    from .feeds import CacheValidators, Entry
+    from .ranker import ArticleScore, DigestPick
+
+
+# An article as a database row, or (in tests) as a plain dict with the same keys.
+type ArticleRow = sqlite3.Row | Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -150,7 +159,7 @@ class Database:
     def __enter__(self) -> "Database":
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, *_: object):
         self.close()
 
     # -- state ---------------------------------------------------------------
@@ -184,16 +193,17 @@ class Database:
         return cursor.lastrowid
 
     # -- articles ------------------------------------------------------------
-    def add_article(self, url, title, title_key, summary, source, published, category="") -> bool:
+    def add_article(self, entry: "Entry", source: str, category: str = "") -> bool:
         if self.connection.execute(
             "SELECT 1 FROM articles WHERE url=? OR (title_key=? AND title_key != '')",
-            (url, title_key),
+            (entry.url, entry.title_key),
         ).fetchone():
             return False
         self.connection.execute(
             "INSERT INTO articles(url, title, title_key, summary, source, published, fetched_at,"
             " category) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-            (url, title, title_key, summary, source, published, time.time(), category),
+            (entry.url, entry.title, entry.title_key, entry.summary, source, entry.published,
+             time.time(), category),
         )
         return True
 
@@ -262,10 +272,11 @@ class Database:
             (cutoff, version),
         ).fetchall()
 
-    def set_prefilter(self, rows: list[tuple[float, int, int]]):
-        """rows: (score, version, article_id)"""
+    def set_prefilter(self, scores: dict[int, float], version: int):
+        """Store pre-filter scores, keyed by article id, computed under `version`."""
         self.connection.executemany(
-            "UPDATE articles SET prefilter=?, prefilter_version=? WHERE id=?", rows
+            "UPDATE articles SET prefilter=?, prefilter_version=? WHERE id=?",
+            [(score, version, article_id) for article_id, score in scores.items()],
         )
         self.connection.commit()
 
@@ -277,7 +288,7 @@ class Database:
     def feed_states(self) -> dict[str, sqlite3.Row]:
         return {row["url"]: row for row in self.connection.execute("SELECT * FROM feeds")}
 
-    def feed_ok(self, url: str, title: str, etag, last_modified):
+    def feed_ok(self, url: str, title: str, validators: "CacheValidators"):
         now = time.time()
         self.connection.execute(
             "INSERT INTO feeds(url, title, etag, last_modified, last_attempt, last_success,"
@@ -286,7 +297,7 @@ class Database:
             " THEN excluded.title ELSE feeds.title END, etag=excluded.etag,"
             " last_modified=excluded.last_modified, last_attempt=excluded.last_attempt,"
             " last_success=excluded.last_success, failures=0, last_error='', next_attempt=0",
-            (url, title, etag, last_modified, now, now),
+            (url, title, validators.etag, validators.last_modified, now, now),
         )
 
     def feed_failed(self, url: str, error: str, base_interval: float):
@@ -309,16 +320,16 @@ class Database:
             "SELECT source, COUNT(*) FROM articles WHERE fetched_at >= ? GROUP BY source",
             (cutoff,))}
 
-    def set_content(self, article_id: int, content: str, status: str):
+    def set_content(self, content: "ArticleContent"):
         self.connection.execute(
             "UPDATE articles SET content=?, content_status=? WHERE id=?",
-            (content, status, article_id),
+            (content.text or "", content.status, content.article_id),
         )
 
-    def set_score(self, article_id: int, score: float, reason: str, profile_id: int):
+    def set_score(self, article_id: int, result: "ArticleScore", profile_id: int):
         self.connection.execute(
             "UPDATE articles SET score=?, reason=?, score_profile_id=? WHERE id=?",
-            (score, reason, profile_id, article_id),
+            (result.score, result.reason, profile_id, article_id),
         )
 
     def rated_examples(self, rating: int, limit: int) -> list[sqlite3.Row]:
@@ -353,18 +364,19 @@ class Database:
         self.connection.commit()
 
     # -- digests -------------------------------------------------------------
-    def record_digest(self, token, message_id, local_date, items: list[tuple[int, bool]]) -> int:
+    def record_digest(self, token: str, message_id: str, local_date: str, picks: "list[DigestPick]") -> int:
         cursor = self.connection.execute(
             "INSERT INTO digests(token, message_id, sent_at, local_date) VALUES(?, ?, ?, ?)",
             (token, message_id, time.time(), local_date),
         )
         digest_id = cursor.lastrowid
         assert digest_id is not None  # set by every INSERT
-        for position, (article_id, exploratory) in enumerate(items, start=1):
+        for position, pick in enumerate(picks, start=1):
+            article_id = pick.article["id"]
             self.connection.execute(
                 "INSERT INTO digest_items(digest_id, position, article_id, exploratory)"
                 " VALUES(?, ?, ?, ?)",
-                (digest_id, position, article_id, int(exploratory)),
+                (digest_id, position, article_id, int(pick.exploratory)),
             )
             self.connection.execute("UPDATE articles SET sent_digest_id=? WHERE id=?", (digest_id, article_id))
         self.connection.commit()

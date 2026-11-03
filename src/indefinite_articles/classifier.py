@@ -4,6 +4,8 @@ import base64
 
 import numpy as np
 
+from .database import Database
+
 
 class Classifier:
     """Logistic-regression weights and bias for uncentred article vectors."""
@@ -20,14 +22,14 @@ class Classifier:
         logits = np.clip(matrix.astype(np.float64) @ np.asarray(self.weights) + self.bias, -30, 30)
         return (1.0 / (1.0 + np.exp(-logits))).tolist()
 
-    def save(self, database):
+    def save(self, database: Database):
         """Store in the state table, as float32 weights."""
         weights = np.asarray(self.weights, dtype=np.float32).tobytes()
         database.set_state("classifier", base64.b64encode(weights).decode())
         database.set_state("classifier_bias", repr(self.bias))
 
     @classmethod
-    def load(cls, database) -> "Classifier | None":
+    def load(cls, database: Database) -> "Classifier | None":
         """The classifier saved by `save`, or None if there is none."""
         encoded = database.get_state("classifier", "")
         if not encoded:

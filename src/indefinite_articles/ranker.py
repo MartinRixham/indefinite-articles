@@ -4,12 +4,16 @@ import bisect
 import hashlib
 import logging
 import random
+import sqlite3
+import threading
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
-from .database import SourceStatistics
+from .config import Config
+from .database import ArticleRow, Database, SourceStatistics
 from .llm import LLM, LLMError, LLMUnavailable
 
 log = logging.getLogger(__name__)
@@ -31,7 +35,7 @@ PROFILE_SYSTEM = (
 )
 
 
-def ensure_profile(config, database):
+def ensure_profile(config: Config, database: Database) -> sqlite3.Row:
     row = database.current_profile()
     if row is None:
         text = config.interests or DEFAULT_PROFILE
@@ -41,7 +45,7 @@ def ensure_profile(config, database):
     return row
 
 
-def _format_examples(rows) -> str:
+def _format_examples(rows: Iterable[sqlite3.Row]) -> str:
     out = []
     for row in rows:
         line = f"- {row['title']} ({row['source']})"
@@ -51,14 +55,14 @@ def _format_examples(rows) -> str:
     return "\n".join(out) or "(none yet)"
 
 
-def _examples(database) -> str:
+def _examples(database: Database) -> str:
     return (
         "Articles the reader recently LIKED:\n" + _format_examples(database.rated_examples(1, 15)) +
         "\n\nArticles the reader recently DISLIKED:\n" + _format_examples(database.rated_examples(-1, 15))
     )
 
 
-def article_text(article, limit: int) -> str:
+def article_text(article: ArticleRow, limit: int) -> str:
     """Best available description of an article: page text if fetched, else the feed summary."""
     text = article["content"] or article["summary"] or ""
     if article["content"] and article["summary"] and len(article["content"]) < len(article["summary"]):
@@ -110,7 +114,21 @@ class DigestPick:
     exploratory: bool
 
 
-def score_one(llm: JSONChat, prefix: str, article, per_article: int = 1500) -> ArticleScore:
+@dataclass
+class ScoreBreakdown:
+    """How an article's final ranking score was made up.
+
+    `llm` is the LLM's score (None when it hasn't scored the article); `base` is the
+    embedding agreement added to it, or the fallback score from the pre-filter rank;
+    `bonus` comes from the reader's ratings of the source.
+    """
+    llm: float | None
+    base: float
+    bonus: float
+    final: float
+
+
+def score_one(llm: JSONChat, prefix: str, article: ArticleRow, per_article: int = 1500) -> ArticleScore:
     """Score a single article from 0 to 10 for the reader described in `prefix`."""
     source = f"{article['source']} ({article['category']})" if article["category"] else article["source"]
     user = (
@@ -131,7 +149,7 @@ def score_one(llm: JSONChat, prefix: str, article, per_article: int = 1500) -> A
     return ArticleScore(score, str(data.get("reason", ""))[:200])
 
 
-def shortlist(config, database) -> list:
+def shortlist(config: Config, database: Database) -> list:
     """The articles worth spending LLM time on today.
 
     Uses the embedding pre-filter when available: the best matches (with a per-source
@@ -169,7 +187,7 @@ def shortlist(config, database) -> list:
     return out
 
 
-def score_candidates(config, database, llm: LLM, stop=None) -> int:
+def score_candidates(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
     """Score shortlisted articles that are unscored or were scored against an older profile."""
     profile = ensure_profile(config, database)
     todo = [article for article in shortlist(config, database) if article["score_profile_id"] != profile["id"]]
@@ -191,7 +209,7 @@ def score_candidates(config, database, llm: LLM, stop=None) -> int:
             if isinstance(error, LLMUnavailable):
                 break  # leave the rest for the next round
             continue
-        database.set_score(article["id"], result.score, result.reason, profile["id"])
+        database.set_score(article["id"], result, profile["id"])
         database.connection.commit()
         done += 1
     log.info("scored %d/%d candidate articles", done, len(todo))
@@ -203,7 +221,7 @@ def _source_bonus(statistics: dict, source: str) -> float:
     return 3.0 * (statistics.get(source, SourceStatistics()).smoothed_like_rate - 0.5)
 
 
-def _breakdown(article, statistics: dict, prefilter_ranks: list[float]) -> dict:
+def _breakdown(article: ArticleRow, statistics: dict, prefilter_ranks: list[float]) -> ScoreBreakdown:
     bonus = _source_bonus(statistics, article["source"])
     # Where the embedding pre-filter ranks the article among the candidates, 0..1.
     rank = None
@@ -212,15 +230,14 @@ def _breakdown(article, statistics: dict, prefilter_ranks: list[float]) -> dict:
     if article["score"] is None:
         # Not scored by the LLM (e.g. it was down): use the pre-filter rank, mapped to 2..6.
         base = 4.0 if rank is None else 2.0 + 4.0 * rank
-        return {"llm": None, "base": base, "bonus": bonus, "final": base + bonus}
+        return ScoreBreakdown(None, base, bonus, base + bonus)
     # The LLM score, nudged (by up to ±2) by the embedding rank, so that a single
     # over-enthusiastic LLM score can't put an unrelated article at the top.
     agree = 0.0 if rank is None else 4.0 * rank - 2.0
-    return {"llm": article["score"], "base": agree, "bonus": bonus,
-            "final": article["score"] + agree + bonus}
+    return ScoreBreakdown(article["score"], agree, bonus, article["score"] + agree + bonus)
 
 
-def _add_capped(chosen: list[DigestPick], articles, limit: int, exploratory: bool, max_per_source: int) -> None:
+def _add_capped(chosen: list[DigestPick], articles: Iterable[ArticleRow], limit: int, exploratory: bool, max_per_source: int) -> None:
     """Append articles to `chosen` until it has `limit`, at most `max_per_source` per source."""
     per_source = Counter(pick.article["source"] for pick in chosen)
     for article in articles:
@@ -232,7 +249,7 @@ def _add_capped(chosen: list[DigestPick], articles, limit: int, exploratory: boo
         chosen.append(DigestPick(article, exploratory))
 
 
-def select(config, database, randomizer: random.Random | None = None,
+def select(config: Config, database: Database, randomizer: random.Random | None = None,
            debug: dict | None = None) -> list[DigestPick]:
     """Choose the digest: top-ranked articles plus a few exploratory picks.
 
@@ -251,7 +268,7 @@ def select(config, database, randomizer: random.Random | None = None,
     statistics = database.source_statistics()
     prefilter_ranks = sorted(article["prefilter"] for article in candidates if article["prefilter"] is not None)
     parts = {article["id"]: _breakdown(article, statistics, prefilter_ranks) for article in candidates}
-    ranked = sorted(candidates, key=lambda article: parts[article["id"]]["final"], reverse=True)
+    ranked = sorted(candidates, key=lambda article: parts[article["id"]].final, reverse=True)
     if debug is not None:
         debug["candidates"] = len(candidates)
         debug["llm_scored"] = sum(article["score_profile_id"] == profile["id"] for article in candidates)
@@ -282,14 +299,14 @@ def select(config, database, randomizer: random.Random | None = None,
     return chosen
 
 
-def _format_feedback(rows) -> str:
+def _format_feedback(rows: Iterable[sqlite3.Row]) -> str:
     return "\n".join(
         f"- {row['title']} ({row['source']})" + (f' — "{row["comment"]}"' if row["comment"] else "")
         for row in rows
     ) or "(none)"
 
 
-def update_profile(config, database, llm: LLM) -> bool:
+def update_profile(config: Config, database: Database, llm: LLM) -> bool:
     """Rewrite the reader profile from feedback received since the current profile was made.
 
     Returns True if the profile changed. Pending feedback stays pending if the LLM

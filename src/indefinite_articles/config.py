@@ -5,6 +5,7 @@ import re
 import tomllib
 import urllib.parse
 import xml.etree.ElementTree as ElementTree
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -135,7 +136,7 @@ class EmailConfig:
         message["Message-ID"] = make_msgid(kind, domain=domain)
         return message
 
-    def is_allowed_sender(self, message) -> bool:
+    def is_allowed_sender(self, message: EmailMessage) -> bool:
         addresses = [address.lower() for _, address in getaddresses(message.get_all("From", []))]
         return any(address in self.allowed_senders for address in addresses)
 
@@ -191,7 +192,7 @@ class Config:
         return problems
 
 
-def _copy_settings(target, section: dict, keys) -> None:
+def _copy_settings(target: object, section: dict, keys: Iterable[str]) -> None:
     """Copy the given keys from a TOML section, converted to the type of the default."""
     for key in keys:
         if key in section:
@@ -259,17 +260,18 @@ def parse_opml(data: bytes) -> list[Feed]:
     return list(_opml_feeds(body, "")) if body is not None else []
 
 
-def _opml_feeds(element, category: str):
+def _opml_feeds(element: ElementTree.Element, category: str) -> Iterator[Feed]:
     for outline in element:
         if outline.tag != "outline":
             continue
         label = outline.get("title") or outline.get("text") or ""
-        if outline.get("xmlUrl"):
+        url = outline.get("xmlUrl")
+        if url:
             try:
-                max_items = int(outline.get("maxItems", 40))
+                max_items = int(outline.get("maxItems", "40"))
             except ValueError:
                 max_items = 40
-            yield Feed(url=outline.get("xmlUrl").strip(), name=label.strip(),
+            yield Feed(url=url.strip(), name=label.strip(),
                        category=category, max_items=max_items)
         else:
             yield from _opml_feeds(outline, label.strip() or category)

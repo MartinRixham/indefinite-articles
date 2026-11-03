@@ -14,7 +14,7 @@ class Server(BaseHTTPRequestHandler):
     reply: tuple[int, str, bytes] = (200, "application/json", b"{}")
     requests: list = []
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object):
         pass
 
     def do_GET(self):
@@ -34,7 +34,7 @@ class Server(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-def events(*chunks, done=True) -> bytes:
+def events(*chunks: dict, done: bool = True) -> bytes:
     lines = [b": keep-alive\n\n"]
     for chunk in chunks:
         lines.append(b"data: " + json.dumps(chunk).encode() + b"\n\n")
@@ -43,7 +43,7 @@ def events(*chunks, done=True) -> bytes:
     return b"".join(lines)
 
 
-def delta(text):
+def delta(text: str):
     return {"choices": [{"index": 0, "delta": {"content": text}}]}
 
 
@@ -79,7 +79,7 @@ class LLMTests(unittest.TestCase):
                                 embedding_prefix="search: ")
         self.llm = LLM(self.config)
 
-    def _reply(self, body: bytes, status=200, content_type="application/json"):
+    def _reply(self, body: bytes, status: int = 200, content_type: str = "application/json"):
         Server.reply = (status, content_type, body)
 
     def _stream(self, body: bytes):
@@ -191,7 +191,7 @@ class LLMTests(unittest.TestCase):
         llm = LLM(self.config, deadline=lambda: time.time() + 0.2)
         original = Server._answer
 
-        def slow(handler):
+        def slow(handler: Server):
             time.sleep(1)
             original(handler)
 

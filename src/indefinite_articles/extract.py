@@ -4,14 +4,20 @@ import ipaddress
 import logging
 import re
 import socket
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from html.parser import HTMLParser
+from http.client import HTTPMessage
+from typing import IO
 
+from .config import Config
+from .database import ArticleRow, Database
 from .feeds import USER_AGENT
 
 log = logging.getLogger(__name__)
@@ -74,7 +80,7 @@ class _Extractor(HTMLParser):
             level = 2 if self.in_article else 1 if self.in_main else 0
             self.blocks.append((text, level, self.noisy))
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
         attributes = dict(attrs)
         if tag == "meta":
             key = (attributes.get("property") or attributes.get("name") or "").lower()
@@ -100,7 +106,7 @@ class _Extractor(HTMLParser):
         elif tag == "main" or attributes.get("role") == "main":
             self.in_main += 1
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str):
         if tag == "title":
             self._in_title = False
         if tag in VOID_TAGS:
@@ -121,7 +127,7 @@ class _Extractor(HTMLParser):
         if tag in BLOCK_TAGS:
             self._flush()
 
-    def handle_data(self, data):
+    def handle_data(self, data: str):
         if self._in_title:
             self.title += data
         elif not self.skipping:
@@ -152,7 +158,7 @@ def extract_text(html: str, max_characters: int = 2000) -> str:
     return text
 
 
-def _main_text(blocks) -> str:
+def _main_text(blocks: Sequence[tuple[str, int, bool]]) -> str:
     """Prefer <article>, then <main>; keep reasonably long blocks (real paragraphs)."""
     best = max((level for _, level, _ in blocks), default=0)
     return "\n".join(text for text, level, _ in blocks if level == best and (
@@ -176,7 +182,8 @@ class _SafeRedirect(urllib.request.HTTPRedirectHandler):
     def __init__(self, allow_private: bool):
         self.allow_private = allow_private
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str,
+                         headers: HTTPMessage, newurl: str):
         parts = urllib.parse.urlsplit(newurl)
         if parts.scheme not in ("http", "https"):
             raise BlockedAddress(f"redirect to {parts.scheme} URL")
@@ -221,7 +228,7 @@ class ArticleContent:
     status: str
 
 
-def _fetch_article(config, stop, article) -> ArticleContent:
+def _fetch_article(config: Config, stop: threading.Event | None, article: ArticleRow) -> ArticleContent:
     if stop is not None and stop.is_set():
         return ArticleContent(article["id"], None, "skipped")
     try:
@@ -233,7 +240,7 @@ def _fetch_article(config, stop, article) -> ArticleContent:
         return ArticleContent(article["id"], "", f"failed: {str(error)[:150]}")
 
 
-def enrich_candidates(config, database, stop=None) -> int:
+def enrich_candidates(config: Config, database: Database, stop: threading.Event | None = None) -> int:
     """Fetch page text for candidate articles that haven't been tried yet."""
     if not config.fetch_full_articles:
         return 0
@@ -246,7 +253,7 @@ def enrich_candidates(config, database, stop=None) -> int:
         for content in pool.map(partial(_fetch_article, config, stop), todo):
             if content.status == "skipped":
                 continue
-            database.set_content(content.article_id, content.text or "", content.status)
+            database.set_content(content)
             database.connection.commit()  # don't hold the write lock while waiting for more pages
             if content.status == "ok":
                 ok += 1

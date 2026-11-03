@@ -9,7 +9,7 @@ ITEMS = [{"title": "Rust", "source": "Blog"}, {"title": "Gossip", "source": "Tab
          {"title": "Gardens", "source": "Weekly"}]
 
 
-def stub_llm(answer=None, error=None):
+def stub_llm(answer: object = None, error: Exception | None = None):
     llm = mock.Mock(spec=LLM)
     if error is not None:
         llm.chat_json.side_effect = error

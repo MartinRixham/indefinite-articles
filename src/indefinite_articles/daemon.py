@@ -4,17 +4,19 @@ import logging
 import signal
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from email.message import EmailMessage
 
 from . import __version__, embed, extract, feeds, inbox, mailer, ranker
+from .config import Config
 from .database import Database, PendingFeedback
 from .llm import LLM, LLMError
 
 log = logging.getLogger(__name__)
 
 
-def prefilter(config, database: Database, llm: LLM, stop=None):
+def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None):
     """Embed new articles and update pre-filter scores (skipped if no embedding model)."""
     if not config.llm.embedding_model:
         return
@@ -25,7 +27,7 @@ def prefilter(config, database: Database, llm: LLM, stop=None):
         log.warning("embedding pre-filter unavailable, using newest articles instead: %s", error)
 
 
-def gather(config, database: Database, llm: LLM, stop=None) -> int:
+def gather(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
     """Fetch feeds, pre-filter, and fetch full text for the shortlist."""
     new = feeds.update_all(config, database, stop=stop)
     prefilter(config, database, llm, stop)
@@ -33,7 +35,7 @@ def gather(config, database: Database, llm: LLM, stop=None) -> int:
     return new
 
 
-def refresh(config, database: Database, llm: LLM, stop=None) -> int:
+def refresh(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
     """gather(), then LLM-score the shortlist."""
     new = gather(config, database, llm, stop)
     try:
@@ -43,7 +45,7 @@ def refresh(config, database: Database, llm: LLM, stop=None) -> int:
     return new
 
 
-def _ago(timestamp) -> str:
+def _ago(timestamp: float | None) -> str:
     if not timestamp:
         return "never"
     minutes = int((time.time() - timestamp) / 60)
@@ -59,7 +61,7 @@ def _duration(seconds: float) -> str:
     return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
 
 
-def _backlog(config, database: Database) -> str:
+def _backlog(config: Config, database: Database) -> str:
     """Work still waiting at publish time."""
     profile = database.current_profile()
     profile_id = profile["id"] if profile else None
@@ -106,7 +108,7 @@ def _classifier_status(database: Database) -> str:
             f" needs {embed.MIN_PER_CLASS} of each)")
 
 
-def debug_report(config, database: Database, items, info: dict) -> list[str]:
+def debug_report(config: Config, database: Database, items: list[ranker.DigestPick], info: dict) -> list[str]:
     """Plain-text diagnostics appended to the digest: pipeline health and why each item was picked."""
     selection = info.get("select", {})
     statistics = database.statistics()
@@ -151,10 +153,10 @@ def debug_report(config, database: Database, items, info: dict) -> list[str]:
         score = scores.get(article["id"])
         if score is None:
             continue
-        llm_score = f"{score['llm']:5.1f}" if score["llm"] is not None else "    -"
+        llm_score = f"{score.llm:5.1f}" if score.llm is not None else "    -"
         lines.append(
-            f"{position:<3} {rank.get(article['id'], 0):>4}  {score['final']:5.2f} = {llm_score} {score['base']:+5.2f}"
-            f" {score['bonus']:+5.2f}   {(article['content_status'] or '-')[:8]:8}  {article['source'][:30]}"
+            f"{position:<3} {rank.get(article['id'], 0):>4}  {score.final:5.2f} = {llm_score} {score.base:+5.2f}"
+            f" {score.bonus:+5.2f}   {(article['content_status'] or '-')[:8]:8}  {article['source'][:30]}"
             + ("  [explore]" if pick.exploratory else "")
         )
     lines.append("(adj: embedding agreement, or fallback rank when the LLM did not score;"
@@ -162,7 +164,7 @@ def debug_report(config, database: Database, items, info: dict) -> list[str]:
     return lines
 
 
-def send_digest(config, database: Database, dry_run: bool = False,
+def send_digest(config: Config, database: Database, dry_run: bool = False,
                 status: dict | None = None) -> EmailMessage | None:
     """Select and send today's digest from the scores the hourly runs left behind.
 
@@ -193,8 +195,7 @@ def send_digest(config, database: Database, dry_run: bool = False,
     if dry_run:
         return message
     mailer.send(config, message)
-    database.record_digest(token, message["Message-ID"], datetime.now().date().isoformat(),
-                     [(pick.article["id"], pick.exploratory) for pick in items])
+    database.record_digest(token, message["Message-ID"], datetime.now().date().isoformat(), items)
     return message
 
 
@@ -211,7 +212,7 @@ class Service:
 
     TICK: float = 20  # seconds
 
-    def __init__(self, config):
+    def __init__(self, config: Config):
         self.config = config
         self.database = Database(config.database)
         self.llm = LLM(config.llm, deadline=config.next_digest_time)
@@ -229,7 +230,7 @@ class Service:
             return False
         return self.config.digest_hour_minute.has_passed(now)
 
-    def _run_job(self, name, function, *args):
+    def _run_job(self, name: str, function: Callable[..., object], *args: object):
         tracked = name in self.jobs  # the worker jobs; never adds keys from another thread
         started = time.time()
         if tracked:
@@ -278,21 +279,21 @@ class Service:
             log.info("digest sent: %s", message["Subject"])
 
     # -- threads -----------------------------------------------------------------
-    def _with_database(self, loop, *args):
+    def _with_database(self, loop: Callable[..., None], *args: object):
         database = Database(self.config.database)
         try:
             loop(database, *args)
         finally:
             database.close()
 
-    def _every(self, database: Database, name: str, minutes: int, job):
+    def _every(self, database: Database, name: str, minutes: int, job: Callable[[Database], str]):
         """Run `job` now and then every `minutes`, measured from the start of each run."""
         while not self.stop.is_set():
             started = time.monotonic()
             self._run_job(name, job, database)
             self.stop.wait(max(0.0, minutes * 60 - (time.monotonic() - started)))
 
-    def _on_demand(self, database: Database, name: str, job):
+    def _on_demand(self, database: Database, name: str, job: Callable[[Database], str]):
         """Run `job` whenever score_wanted is set (also once at start)."""
         self.score_wanted.set()
         while True:
@@ -303,7 +304,7 @@ class Service:
             self.score_wanted.clear()
             self._run_job(name, job, database)
 
-    def _shutdown(self, *_):
+    def _shutdown(self, *_: object):
         self.stop.set()
         self.score_wanted.set()  # wake the scoring thread so it can see the stop
 

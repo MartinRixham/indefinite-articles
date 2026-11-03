@@ -5,6 +5,8 @@ from unittest import mock
 from indefinite_articles import inbox, mailer, replies
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database, SourceStatistics
+from indefinite_articles.feeds import Entry
+from indefinite_articles.llm import LLM
 from indefinite_articles.ranker import DigestPick
 
 
@@ -18,7 +20,7 @@ def make_config() -> Config:
     return config
 
 
-def reply(text: str, subject: str = "Re: list", **headers) -> EmailMessage:
+def reply(text: str, subject: str = "Re: list", **headers: str) -> EmailMessage:
     message = EmailMessage()
     message["From"] = "you@example.com"
     message["Subject"] = subject
@@ -112,7 +114,7 @@ class MailerTests(unittest.TestCase):
 class FakeIMAP:
     """Enough of imaplib.IMAP4 for inbox.poll: a folder of raw messages keyed by uid."""
 
-    def __init__(self, messages: dict[str, bytes], select_status="OK"):
+    def __init__(self, messages: dict[str, bytes], select_status: str = "OK"):
         self.messages = messages
         self.select_status = select_status
         self.flags: dict[str, set[str]] = {uid: set() for uid in messages}
@@ -121,10 +123,10 @@ class FakeIMAP:
         self.expunged = 0
         self.logged_out = False
 
-    def select(self, folder):
+    def select(self, folder: str):
         return self.select_status, [b""]
 
-    def uid(self, command, *args):
+    def uid(self, command: str, *args: str):
         if command == "SEARCH":
             self.searches.append(args)
             unseen = [uid for uid in self.messages if r"\Seen" not in self.flags[uid]]
@@ -135,7 +137,7 @@ class FakeIMAP:
             self.flags[args[0]].add(args[2].strip("()"))
             return "OK", []
         if command == "COPY":
-            self.copied.append(args)
+            self.copied.append((args[0], args[1]))
             return "OK", []
         raise AssertionError(command)
 
@@ -152,9 +154,9 @@ class InboxTests(unittest.TestCase):
         self.database = Database(":memory:")
         self.addCleanup(self.database.close)
         for index in (1, 2):
-            self.database.add_article(f"https://e/{index}", f"Article {index}", f"article{index}", "", "S", None)
+            self.database.add_article(Entry(f"https://e/{index}", f"Article {index}", "", None), "S")
         self.digest_id = self.database.record_digest("abcd1234", "<digest@example.org>", "2026-11-03",
-                                                     [(1, False), (2, True)])
+                                                     [DigestPick({"id": 1}, False), DigestPick({"id": 2}, True)])
 
     def test_message_id(self):
         self.assertEqual(inbox.message_id(reply("x", Message_ID=" <a@x> "), "fallback"), "<a@x>")
@@ -234,7 +236,8 @@ class InboxTests(unittest.TestCase):
                          "2": bytes(reply("+2", subject="Re: [rec:abcd1234]", Message_ID="<r2@x>"))})
         original = inbox.handle_message
 
-        def fail_first(config, database, llm, message, reply_id):
+        def fail_first(config: Config, database: Database, llm: LLM | None, message: EmailMessage,
+                       reply_id: str):
             if reply_id == "<r1@x>":
                 raise RuntimeError("boom")
             return original(config, database, llm, message, reply_id)

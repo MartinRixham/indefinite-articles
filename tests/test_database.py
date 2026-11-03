@@ -2,6 +2,9 @@ import time
 import unittest
 
 from indefinite_articles.database import Database, PendingFeedback, SourceStatistics
+from indefinite_articles.extract import ArticleContent
+from indefinite_articles.feeds import CacheValidators, Entry
+from indefinite_articles.ranker import ArticleScore, DigestPick
 
 DAY = 86400
 
@@ -11,17 +14,17 @@ class DatabaseTests(unittest.TestCase):
         self.database = Database(":memory:")
         self.addCleanup(self.database.close)
 
-    def _article(self, url, title=None, source="S", published=None, category="") -> int:
+    def _article(self, url: str, title: str | None = None, source: str = "S", published: float | None = None,
+                 category: str = "") -> int:
         title = title or url
-        self.assertTrue(self.database.add_article(url, title, title.lower(), "summary", source, published,
-                                                  category))
+        self.assertTrue(self.database.add_article(Entry(url, title, "summary", published), source, category))
         self.database.connection.commit()
         return self.database.connection.execute("SELECT id FROM articles WHERE url=?", (url,)).fetchone()["id"]
 
-    def _sent(self, article_id):
+    def _sent(self, article_id: int):
         self.database.connection.execute("UPDATE articles SET sent_digest_id=1 WHERE id=?", (article_id,))
 
-    def _age(self, article_id, days):
+    def _age(self, article_id: int, days: float):
         self.database.connection.execute("UPDATE articles SET fetched_at=? WHERE id=?",
                                          (time.time() - days * DAY, article_id))
 
@@ -44,12 +47,12 @@ class DatabaseTests(unittest.TestCase):
 
     # -- articles --------------------------------------------------------------
     def test_add_article_deduplicates_by_url_and_title_key(self):
-        self.assertTrue(self.database.add_article("https://a", "A", "a", "", "S", None))
-        self.assertFalse(self.database.add_article("https://a", "Other", "other", "", "S", None))
-        self.assertFalse(self.database.add_article("https://b", "A!", "a", "", "T", None))
+        self.assertTrue(self.database.add_article(Entry("https://a", "A", "", None), "S"))
+        self.assertFalse(self.database.add_article(Entry("https://a", "Other", "", None), "S"))
+        self.assertFalse(self.database.add_article(Entry("https://b", "A!", "", None), "T"))
         # An empty title key never matches another article.
-        self.assertTrue(self.database.add_article("https://c", "?", "", "", "S", None))
-        self.assertTrue(self.database.add_article("https://d", "!", "", "", "S", None))
+        self.assertTrue(self.database.add_article(Entry("https://c", "?", "", None), "S"))
+        self.assertTrue(self.database.add_article(Entry("https://d", "!", "", None), "S"))
         self.assertEqual(self.database.count("SELECT COUNT(*) FROM articles"), 3)
 
     def test_candidates_balance_sources_and_skip_old_or_sent(self):
@@ -75,8 +78,8 @@ class DatabaseTests(unittest.TestCase):
 
     def test_set_content_and_score(self):
         article_id = self._article("https://a")
-        self.database.set_content(article_id, "full text", "ok")
-        self.database.set_score(article_id, 7.5, "fits", 3)
+        self.database.set_content(ArticleContent(article_id, "full text", "ok"))
+        self.database.set_score(article_id, ArticleScore(7.5, "fits"), 3)
         row = self.database.pool(3)[0]
         self.assertEqual((row["content"], row["content_status"]), ("full text", "ok"))
         self.assertEqual((row["score"], row["reason"], row["score_profile_id"]), (7.5, "fits", 3))
@@ -119,7 +122,7 @@ class DatabaseTests(unittest.TestCase):
         for article_id in (first, second):
             self.database.set_embedding(article_id, b"v")
         self.assertEqual(sorted(row["id"] for row in self.database.prefilter_todo(3, 1)), [first, second])
-        self.database.set_prefilter([(0.5, 1, first)])
+        self.database.set_prefilter({first: 0.5}, 1)
         self.assertEqual([row["id"] for row in self.database.prefilter_todo(3, 1)], [second])
         self.assertEqual(len(self.database.prefilter_todo(3, 2)), 2)  # a new version redoes everything
 
@@ -146,8 +149,8 @@ class DatabaseTests(unittest.TestCase):
         state = self.database.feed_states()[url]
         self.assertAlmostEqual(state["next_attempt"] - state["last_attempt"], DAY)  # capped
 
-        self.database.feed_ok(url, "Title", '"etag"', "yesterday")
-        self.database.feed_ok(url, "", '"etag2"', None)  # a 304 keeps the title
+        self.database.feed_ok(url, "Title", CacheValidators('"etag"', "yesterday"))
+        self.database.feed_ok(url, "", CacheValidators('"etag2"', None))  # a 304 keeps the title
         state = self.database.feed_states()[url]
         self.assertEqual((state["title"], state["etag"], state["last_modified"]), ("Title", '"etag2"', None))
         self.assertEqual((state["failures"], state["last_error"], state["next_attempt"]), (0, "", 0))
@@ -190,7 +193,7 @@ class DatabaseTests(unittest.TestCase):
     def test_record_and_find_digest(self):
         first, second = self._article("https://1"), self._article("https://2")
         digest_id = self.database.record_digest("abcd1234", "<digest@x>", "2026-11-03",
-                                                [(second, False), (first, True)])
+                                                [DigestPick({"id": second}, False), DigestPick({"id": first}, True)])
         items = self.database.digest_items(digest_id)
         self.assertEqual([(row["position"], row["id"], row["exploratory"]) for row in items],
                          [(1, second, 0), (2, first, 1)])
@@ -225,7 +228,7 @@ class DatabaseTests(unittest.TestCase):
 
     def test_statistics(self):
         article_id = self._article("https://a")
-        self.database.set_content(article_id, "text", "ok")
+        self.database.set_content(ArticleContent(article_id, "text", "ok"))
         self.database.add_feedback(article_id, 1, "")
         self.database.feed_failed("https://feed", "down", 60)
         statistics = self.database.statistics()

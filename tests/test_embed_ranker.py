@@ -7,17 +7,18 @@ from unittest import mock
 import numpy as np
 
 from indefinite_articles import embed, ranker
+from indefinite_articles.feeds import Entry
 from indefinite_articles.classifier import Classifier
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError, LLMUnavailable
 
 
-def unit(*values) -> bytes:
+def unit(*values: float) -> bytes:
     return embed.pack(list(values))
 
 
-def article(**fields) -> dict:
+def article(**fields: object) -> dict:
     row = {"id": 1, "title": "Title", "summary": "", "content": None, "source": "Source", "category": ""}
     row.update(fields)
     return row
@@ -35,16 +36,14 @@ class EmbedTests(unittest.TestCase):
 
     def test_score_and_profile_match(self):
         self.assertEqual(embed.score([], [unit(1, 0)], [], [], []), [])
-        wanted, unwanted = [unit(1, 0)], [unit(0, 1)]
-        matches = embed.profile_match([unit(1, 0), unit(0, 1), unit(1, 1)], wanted, unwanted)
+        matches = embed.profile_match([unit(1, 0), unit(0, 1), unit(1, 1)], [unit(1, 0)], [unit(0, 1)])
         self.assertAlmostEqual(matches[0], 1.0, places=5)
         self.assertAlmostEqual(matches[1], -0.5, places=5)
         self.assertEqual(sorted(range(3), key=lambda index: -matches[index]), [0, 2, 1])
 
     def test_score_uses_likes_and_dislikes(self):
         vectors = [unit(1, 0, 0), unit(0, 1, 0), unit(0, 0, 1)]
-        wanted = [unit(1, 1, 1)]
-        scores = embed.score(vectors, wanted, [], likes=[unit(0, 1, 0)], dislikes=[unit(0, 0, 1)])
+        scores = embed.score(vectors, [unit(1, 1, 1)], [], likes=[unit(0, 1, 0)], dislikes=[unit(0, 0, 1)])
         self.assertEqual(max(range(3), key=lambda index: scores[index]), 1)
         self.assertEqual(min(range(3), key=lambda index: scores[index]), 2)
 
@@ -61,8 +60,8 @@ class EmbedTests(unittest.TestCase):
         database = Database(":memory:")
         self.addCleanup(database.close)
 
-        def rate(index, vector, rating):
-            database.add_article(f"https://e/{index}", f"t{index}", f"t{index}", "", "S", None)
+        def rate(index: int, vector: bytes, rating: int):
+            database.add_article(Entry(f"https://e/{index}", f"t{index}", "", None), "S")
             database.set_embedding(index, vector)
             database.add_feedback(index, rating, "")
 
@@ -84,7 +83,7 @@ class EmbedTests(unittest.TestCase):
     def test_embed_new_stops_when_asked(self):
         config, database = Config(), Database(":memory:")
         self.addCleanup(database.close)
-        database.add_article("https://e/1", "t", "t", "", "S", None)
+        database.add_article(Entry("https://e/1", "t", "", None), "S")
         llm = mock.Mock(spec=LLM)
         stop = threading.Event()
         stop.set()
@@ -99,8 +98,8 @@ class EmbedTests(unittest.TestCase):
         llm.chat_json.return_value = {"likes": [], "avoid": ["celebrity gossip"]}  # unusable: keyword split
         llm.embed.side_effect = lambda texts: [[1.0, float(index)] for index, _ in enumerate(texts)]
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
-        self.assertEqual(llm.embed.call_args[0][0], [embed.DEFAULT_WANTED, "Dislikes celebrity gossip"])
-        self.assertEqual(database.get_state("profile_dim"), "8")
+        self.assertEqual([call.args[0] for call in llm.embed.call_args_list],
+                         [[embed.DEFAULT_WANTED], ["Dislikes celebrity gossip"]])
         # Nothing changed: no second LLM call.
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
         self.assertEqual(llm.chat_json.call_count, 1)
@@ -115,8 +114,9 @@ class RankerTests(unittest.TestCase):
         self.database = Database(":memory:")
         self.addCleanup(self.database.close)
 
-    def _add(self, url, source="S", score=None, profile_id=None, prefilter=None, title=None):
-        self.database.add_article(url, title or url, url, "summary", source, time.time())
+    def _add(self, url: str, source: str = "S", score: float | None = None, profile_id: int | None = None,
+             prefilter: float | None = None, title: str | None = None):
+        self.database.add_article(Entry(url, title or url, "summary", time.time()), source)
         self.database.connection.execute(
             "UPDATE articles SET score=?, score_profile_id=?, prefilter=? WHERE url=?",
             (score, profile_id, prefilter, url))
@@ -208,7 +208,7 @@ class RankerTests(unittest.TestCase):
         self.assertIn(chosen[3].article["url"], ("https://c/1", "https://d/1"))
         self.assertEqual((debug["candidates"], debug["llm_scored"], debug["stale_scored"]), (6, 6, 0))
         self.assertEqual(debug["rank"][chosen[0].article["id"]], 1)
-        self.assertEqual(set(debug["scores"][chosen[0].article["id"]]), {"llm", "base", "bonus", "final"})
+        self.assertIsInstance(debug["scores"][chosen[0].article["id"]], ranker.ScoreBreakdown)
 
     def test_select_fills_past_cap_with_few_sources(self):
         for index in range(5):

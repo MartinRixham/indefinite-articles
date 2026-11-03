@@ -14,7 +14,7 @@ from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
 
 
-def config_with_articles(count=3) -> tuple[Config, Database]:
+def config_with_articles(count: int = 3) -> tuple[Config, Database]:
     config = Config()
     config.email.sender, config.email.to = "bot@example.org", "you@example.com"
     config.fetch_full_articles = False
@@ -22,7 +22,7 @@ def config_with_articles(count=3) -> tuple[Config, Database]:
     config.exploration = 0
     database = Database(":memory:")
     for index in range(count):
-        database.add_article(f"https://e/{index}", f"Article {index}", f"article{index}", "", f"S{index}", None)
+        database.add_article(feeds.Entry(f"https://e/{index}", f"Article {index}", "", None), f"S{index}")
     database.connection.commit()
     return config, database
 
@@ -83,7 +83,7 @@ class DaemonFunctionTests(unittest.TestCase):
 
     def test_debug_report(self):
         self.config.feeds = [Feed("https://feed/a"), Feed("https://feed/b")]
-        self.database.feed_ok("https://feed/a", "A", None, None)
+        self.database.feed_ok("https://feed/a", "A", feeds.CacheValidators())
         ranker.ensure_profile(self.config, self.database)
         info: dict = {"select": {}, "timings": {"select": 0.25},
                       "jobs": {"scoring": {"running_since": 1.0}, "inbox poll": {}},
@@ -147,7 +147,7 @@ class CommandLineTests(unittest.TestCase):
             '[[feeds]]\nurl = "https://feed/a"\nname = "Feed A"\ncategory = "Tech"\n'
             '[[feeds]]\nurl = "https://feed/b"\n')
 
-    def _run(self, *argv) -> tuple[int, str, str]:
+    def _run(self, *argv: str) -> tuple[int, str, str]:
         out, error = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(error), \
              mock.patch("logging.basicConfig"):
@@ -201,7 +201,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("no candidate articles", error)
         database = self._database()
-        database.add_article("https://e/1", "Something", "something", "", "S", None)
+        database.add_article(feeds.Entry("https://e/1", "Something", "", None), "S")
         database.connection.commit()
         with mock.patch.object(mailer, "send", side_effect=AssertionError("sent")):
             code, out, _ = self._run("digest", "-n")
@@ -210,8 +210,8 @@ class CommandLineTests(unittest.TestCase):
 
     def test_feedback_from_file(self):
         database = self._database()
-        database.add_article("https://e/1", "Something", "something", "", "S", None)
-        database.record_digest("abcd1234", "<d@x>", "2026-11-03", [(1, False)])
+        database.add_article(feeds.Entry("https://e/1", "Something", "", None), "S")
+        database.record_digest("abcd1234", "<d@x>", "2026-11-03", [ranker.DigestPick({"id": 1}, False)])
         message = EmailMessage()
         message["From"] = "you@example.com"
         message["Subject"] = "Re: [rec:abcd1234]"
