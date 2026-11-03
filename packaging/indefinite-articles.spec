@@ -19,9 +19,10 @@ Recommends:     (ollama or llama-cpp)
 Recommends:     python3-numpy
 
 %description
-indefinite-articles is a service that reads RSS/Atom feeds, ranks new articles with a
-locally hosted large language model, and emails you a daily digest. Reply to the
-email (e.g. "+1 +4 -2", or in plain words) and it learns your preferences.
+indefinite-articles is a service that reads RSS/Atom feeds, ranks new articles
+with a locally hosted large language model, and emails you a daily digest.
+Reply to the email (e.g. "+1 +4 -2", or in plain words) and it learns your
+preferences.
 
 %prep
 %autosetup -p1
