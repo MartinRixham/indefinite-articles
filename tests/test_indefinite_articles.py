@@ -52,12 +52,10 @@ class FakeLLM(BaseHTTPRequestHandler):
             return self._json({"data": [{"index": i, "embedding": fake_embedding(t)}
                                         for i, t in enumerate(body["input"])]})
         system, user = body["messages"][0]["content"], body["messages"][1]["content"]
-        if "Rate each candidate" in user:
-            ratings = []
-            for idx, title in re.findall(r"^\[(\d+)\] (.+)$", user, re.M):
-                good = any(w in title for w in ("Rust", "Linux"))
-                ratings.append({"id": int(idx), "score": 9 if good else 2, "reason": "test"})
-            content = "```json\n" + json.dumps({"ratings": ratings}) + "\n```"
+        if "Article to rate:" in user:
+            title = re.search(r"^Title: (.+)$", user, re.M).group(1)
+            good = any(w in title for w in ("Rust", "Linux"))
+            content = "```json\n" + json.dumps({"reason": "test", "score": 9 if good else 2}) + "\n```"
         elif "interpret a reader" in system:
             content = json.dumps({"ratings": [{"item": 2, "rating": "dislike", "comment": "boring"}],
                                   "general_comment": "less gossip"})

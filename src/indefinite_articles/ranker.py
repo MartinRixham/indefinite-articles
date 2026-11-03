@@ -19,7 +19,7 @@ DEFAULT_PROFILE = (
 
 SCORE_SYSTEM = (
     "You are a personal reading assistant. You predict how much one specific reader will "
-    "want to read each article, based on what you know about their tastes. Be discerning: "
+    "want to read an article, based on what you know about their tastes. Be discerning: "
     "use the full 0-10 range, and reserve 8+ for articles that clearly match their interests."
 )
 
@@ -63,49 +63,48 @@ def article_text(a, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
-def _batches(todo, max_items: int, budget: int, per_article: int):
-    """Group articles so each prompt stays within the model's context window."""
-    batch, used = [], 0
-    for a in todo:
-        cost = len(a["title"]) + len(article_text(a, per_article)) + 40
-        if batch and (len(batch) >= max_items or used + cost > budget):
-            yield batch
-            batch, used = [], 0
-        batch.append(a)
-        used += cost
-    if batch:
-        yield batch
+SCALE = (
+    "Score on this fixed scale, the same for every article:\n"
+    "0-1: the reader would actively avoid it (a topic or style they dislike)\n"
+    "2-3: unlikely to interest them\n"
+    "4-5: loosely related to their interests, or thin and generic\n"
+    "6-7: a good match they would probably read\n"
+    "8-9: a strong match on both topic and depth; among the best articles of the day\n"
+    "10: exceptional; exactly what they want most\n"
+    "Most articles are not for this reader, so most scores should be 5 or below."
+)
 
 
-def score_batch(llm: LLM, profile_text: str, examples: str, articles,
-                per_article: int = 1500) -> dict[int, tuple[float, str]]:
-    lines = []
-    for i, a in enumerate(articles, start=1):
-        text = article_text(a, per_article)
-        src = f"{a['source']} ({a['category']})" if a["category"] else a["source"]
-        lines.append(f"[{i}] {a['title']}\n    Source: {src}\n    {text}")
+def score_prefix(profile_text: str, examples: str) -> str:
+    """The part of the scoring prompt that is the same for every article.
+
+    It comes first, so Ollama and llama-server can reuse its KV cache and only
+    process the article itself on each request.
+    """
+    return (
+        f"Reader profile:\n{profile_text}\n\n{examples}\n\n{SCALE}\n\n"
+        'Respond with JSON only, in the form {"reason": "why, in at most 20 words", '
+        '"score": 7}. Write the reason first, then the score.\n\n'
+    )
+
+
+def score_one(llm: LLM, prefix: str, a, per_article: int = 1500) -> tuple[float, str]:
+    """Score a single article from 0 to 10 for the reader described in `prefix`."""
+    src = f"{a['source']} ({a['category']})" if a["category"] else a["source"]
     user = (
-        f"Reader profile:\n{profile_text}\n\n{examples}\n\n"
-        "Rate each candidate article below from 0 (reader would not want it) to 10 "
-        "(reader would definitely want to read it).\n"
-        'Respond with JSON only, in the form {"ratings": [{"id": 1, "score": 7, '
-        '"reason": "why, in at most 15 words"}, ...]} with one entry per candidate.\n\n'
-        "Candidates:\n" + "\n\n".join(lines)
+        prefix + "Article to rate:\n"
+        f"Title: {a['title']}\nSource: {src}\n{article_text(a, per_article)}"
     )
     data = llm.chat_json(SCORE_SYSTEM, user)
-    ratings = data.get("ratings", data) if isinstance(data, dict) else data
-    out: dict[int, tuple[float, str]] = {}
-    if not isinstance(ratings, list):
-        raise LLMError("ratings missing from LLM output")
-    for r in ratings:
-        try:
-            idx = int(r["id"])
-            score = max(0.0, min(10.0, float(r["score"])))
-        except (KeyError, TypeError, ValueError):
-            continue
-        if 1 <= idx <= len(articles):
-            out[articles[idx - 1]["id"]] = (score, str(r.get("reason", ""))[:200])
-    return out
+    if isinstance(data, dict) and isinstance(data.get("ratings"), list) and data["ratings"]:
+        data = data["ratings"][0]  # some models keep the old batch shape
+    if isinstance(data, list) and data:
+        data = data[0]
+    try:
+        score = max(0.0, min(10.0, float(data["score"])))
+    except (KeyError, TypeError, ValueError):
+        raise LLMError(f"no score in LLM output: {str(data)[:200]}") from None
+    return score, str(data.get("reason", ""))[:200]
 
 
 def shortlist(cfg, db) -> list:
@@ -154,25 +153,23 @@ def score_candidates(cfg, db, llm: LLM, stop=None) -> int:
         return 0
     # Unscored first, so a profile change never leaves fresh articles without any score.
     todo.sort(key=lambda a: a["score"] is not None)
-    examples = _examples(db)
+    prefix = score_prefix(profile["text"], _examples(db))
+    # Room left for the article after the shared prefix.
+    per_article = min(cfg.article_chars, max(1000, cfg.llm.max_prompt_chars - len(prefix) - 300))
     done = 0
-    # Room left for article text after the instructions, profile and examples.
-    budget = max(2000, cfg.llm.max_prompt_chars - len(profile["text"]) - len(examples) - 800)
-    per_article = min(cfg.article_chars, budget)
-    for batch in _batches(todo, max(1, cfg.llm.batch_size), budget, per_article):
+    for a in todo:
         if stop is not None and stop.is_set():
             break
         try:
-            results = score_batch(llm, profile["text"], examples, batch, per_article)
+            score, reason = score_one(llm, prefix, a, per_article)
         except LLMError as e:
-            log.warning("scoring batch failed: %s", e)
+            log.warning("scoring article %d failed: %s", a["id"], e)
             if "cannot reach" in str(e):
                 break
             continue
-        for aid, (score, reason) in results.items():
-            db.set_score(aid, score, reason, profile["id"])
+        db.set_score(a["id"], score, reason, profile["id"])
         db.conn.commit()
-        done += len(results)
+        done += 1
     log.info("scored %d/%d candidate articles", done, len(todo))
     return done
 

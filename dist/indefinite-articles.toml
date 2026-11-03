@@ -45,8 +45,8 @@ embedding_model = "nomic-embed-text"   # first-pass ranking of every article:
                                        #   ollama pull nomic-embed-text
                                        # set to "" to disable (newest articles are used)
 embedding_prefix = "clustering: "      # task prefix nomic-embed-text expects
-batch_size = 8                   # max articles per scoring request
-max_prompt_chars = 12000         # ~3k tokens; keep below the model's context window.
+max_prompt_chars = 12000         # ~3k tokens per scoring request (one article each);
+                                 # keep below the model's context window.
                                  # Ollama defaults to a 4096-token context; to use bigger
                                  # prompts set OLLAMA_CONTEXT_LENGTH=16384 for ollama.service
                                  # and raise this to ~50000.

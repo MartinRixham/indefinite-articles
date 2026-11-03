@@ -172,9 +172,11 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
 ## Notes
 
 * **Hardware.** Embedding a few thousand articles a day takes a few minutes of CPU in
-  total. A 14B model on CPU scores a batch of articles in about 30–120 s, and with about 150
-  articles a day that runs in the background after each hourly fetch, so the digest goes
-  out quickly. With no GPU, lower `max_candidates` or use a smaller model (`llama3.1:8b` or `qwen2.5:3b`).
+  total. Each article is scored in its own request, so every score uses the same scale.
+  The profile and examples come first in every prompt and stay the same between requests,
+  so Ollama and llama-server reuse their cached work and only process the article itself:
+  a 14B model on CPU takes roughly 10–30 s per article. With about 150 articles a day that
+  runs in the background after each hourly fetch, so the digest goes out quickly. With no GPU, lower `max_candidates` or use a smaller model (`llama3.1:8b` or `qwen2.5:3b`).
   Installing `python3-numpy` makes the first-pass rank much faster.
 * **No embedding model?** Set `embedding_model = ""` and it falls back to the newest
   articles, balanced across sources. With hundreds of feeds, that misses most of the

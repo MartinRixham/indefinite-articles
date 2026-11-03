@@ -104,11 +104,31 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(ranker.article_text(rows["A paper"], 1500), "Abstract text.")
         self.assertEqual(extract.enrich_candidates(cfg, db), 0)  # not retried
 
-    def test_batches_respect_budget(self):
-        rows = [{"title": "t" * 10, "content": "x" * 1000, "summary": ""} for _ in range(10)]
-        batches = list(ranker._batches(rows, 8, 3000, 1500))
-        self.assertEqual([len(b) for b in batches], [2, 2, 2, 2, 2])
-        self.assertEqual(sum(map(len, ranker._batches(rows, 3, 10**6, 1500))), 10)
+    def test_score_one_shares_prefix_and_reads_score(self):
+        prompts = []
+
+        class StubLLM:
+            def chat_json(self, system, user):
+                prompts.append(user)
+                return {"reason": "fits", "score": 12}
+
+        prefix = ranker.score_prefix("Likes Rust.", "(examples)")
+        rows = [{"title": f"Article {i}", "content": "x" * 3000, "summary": "", "source": "S",
+                 "category": ""} for i in range(3)]
+        results = [ranker.score_one(StubLLM(), prefix, a, 500) for a in rows]
+        self.assertEqual(results[0], (10.0, "fits"))  # clamped to 0-10
+        self.assertTrue(all(p.startswith(prefix) for p in prompts))
+        self.assertTrue(all(len(p) < len(prefix) + 600 for p in prompts))
+        self.assertIn("Title: Article 2", prompts[2])
+
+    def test_score_one_rejects_missing_score(self):
+        class StubLLM:
+            def chat_json(self, system, user):
+                return {"reason": "no number"}
+
+        row = {"title": "t", "content": "", "summary": "s", "source": "S", "category": ""}
+        with self.assertRaises(ranker.LLMError):
+            ranker.score_one(StubLLM(), "p", row)
 
     def test_migration_from_old_schema(self):
         import sqlite3, tempfile, os
