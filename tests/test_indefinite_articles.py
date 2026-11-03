@@ -218,6 +218,7 @@ class EndToEndTests(unittest.TestCase):
         self.config.exploration = 1
         self.config.fetch_full_articles = False
         self.database = Database(":memory:")
+        self.addCleanup(self.database.close)
         self.llm = LLM(self.config.llm)
 
     def _load_articles(self, score=True):

@@ -46,109 +46,109 @@ def command_run(config, args):
 
 def command_fetch(config, args):
     from .daemon import prefilter, refresh
-    database = Database(config.database)
-    llm = LLM(config.llm)
-    if args.no_score:
-        print(f"{feeds.update_all(config, database)} new articles")
-        prefilter(config, database, llm)
-    else:
-        print(f"{refresh(config, database, llm)} new articles")
-    return 0
+    with Database(config.database) as database:
+        llm = LLM(config.llm)
+        if args.no_score:
+            print(f"{feeds.update_all(config, database)} new articles")
+            prefilter(config, database, llm)
+        else:
+            print(f"{refresh(config, database, llm)} new articles")
+        return 0
 
 
 def command_feeds(config, args):
     """List configured feeds with their health."""
     import time
-    database = Database(config.database)
-    states = database.feed_states()
-    counts = database.articles_per_source(7)
-    statistics = database.source_statistics()
-    if args.categories:
-        categories: dict[str, int] = {}
-        for feed in config.feeds:
-            categories[feed.category or "(none)"] = categories.get(feed.category or "(none)", 0) + 1
-        for category, count in sorted(categories.items()):
-            print(f"{count:4}  {category}")
-        print(f"{len(config.feeds):4}  total")
+    with Database(config.database) as database:
+        states = database.feed_states()
+        counts = database.articles_per_source(7)
+        statistics = database.source_statistics()
+        if args.categories:
+            categories: dict[str, int] = {}
+            for feed in config.feeds:
+                categories[feed.category or "(none)"] = categories.get(feed.category or "(none)", 0) + 1
+            for category, count in sorted(categories.items()):
+                print(f"{count:4}  {category}")
+            print(f"{len(config.feeds):4}  total")
+            return 0
+        now = time.time()
+        shown = 0
+        for feed in sorted(config.feeds, key=lambda feed: (feed.category, feed.name or feed.url)):
+            state = states.get(feed.url)
+            source = feed.name or (state["title"] if state else "") or feed.url
+            if state is None:
+                health = "never fetched"
+            elif state["failures"]:
+                health = f"FAILING x{state['failures']}: {state['last_error'][:60]}"
+            else:
+                health = f"ok {int((now - state['last_success']) / 60)}m ago"
+            if args.broken and (state is None or not state["failures"]):
+                continue
+            likes, dislikes = statistics.get(source, (0, 0))
+            print(f"{feed.category[:18]:18}  {source[:34]:34}  {counts.get(source, 0):4}/wk  "
+                  f"+{likes}/-{dislikes}  {health}")
+            if args.broken:
+                print(f"{'':18}  {feed.url}")
+            shown += 1
+        print(f"-- {shown} feeds shown, {len(config.feeds)} configured")
         return 0
-    now = time.time()
-    shown = 0
-    for feed in sorted(config.feeds, key=lambda feed: (feed.category, feed.name or feed.url)):
-        state = states.get(feed.url)
-        source = feed.name or (state["title"] if state else "") or feed.url
-        if state is None:
-            health = "never fetched"
-        elif state["failures"]:
-            health = f"FAILING x{state['failures']}: {state['last_error'][:60]}"
-        else:
-            health = f"ok {int((now - state['last_success']) / 60)}m ago"
-        if args.broken and (state is None or not state["failures"]):
-            continue
-        likes, dislikes = statistics.get(source, (0, 0))
-        print(f"{feed.category[:18]:18}  {source[:34]:34}  {counts.get(source, 0):4}/wk  "
-              f"+{likes}/-{dislikes}  {health}")
-        if args.broken:
-            print(f"{'':18}  {feed.url}")
-        shown += 1
-    print(f"-- {shown} feeds shown, {len(config.feeds)} configured")
-    return 0
 
 
 def command_digest(config, args):
     from .daemon import send_digest
-    database = Database(config.database)
-    message = send_digest(config, database, dry_run=args.dry_run)
-    if message is None:
-        print("no candidate articles; run `indefinite-articles fetch` first", file=sys.stderr)
-        return 1
-    if args.dry_run:
-        print(mailer.part_text(message))
-    else:
-        print(f"sent: {message['Subject']}")
-    return 0
+    with Database(config.database) as database:
+        message = send_digest(config, database, dry_run=args.dry_run)
+        if message is None:
+            print("no candidate articles; run `indefinite-articles fetch` first", file=sys.stderr)
+            return 1
+        if args.dry_run:
+            print(mailer.part_text(message))
+        else:
+            print(f"sent: {message['Subject']}")
+        return 0
 
 
 def command_poll(config, args):
-    database = Database(config.database)
-    llm = LLM(config.llm)
-    print(f"processed {inbox.poll(config, database, llm)} replies")
-    if ranker.update_profile(config, database, llm):
-        print("profile updated")
-    return 0
+    with Database(config.database) as database:
+        llm = LLM(config.llm)
+        print(f"processed {inbox.poll(config, database, llm)} replies")
+        if ranker.update_profile(config, database, llm):
+            print("profile updated")
+        return 0
 
 
 def command_feedback(config, args):
     """Process a reply saved as an .eml file (or stdin) without IMAP."""
-    database = Database(config.database)
-    llm = LLM(config.llm)
-    raw = open(args.file, "rb").read() if args.file != "-" else sys.stdin.buffer.read()
-    message = email.message_from_bytes(raw, policy=email.policy.default)
-    import hashlib
-    # Same exactly-once bookkeeping as IMAP polling, so a later poll won't count it again.
-    reply_id = inbox.message_id(message, "file-" + hashlib.sha256(raw).hexdigest()[:16])
-    status, summary = inbox.handle_message(config, database, llm, message, reply_id)
-    print(status)
-    for line in summary:
-        print(" ", line)
-    if ranker.update_profile(config, database, llm):
-        print("profile updated")
-    return 0 if status == "ok" else 1
+    with Database(config.database) as database:
+        llm = LLM(config.llm)
+        raw = open(args.file, "rb").read() if args.file != "-" else sys.stdin.buffer.read()
+        message = email.message_from_bytes(raw, policy=email.policy.default)
+        import hashlib
+        # Same exactly-once bookkeeping as IMAP polling, so a later poll won't count it again.
+        reply_id = inbox.message_id(message, "file-" + hashlib.sha256(raw).hexdigest()[:16])
+        status, summary = inbox.handle_message(config, database, llm, message, reply_id)
+        print(status)
+        for line in summary:
+            print(" ", line)
+        if ranker.update_profile(config, database, llm):
+            print("profile updated")
+        return 0 if status == "ok" else 1
 
 
 def command_profile(config, args):
-    database = Database(config.database)
-    if args.set:
-        database.add_profile(args.set, note="set manually")
-        print("profile replaced")
+    with Database(config.database) as database:
+        if args.set:
+            database.add_profile(args.set, note="set manually")
+            print("profile replaced")
+            return 0
+        if args.history:
+            for row in database.connection.execute("SELECT * FROM profiles ORDER BY id"):
+                print(f"--- version {row['id']} ({row['note']})")
+                print(row["text"], "\n")
+            return 0
+        row = ranker.ensure_profile(config, database)
+        print(row["text"])
         return 0
-    if args.history:
-        for row in database.connection.execute("SELECT * FROM profiles ORDER BY id"):
-            print(f"--- version {row['id']} ({row['note']})")
-            print(row["text"], "\n")
-        return 0
-    row = ranker.ensure_profile(config, database)
-    print(row["text"])
-    return 0
 
 
 def command_extract(config, args):
@@ -158,11 +158,11 @@ def command_extract(config, args):
 
 
 def command_status(config, args):
-    database = Database(config.database)
-    for key, value in database.statistics().items():
-        print(f"{key:18} {value}")
-    print(f"{'last_digest':18} {database.get_state('last_digest_date', 'never')}")
-    return 0
+    with Database(config.database) as database:
+        for key, value in database.statistics().items():
+            print(f"{key:18} {value}")
+        print(f"{'last_digest':18} {database.get_state('last_digest_date', 'never')}")
+        return 0
 
 
 def command_check(config, args):

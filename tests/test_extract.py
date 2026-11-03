@@ -106,6 +106,7 @@ class ExtractTests(unittest.TestCase):
         config = load_config(ROOT / "dist" / "indefinite-articles.toml")
         config.allow_private_addresses = True
         database = Database(":memory:")
+        self.addCleanup(database.close)
         database.add_article(self.base + "/a", "Borrow checker", "borrowchecker", "Feed blurb.", "S", None)
         database.add_article(self.base + "/b.pdf", "A paper", "apaper", "Abstract text.", "S", None)
         database.connection.commit()
@@ -144,8 +145,8 @@ class ExtractTests(unittest.TestCase):
                       "published REAL, fetched_at REAL NOT NULL, score REAL, reason TEXT, "
                       "score_profile_id INTEGER, sent_digest_id INTEGER)")
             connection.commit(); connection.close()
-            database = Database(path)
-            columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(articles)")}
+            with Database(path) as database:
+                columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(articles)")}
             self.assertTrue({"content", "content_status"} <= columns)
 
 

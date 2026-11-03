@@ -104,6 +104,7 @@ class FetchTests(unittest.TestCase):
         config.feeds = [Feed(url=f"{self.base}/a", category="C"), Feed(url=f"{self.base}/b"),
                      Feed(url=f"{self.base}/broken")]
         database = Database(":memory:")
+        self.addCleanup(database.close)
         FeedServer.hits.clear()
         self.assertEqual(feeds.update_all(config, database), 2)
         row = database.connection.execute("SELECT category FROM articles WHERE url LIKE '%/a'").fetchone()
@@ -129,6 +130,7 @@ class PrefilterTests(unittest.TestCase):
 
     def _database(self, per_topic=30):
         database = Database(":memory:")
+        self.addCleanup(database.close)
         topics = {"Rust Weekly": "rust compilers borrow checker systems programming",
                   "Celeb News": "celebrity gossip red carpet fashion",
                   "Garden": "tomatoes compost garden soil"}

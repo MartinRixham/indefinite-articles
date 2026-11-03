@@ -124,6 +124,12 @@ class Database:
     def close(self):
         self.connection.close()
 
+    def __enter__(self) -> "Database":
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
     # -- state ---------------------------------------------------------------
     @overload
     def get_state(self, key: str) -> str | None: ...
