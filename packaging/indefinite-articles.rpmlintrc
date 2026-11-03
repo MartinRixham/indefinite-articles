@@ -1,0 +1,5 @@
+# The config file holds mail passwords; it is deliberately readable only by root and the service group.
+addFilter("non-readable /etc/indefinite-articles/indefinite-articles.toml")
+addFilter("non-standard-dir-perm /etc/indefinite-articles")
+addFilter("non-standard-dir-perm /var/lib/indefinite-articles")
+addFilter("non-standard-gid /var/lib/indefinite-articles")

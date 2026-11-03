@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "indefinite-articles"
+version = "0.4.0"
+description = "Daily article recommendations by email, trained on your replies with a local LLM"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+indefinite-articles = "indefinite_articles.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

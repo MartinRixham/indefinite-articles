@@ -1,0 +1,20 @@
+# RPM build output (make rpm / make container-rpm)
+/build/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local test databases
+*.db
+*.db-wal
+*.db-shm
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~

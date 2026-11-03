@@ -1,2 +1,137 @@
-# indefinite-articles
-An article recommendation engine.
+# Indefinite Articles
+
+A small Fedora service that emails you a daily list of articles. It picks them with a
+**local LLM** and learns what you like from **your replies to the email**.
+
+How it works:
+
+1. Every hour it fetches about 500 RSS/Atom feeds across 31 categories, plus any you add,
+   and saves new articles to SQLite. That's typically a few thousand articles a day.
+2. A small embedding model gives every article a quick first-pass rank against your
+   reader profile and the articles you liked and disliked. Only the best ~150 (plus some
+   random picks, so it keeps learning) go on to the next steps.
+3. For those, it downloads the page and extracts the article text. A local LLM
+   (Ollama or llama.cpp) then reads each one and scores it from 0 to 10, using your
+   *reader profile* plus your latest likes and dislikes.
+4. At `digest_time` it emails you the top articles. Two "something different" picks are
+   added so it keeps finding out what else you might like.
+5. Every 5 minutes it checks the mailbox over IMAP for your replies. It records your likes,
+   dislikes and comments, and the LLM rewrites your reader profile. It can reply
+   to confirm what it understood.
+
+It uses only the Python standard library. The only other thing it needs is a local
+LLM server.
+
+## Build the RPM
+
+```sh
+make container-rpm        # builds in a clean Fedora container with podman, no root needed
+# or, on a Fedora machine with build tools installed:
+sudo dnf install rpm-build python3-devel pyproject-rpm-macros systemd-rpm-macros
+make rpm
+```
+
+The packages are written to `build/rpmbuild/RPMS/noarch/` and `build/rpmbuild/SRPMS/`.
+
+## Install and set up
+
+```sh
+sudo dnf install ./indefinite-articles-0.4.0-1.fc44.noarch.rpm
+
+# 1. A local LLM (Ollama is in the Fedora repos)
+sudo dnf install ollama
+sudo systemctl enable --now ollama
+ollama pull llama3.1:8b                 # or qwen2.5:7b, gemma2:9b, ...
+ollama pull nomic-embed-text            # small (274 MB) model for the first-pass ranking
+
+# 2. Configure email and your starting interests
+sudoedit /etc/indefinite-articles/indefinite-articles.toml
+
+# 3. Test everything, then start the service
+sudo -u indefinite-articles indefinite-articles check --send-test
+sudo systemctl enable --now indefinite-articles
+journalctl -u indefinite-articles -f
+```
+
+Use a dedicated mailbox (e.g. `indefinite-articles@yourdomain`) as `from`. It sends the digests and
+receives your replies. For Gmail or Fastmail, use an app password. Only replies **from**
+`email.to` (or `allowed_senders`) are read. Other mail in the mailbox is left alone.
+
+## Feeds
+
+All feeds come from files in `/etc/indefinite-articles/feeds.d/`:
+
+* `default.opml` ships with about 500 feeds. Every one was checked to be working and
+  active. They cover tech, programming, Linux, security, AI, research papers (arXiv),
+  science, space, medicine, climate, economics, business, world news, politics, long-form
+  essays, history, philosophy, books, design, cities, food, sports, gaming and more.
+  It is a config file, so your edits survive upgrades.
+* To add your own, put any OPML export from another feed reader in that directory, or a
+  `.txt` file with one feed URL per line (`# Category` lines set the category).
+* To skip whole categories, set
+  `exclude_categories = ["Sports", "Gaming"]` in `indefinite-articles.toml`.
+
+You don't need to trim the list for relevance. Everything gets the cheap first-pass rank,
+and it learns from your replies which topics and sources to show you. A broad list mostly
+gives it more to choose from.
+
+`sudo -u indefinite-articles indefinite-articles feeds --categories` counts feeds per category.
+`indefinite-articles feeds --broken` lists feeds that are failing; those are retried with
+exponential backoff, up to once a day.
+
+## Replying
+
+Any of these work. You can mix them:
+
+```
++1 +4 -2
+3 like - more deep dives on compilers please
+5 no, I don't care about crypto
+Loved the Rust one. Less US politics generally.
+```
+
+Lines it can't parse go to the LLM, which works out what you meant. Quoted text from the
+original email is ignored.
+
+## Commands
+
+Run these as the service user so they can use its database: `sudo -u indefinite-articles indefinite-articles …`
+
+| command | what it does |
+|---|---|
+| `indefinite-articles check [--send-test]` | test the LLM, feeds, IMAP and SMTP |
+| `indefinite-articles fetch` | fetch feeds and score new articles now |
+| `indefinite-articles digest [--dry-run]` | send (or just print) a digest now |
+| `indefinite-articles poll` | read replies now |
+| `indefinite-articles feedback reply.eml` | process a reply saved to a file |
+| `indefinite-articles profile [--history] [--set TEXT]` | show, review or replace the learned profile |
+| `indefinite-articles status` | database statistics |
+| `indefinite-articles feeds [--broken] [--categories]` | feed health: articles per week, your likes, errors |
+| `indefinite-articles extract URL` | show the article text the LLM would see for a page |
+
+## Notes
+
+* **Hardware.** Embedding a few thousand articles a day takes a few minutes of CPU in
+  total. An 8B model on CPU scores a batch of articles in about 10–60 s, and with about 150
+  articles a day that runs in the background after each hourly fetch, so the digest goes
+  out quickly. With no GPU, lower `max_candidates` or use a smaller model (`qwen2.5:3b`).
+  Installing `python3-numpy` makes the first-pass rank much faster.
+* **No embedding model?** Set `embedding_model = ""` and it falls back to the newest
+  articles, balanced across sources. With hundreds of feeds, that misses most of the
+  good articles.
+* **Article text.** Pages are downloaded with 4 parallel workers, once per article.
+  If a page fails (paywall, HTTP 403, PDF, or a page built by JavaScript), the feed's
+  summary is used instead. Links that point at localhost or private network addresses
+  are refused unless `allow_private_addresses = true`. Set `fetch_full_articles = false`
+  to judge on feed summaries only.
+* **Context size.** Scoring requests stay under `llm.max_prompt_chars` (about 12,000
+  characters, roughly 3,000 tokens), because Ollama's default context is 4,096 tokens and
+  it silently cuts off anything longer. With more RAM, run
+  `sudo systemctl edit ollama`, add `Environment=OLLAMA_CONTEXT_LENGTH=16384`, then raise
+  `max_prompt_chars` to about 50000.
+* **If the LLM is down,** the digest still goes out. It is ranked by your past ratings of
+  each source and by how recent each article is, and the email says so.
+* **Data** is stored in `/var/lib/indefinite-articles/indefinite-articles.db`. Delete it to start over.
+* **Security.** The sender check uses the `From:` header, which can be forged. The worst
+  someone could do with a forged reply is skew your recommendations. If that matters,
+  use a private mailbox address.

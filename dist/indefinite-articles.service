@@ -1,0 +1,44 @@
+[Unit]
+Description=Article recommender (daily email digest, learns from replies)
+Documentation=file:///usr/share/doc/indefinite-articles/README.md
+Wants=network-online.target
+After=network-online.target ollama.service llama-server.service
+
+[Service]
+Type=simple
+User=indefinite-articles
+Group=indefinite-articles
+ExecStart=/usr/bin/indefinite-articles --config /etc/indefinite-articles/indefinite-articles.toml run
+Restart=on-failure
+RestartSec=30s
+TimeoutStopSec=30s
+StateDirectory=indefinite-articles
+StateDirectoryMode=0750
+UMask=0027
+Environment=PYTHONUNBUFFERED=1
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
