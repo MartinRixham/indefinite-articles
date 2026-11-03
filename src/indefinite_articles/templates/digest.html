@@ -1,0 +1,33 @@
+HTML part of the daily digest email.
+
+Each "@@ name" line starts a section. $name placeholders are filled in by
+mailer.build_digest, already HTML-escaped. A line whose placeholders are all
+empty is left out. Everything above the first section (this text) is ignored.
+Email clients ignore <style> blocks unevenly, so styles are inline.
+
+@@ page
+<html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:680px;margin:auto;color:#222;line-height:1.45">
+<h2 style="font-weight:600">Today's $count recommendations</h2>
+<p style="color:#a60">$note</p>
+$items
+<hr style="border:none;border-top:1px solid #ddd">
+<pre style="font-size:13px;color:#555;white-space:pre-wrap">$instructions</pre>
+<p style="font-size:11px;color:#aaa">digest-id: $digest_id</p>
+$debug
+</body></html>
+
+@@ item
+<div style="margin:0 0 22px">
+  <div style="font-size:17px"><b>$position.</b> <a href="$url" style="color:#1a56c8;text-decoration:none">$title</a></div>
+  <div style="font-size:13px;color:#666">$source$exploratory</div>
+  <div style="font-size:13px;color:#2a7a2a">Why: $reason</div>
+  <div style="font-size:14px;color:#444;margin-top:4px">$blurb</div>
+</div>
+
+@@ exploratory
+ <span style="font-size:12px;background:#eef;padding:1px 6px;border-radius:8px">something different</span>
+
+@@ debug
+<details><summary style="font-size:11px;color:#aaa">debug</summary>
+<pre style="font-size:11px;color:#888;white-space:pre-wrap">$lines</pre>
+</details>

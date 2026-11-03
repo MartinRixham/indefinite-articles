@@ -37,10 +37,10 @@ class LLMUnavailable(LLMError):
 
 
 class LLM:
-    def __init__(self, cfg, deadline=None):
+    def __init__(self, config, deadline=None):
         """`deadline`, if given, returns the epoch time by which every request must
         finish (the service passes the next digest time)."""
-        self.cfg = cfg
+        self.config = config
         self.deadline = deadline
         self._lock = threading.Lock()
         self._slowest: dict[str, float] = {}  # longest silence seen, per kind of wait
@@ -80,46 +80,46 @@ class LLM:
     def _send(self, path: str, body: dict, kind: str):
         """POST `body`; returns (connection, socket, response, timeout, by_stall) once
         the response headers have arrived."""
-        u = urllib.parse.urlsplit(self.cfg.base_url)
-        cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
+        parts = urllib.parse.urlsplit(self.config.base_url)
+        cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
         timeout, by_stall = self._limit(kind)
-        conn = cls(u.hostname, u.port, timeout=timeout)
+        connection = cls(parts.hostname, parts.port, timeout=timeout)
         headers = {"Content-Type": "application/json"}
-        if self.cfg.api_key:
-            headers["Authorization"] = f"Bearer {self.cfg.api_key}"
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
         try:
-            conn.request("POST", u.path + path, body=json.dumps(body).encode(), headers=headers)
-            # Our own reference: http.client drops conn.sock when the server will close.
-            sock = conn.sock
-            resp = conn.getresponse()
+            connection.request("POST", parts.path + path, body=json.dumps(body).encode(), headers=headers)
+            # Our own reference: http.client drops connection.sock when the server will close.
+            stream_socket = connection.sock
+            response = connection.getresponse()
         except TimeoutError:
-            conn.close()
+            connection.close()
             raise self._stalled(kind, timeout or 0, by_stall) from None
-        except OSError as e:
-            conn.close()
-            raise LLMUnavailable(f"cannot reach LLM at {self.cfg.base_url}: {e}") from None
-        if resp.status >= 400:
-            detail = resp.read(500).decode(errors="replace")
-            conn.close()
-            raise LLMError(f"LLM HTTP {resp.status}: {detail}")
-        return conn, sock, resp, timeout, by_stall
+        except OSError as error:
+            connection.close()
+            raise LLMUnavailable(f"cannot reach LLM at {self.config.base_url}: {error}") from None
+        if response.status >= 400:
+            detail = response.read(500).decode(errors="replace")
+            connection.close()
+            raise LLMError(f"LLM HTTP {response.status}: {detail}")
+        return connection, stream_socket, response, timeout, by_stall
 
     def _post(self, path: str, body: dict, kind: str) -> dict:
         """POST and read a whole JSON response (no progress to watch until it's done)."""
-        t0 = time.monotonic()
-        conn, _, resp, timeout, by_stall = self._send(path, body, kind)
+        started = time.monotonic()
+        connection, _, response, timeout, by_stall = self._send(path, body, kind)
         try:
-            data = json.loads(resp.read())
+            data = json.loads(response.read())
         except TimeoutError:
             raise self._stalled(kind, timeout or 0, by_stall) from None
-        except OSError as e:
-            raise LLMUnavailable(f"connection to LLM lost: {e}") from None
+        except OSError as error:
+            raise LLMUnavailable(f"connection to LLM lost: {error}") from None
         except ValueError:
             raise LLMError("LLM returned invalid JSON") from None
         finally:
-            resp.close()
-            conn.close()
-        self._observe(kind, time.monotonic() - t0)
+            response.close()
+            connection.close()
+        self._observe(kind, time.monotonic() - started)
         return data
 
     def _stream(self, path: str, body: dict) -> str:
@@ -127,17 +127,17 @@ class LLM:
 
         The wait for the first token (prompt processing, maybe loading the model) and
         the gaps between tokens are timed separately, as "first" and "gap"."""
-        t0 = time.monotonic()
-        conn, sock, resp, timeout, by_stall = self._send(path, {**body, "stream": True}, "first")
+        started = time.monotonic()
+        connection, stream_socket, response, timeout, by_stall = self._send(path, {**body, "stream": True}, "first")
         kind = "first"
         try:
-            if "text/event-stream" not in (resp.getheader("Content-Type") or ""):
-                data = json.loads(resp.read())  # server ignored "stream"
-                self._observe(kind, time.monotonic() - t0)
+            if "text/event-stream" not in (response.getheader("Content-Type") or ""):
+                data = json.loads(response.read())  # server ignored "stream"
+                self._observe(kind, time.monotonic() - started)
                 return _message_text(data)
-            parts, last = [], t0
+            parts, last = [], started
             while True:
-                line = resp.readline()
+                line = response.readline()
                 if not line:  # closed before [DONE]: don't pass on a cut-off answer
                     raise LLMUnavailable("LLM closed the connection mid-answer")
                 line = line.strip()
@@ -148,7 +148,7 @@ class LLM:
                 last = now
                 kind = "gap"
                 timeout, by_stall = self._limit(kind)
-                sock.settimeout(timeout)
+                stream_socket.settimeout(timeout)
                 payload = line[5:].strip()
                 if payload == b"[DONE]":
                     break
@@ -162,39 +162,39 @@ class LLM:
             return "".join(parts)
         except TimeoutError:
             raise self._stalled(kind, timeout or 0, by_stall) from None
-        except OSError as e:
-            raise LLMUnavailable(f"connection to LLM lost: {e}") from None
+        except OSError as error:
+            raise LLMUnavailable(f"connection to LLM lost: {error}") from None
         except ValueError:
             raise LLMError("LLM returned invalid JSON") from None
         finally:
-            resp.close()
-            conn.close()
+            response.close()
+            connection.close()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embedding vectors for `texts`, using the configured embedding model."""
-        if not self.cfg.embedding_model:
+        if not self.config.embedding_model:
             raise LLMError("no embedding_model configured")
         data = self._post("/embeddings", {
-            "model": self.cfg.embedding_model,
-            "input": [self.cfg.embedding_prefix + t for t in texts],
+            "model": self.config.embedding_model,
+            "input": [self.config.embedding_prefix + text for text in texts],
         }, "embed")
         try:
-            items = sorted(data["data"], key=lambda d: d.get("index", 0))
-            vecs = [d["embedding"] for d in items]
+            items = sorted(data["data"], key=lambda item: item.get("index", 0))
+            vectors = [item["embedding"] for item in items]
         except (KeyError, TypeError):
             raise LLMError(f"unexpected embeddings response: {str(data)[:300]}") from None
-        if len(vecs) != len(texts):
+        if len(vectors) != len(texts):
             raise LLMError("embeddings response has the wrong number of vectors")
-        return vecs
+        return vectors
 
     def chat(self, system: str, user: str, json_mode: bool = False) -> str:
         body = {
-            "model": self.cfg.model,
+            "model": self.config.model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "temperature": self.cfg.temperature,
+            "temperature": self.config.temperature,
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -214,13 +214,13 @@ class LLM:
     def on_cpu_only(self) -> bool:
         """True if Ollama has the chat model loaded with nothing in GPU memory."""
         try:
-            url = self.cfg.base_url.removesuffix("/v1") + "/api/ps"
-            with urllib.request.urlopen(url, timeout=self._limit("status")[0]) as resp:
-                models = json.load(resp)["models"]
+            url = self.config.base_url.removesuffix("/v1") + "/api/ps"
+            with urllib.request.urlopen(url, timeout=self._limit("status")[0]) as response:
+                models = json.load(response)["models"]
         except Exception:  # not Ollama (e.g. llama.cpp) or unreachable: can't tell
             return False
-        names = {self.cfg.model, self.cfg.model + ":latest"}
-        return any(m.get("name") in names and not m.get("size_vram") for m in models)
+        names = {self.config.model, self.config.model + ":latest"}
+        return any(model.get("name") in names and not model.get("size_vram") for model in models)
 
 
 def _message_text(data) -> str:
@@ -238,8 +238,8 @@ def extract_json(text: str):
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    for open_, close in (("{", "}"), ("[", "]")):
-        start, end = text.find(open_), text.rfind(close)
+    for opener, close in (("{", "}"), ("[", "]")):
+        start, end = text.find(opener), text.rfind(close)
         if start != -1 and end > start:
             try:
                 return json.loads(text[start : end + 1])

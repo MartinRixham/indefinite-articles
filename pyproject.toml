@@ -17,3 +17,6 @@ indefinite-articles = "indefinite_articles.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+indefinite_articles = ["templates/*"]

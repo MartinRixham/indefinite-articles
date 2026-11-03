@@ -22,15 +22,15 @@ _COMPACT_TOKEN = re.compile(r"([+-])\s?(\d{1,2})|(\d{1,2})\s?([+-])")
 _ITEM_LINE = re.compile(r"^\s*#?(\d{1,2})\s*[.):,]?\s*(.*)$")
 
 
-def body_text(msg: EmailMessage) -> str:
-    part = msg.get_body(preferencelist=("plain",))
+def body_text(message: EmailMessage) -> str:
+    part = message.get_body(preferencelist=("plain",))
     if part is not None:
         return part.get_content()
-    part = msg.get_body(preferencelist=("html",))
+    part = message.get_body(preferencelist=("html",))
     if part is not None:
-        h = re.sub(r"(?is)<blockquote.*?</blockquote>", "", part.get_content())
-        h = re.sub(r"(?i)<br\s*/?>|</p>|</div>", "\n", h)
-        return "\n".join(html_to_text(line) for line in h.splitlines())
+        markup = re.sub(r"(?is)<blockquote.*?</blockquote>", "", part.get_content())
+        markup = re.sub(r"(?i)<br\s*/?>|</p>|</div>", "\n", markup)
+        return "\n".join(html_to_text(line) for line in markup.splitlines())
     return ""
 
 
@@ -38,18 +38,18 @@ def strip_quoted(text: str) -> str:
     """Return only the newly written part of a reply."""
     out = []
     lines = text.replace("\r\n", "\n").split("\n")
-    for i, line in enumerate(lines):
-        s = line.strip()
-        if s.startswith(">") or s == "--" or s == "-- ":
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith(">") or stripped == "--" or stripped == "-- ":
             break
-        if _QUOTE_HEADER.match(s):
+        if _QUOTE_HEADER.match(stripped):
             # "On <date>, X wrote:" may be wrapped; only stop if it looks like a header.
-            nxt = " ".join(l.strip() for l in lines[i : i + 3])
-            if s.lower().startswith("on ") and "wrote" not in nxt.lower():
+            lookahead = " ".join(following.strip() for following in lines[index : index + 3])
+            if stripped.lower().startswith("on ") and "wrote" not in lookahead.lower():
                 out.append(line)
                 continue
             break
-        if s.startswith("digest-id:"):
+        if stripped.startswith("digest-id:"):
             break
         out.append(line)
     return "\n".join(out).strip()
@@ -58,17 +58,17 @@ def strip_quoted(text: str) -> str:
 def _sentiment(rest: str) -> tuple[int | None, str]:
     """Look at the start of `rest` for a like/dislike word. Returns (rating, remaining comment)."""
     rest = rest.strip()
-    m = re.match(r"^([+-]|[^\W\d_]+|👍|👎|❤️?)\s*[:,.!\-–—]*\s*(.*)$", rest, re.DOTALL)
-    if m:
-        word = m.group(1).lower()
+    match = re.match(r"^([+-]|[^\W\d_]+|👍|👎|❤️?)\s*[:,.!\-–—]*\s*(.*)$", rest, re.DOTALL)
+    if match:
+        word = match.group(1).lower()
         if word in LIKE_WORDS:
-            return 1, m.group(2).strip()
+            return 1, match.group(2).strip()
         if word in DISLIKE_WORDS:
-            return -1, m.group(2).strip()
+            return -1, match.group(2).strip()
     return None, rest
 
 
-def parse_structured(text: str, n_items: int):
+def parse_structured(text: str, item_count: int):
     """Parse ratings written in the documented formats.
 
     Returns (ratings, general_comments, unresolved) where ratings maps item number to
@@ -84,21 +84,21 @@ def parse_structured(text: str, n_items: int):
         # Compact form: "+1 +4 -2", "1+ 3-", "+1, -2"
         stripped = _COMPACT_TOKEN.sub("", line)
         if _COMPACT_TOKEN.search(line) and not re.sub(r"[\s,;]", "", stripped):
-            for m in _COMPACT_TOKEN.finditer(line):
-                sign, num = (m.group(1), m.group(2)) if m.group(1) else (m.group(4), m.group(3))
-                n = int(num)
-                if 1 <= n <= n_items:
-                    ratings[n] = (1 if sign == "+" else -1, "")
+            for match in _COMPACT_TOKEN.finditer(line):
+                sign, number = (match.group(1), match.group(2)) if match.group(1) else (match.group(4), match.group(3))
+                item_number = int(number)
+                if 1 <= item_number <= item_count:
+                    ratings[item_number] = (1 if sign == "+" else -1, "")
             continue
-        m = _ITEM_LINE.match(line)
-        if m and 1 <= int(m.group(1)) <= n_items:
-            n = int(m.group(1))
-            rating, comment = _sentiment(m.group(2))
+        match = _ITEM_LINE.match(line)
+        if match and 1 <= int(match.group(1)) <= item_count:
+            item_number = int(match.group(1))
+            rating, comment = _sentiment(match.group(2))
             if rating is None:
                 unresolved += 1
-                ratings[n] = (0, comment)
+                ratings[item_number] = (0, comment)
             else:
-                ratings[n] = (rating, comment)
+                ratings[item_number] = (rating, comment)
             continue
         general.append(line)
     return ratings, general, unresolved
@@ -111,7 +111,8 @@ INTERPRET_SYSTEM = (
 
 
 def interpret_with_llm(llm: LLM, text: str, items):
-    listing = "\n".join(f"{i}. {a['title']} ({a['source']})" for i, a in enumerate(items, start=1))
+    listing = "\n".join(f"{item_number}. {article['title']} ({article['source']})"
+                        for item_number, article in enumerate(items, start=1))
     user = (
         f"The reader was sent these articles:\n{listing}\n\n"
         f"Their reply:\n\"\"\"\n{text[:4000]}\n\"\"\"\n\n"
@@ -125,15 +126,15 @@ def interpret_with_llm(llm: LLM, text: str, items):
     if not isinstance(data, dict):
         raise LLMError("unexpected interpretation format")
     ratings: dict[int, tuple[int, str]] = {}
-    for r in data.get("ratings") or []:
+    for entry in data.get("ratings") or []:
         try:
-            n = int(r["item"])
+            item_number = int(entry["item"])
         except (KeyError, TypeError, ValueError):
             continue
-        if not 1 <= n <= len(items):
+        if not 1 <= item_number <= len(items):
             continue
-        val = {"like": 1, "dislike": -1}.get(str(r.get("rating", "")).lower(), 0)
-        ratings[n] = (val, str(r.get("comment") or "")[:500])
+        rating = {"like": 1, "dislike": -1}.get(str(entry.get("rating", "")).lower(), 0)
+        ratings[item_number] = (rating, str(entry.get("comment") or "")[:500])
     general = str(data.get("general_comment") or "").strip()
     return ratings, ([general] if general else [])
 
@@ -144,12 +145,12 @@ def understand(llm: LLM | None, text: str, items):
     needs_llm = unresolved > 0 or (general and llm is not None)
     if needs_llm and llm is not None:
         try:
-            l_ratings, l_general = interpret_with_llm(llm, text, items)
+            llm_ratings, llm_general = interpret_with_llm(llm, text, items)
             # Explicit structured ratings win; the LLM fills in the rest.
-            for n, v in l_ratings.items():
-                if n not in ratings or ratings[n][0] == 0:
-                    ratings[n] = v
-            general = l_general
-        except LLMError as e:
-            log.warning("could not interpret free-form reply with LLM: %s", e)
+            for item_number, rating in llm_ratings.items():
+                if item_number not in ratings or ratings[item_number][0] == 0:
+                    ratings[item_number] = rating
+            general = llm_general
+        except LLMError as error:
+            log.warning("could not interpret free-form reply with LLM: %s", error)
     return ratings, general

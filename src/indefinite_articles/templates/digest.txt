@@ -1,0 +1,37 @@
+Plain-text part of the daily digest email.
+
+Each "@@ name" line starts a section. $name placeholders are filled in by
+mailer.build_digest. A line whose placeholders are all empty is left out, and
+runs of blank lines are collapsed into one. Everything above the first section
+(this text) is ignored.
+
+Keep the "--" line before the instructions and the "digest-id:" line: replies
+are cut off at either, so quoted text below them is never read as feedback.
+
+@@ page
+Today's $count recommendations
+
+$note
+
+$items
+
+--
+$instructions
+
+digest-id: $digest_id
+
+$debug
+
+@@ item
+$position. $title
+   $source$exploratory
+   $url
+   Why: $reason
+   $blurb
+
+@@ exploratory
+  · something different
+
+@@ debug
+-- debug --
+$lines

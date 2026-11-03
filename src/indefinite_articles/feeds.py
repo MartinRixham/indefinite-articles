@@ -7,9 +7,8 @@ import logging
 import re
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ElementTree
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -22,7 +21,7 @@ log = logging.getLogger(__name__)
 
 USER_AGENT = f"indefinite-articles/{__version__} (+feed reader)"
 MAX_FEED_BYTES = 10 * 1024 * 1024
-SUMMARY_CHARS = 600
+SUMMARY_CHARACTERS = 600
 
 
 @dataclass
@@ -31,6 +30,10 @@ class Entry:
     title: str
     summary: str
     published: float | None
+
+    @property
+    def title_key(self) -> str:
+        return title_key(self.title)
 
 
 class _TextExtractor(HTMLParser):
@@ -54,16 +57,16 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data)
 
 
-def html_to_text(s: str) -> str:
-    if not s:
+def html_to_text(markup: str) -> str:
+    if not markup:
         return ""
-    p = _TextExtractor()
+    parser = _TextExtractor()
     try:
-        p.feed(s)
-        p.close()
-        text = "".join(p.parts)
+        parser.feed(markup)
+        parser.close()
+        text = "".join(parser.parts)
     except Exception:
-        text = re.sub(r"<[^>]+>", " ", s)
+        text = re.sub(r"<[^>]+>", " ", markup)
     return re.sub(r"\s+", " ", html.unescape(text)).strip()
 
 
@@ -76,41 +79,41 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
 
 
-def _child(el, *names):
-    for c in el:
-        if _local(c.tag) in names:
-            return c
+def _child(element, *names):
+    for child in element:
+        if _local(child.tag) in names:
+            return child
     return None
 
 
-def _text(el, *names) -> str:
-    c = _child(el, *names)
-    if c is None:
+def _text(element, *names) -> str:
+    child = _child(element, *names)
+    if child is None:
         return ""
     # Atom content may be xhtml with child elements
-    return "".join(c.itertext()).strip()
+    return "".join(child.itertext()).strip()
 
 
-def _parse_date(s: str) -> float | None:
-    s = (s or "").strip()
-    if not s:
+def _parse_date(text: str) -> float | None:
+    text = (text or "").strip()
+    if not text:
         return None
     try:
-        return email.utils.parsedate_to_datetime(s).timestamp()
+        return email.utils.parsedate_to_datetime(text).timestamp()
     except (TypeError, ValueError, IndexError):
         pass
     try:
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.astimezone()
-        return dt.timestamp()
+        parsed_date = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed_date.tzinfo is None:
+            parsed_date = parsed_date.astimezone()
+        return parsed_date.timestamp()
     except ValueError:
         return None
 
 
-def _summarise(s: str) -> str:
-    t = html_to_text(s)
-    return t if len(t) <= SUMMARY_CHARS else t[: SUMMARY_CHARS - 1].rsplit(" ", 1)[0] + "…"
+def _summarise(markup: str) -> str:
+    text = html_to_text(markup)
+    return text if len(text) <= SUMMARY_CHARACTERS else text[: SUMMARY_CHARACTERS - 1].rsplit(" ", 1)[0] + "…"
 
 
 _XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
@@ -118,39 +121,43 @@ _XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
 
 def _fix_entities(text: str) -> str:
     """Turn HTML-only named entities (&nbsp; &mdash; ...) into numeric ones XML accepts."""
-    def sub(m):
-        name = m.group(1)
-        if name in _XML_ENTITIES:
-            return m.group(0)
-        cp = html.entities.name2codepoint.get(name)
-        return f"&#{cp};" if cp else "&amp;" + name + ";"
-    return re.sub(r"&([A-Za-z][A-Za-z0-9]*);", sub, text)
+    return re.sub(r"&([A-Za-z][A-Za-z0-9]*);", _numeric_entity, text)
+
+
+def _numeric_entity(match: re.Match) -> str:
+    name = match.group(1)
+    if name in _XML_ENTITIES:
+        return match.group(0)
+    codepoint = html.entities.name2codepoint.get(name)
+    return f"&#{codepoint};" if codepoint else "&amp;" + name + ";"
+
+
+def _tag_text(block: str, *names) -> str:
+    """Text of the first of the named tags found in a block of feed XML."""
+    for name in names:
+        match = re.search(rf"<{name}(?:\s[^>]*)?>(.*?)</{name}>", block, re.S | re.I)
+        if match:
+            value = match.group(1).strip()
+            cdata = re.fullmatch(r"<!\[CDATA\[(.*)\]\]>", value, re.S)
+            return cdata.group(1) if cdata else html.unescape(value)
+    return ""
 
 
 def _lenient_entries(text: str) -> tuple[str, list[Entry]]:
     """Last resort for badly broken feeds: pull fields out with regular expressions."""
-    def field(block, *names):
-        for n in names:
-            m = re.search(rf"<{n}(?:\s[^>]*)?>(.*?)</{n}>", block, re.S | re.I)
-            if m:
-                v = m.group(1).strip()
-                cdata = re.fullmatch(r"<!\[CDATA\[(.*)\]\]>", v, re.S)
-                return cdata.group(1) if cdata else html.unescape(v)
-        return ""
-
     entries = []
     for block in re.findall(r"<(?:item|entry)(?:\s[^>]*)?>(.*?)</(?:item|entry)>", text, re.S | re.I):
-        url = field(block, "link")
+        url = _tag_text(block, "link")
         if not url:
-            m = re.search(r'<link[^>]*href=["\']([^"\']+)', block, re.I)
-            url = m.group(1) if m else ""
-        title = html_to_text(field(block, "title"))
+            match = re.search(r'<link[^>]*href=["\']([^"\']+)', block, re.I)
+            url = match.group(1) if match else ""
+        title = html_to_text(_tag_text(block, "title"))
         if url and title:
             entries.append(Entry(url.strip(), title,
-                                 _summarise(field(block, "description", "summary", "content")),
-                                 _parse_date(field(block, "pubDate", "published", "updated", "dc:date"))))
-    chan = re.search(r"<title(?:\s[^>]*)?>(.*?)</title>", text, re.S | re.I)
-    return html_to_text(chan.group(1)) if chan else "", entries
+                                 _summarise(_tag_text(block, "description", "summary", "content")),
+                                 _parse_date(_tag_text(block, "pubDate", "published", "updated", "dc:date"))))
+    channel_title = re.search(r"<title(?:\s[^>]*)?>(.*?)</title>", text, re.S | re.I)
+    return html_to_text(channel_title.group(1)) if channel_title else "", entries
 
 
 def parse_feed(data: bytes) -> tuple[str, list[Entry]]:
@@ -160,14 +167,14 @@ def parse_feed(data: bytes) -> tuple[str, list[Entry]]:
     if head.startswith(b"<!doctype html") or head.startswith(b"<html"):
         raise ValueError("got an HTML page, not a feed")
     try:
-        root = ET.fromstring(data)
-    except ET.ParseError as first:
+        root = ElementTree.fromstring(data)
+    except ElementTree.ParseError as first:
         text = data.decode("utf-8", errors="replace")
         text = re.sub(r"^.*?(?=<\?xml)", "", text, count=1, flags=re.S)  # junk before declaration
         text = re.sub(r"^<\?xml[^>]*\?>", "", text)  # (encoding is now utf-8 text)
         try:
-            root = ET.fromstring(_fix_entities(text))
-        except ET.ParseError:
+            root = ElementTree.fromstring(_fix_entities(text))
+        except ElementTree.ParseError:
             title, entries = _lenient_entries(text)
             if not entries:
                 raise first
@@ -178,33 +185,33 @@ def parse_feed(data: bytes) -> tuple[str, list[Entry]]:
 
     if kind == "feed":  # Atom
         feed_title = _text(root, "title")
-        for e in root:
-            if _local(e.tag) != "entry":
+        for entry in root:
+            if _local(entry.tag) != "entry":
                 continue
             url = ""
-            for link in e:
+            for link in entry:
                 if _local(link.tag) == "link" and link.get("rel", "alternate") == "alternate":
                     url = link.get("href", "")
                     break
-            title = html_to_text(_text(e, "title"))
-            summary = _text(e, "summary") or _text(e, "content")
-            date = _text(e, "published") or _text(e, "updated")
+            title = html_to_text(_text(entry, "title"))
+            summary = _text(entry, "summary") or _text(entry, "content")
+            date = _text(entry, "published") or _text(entry, "updated")
             if url and title:
                 entries.append(Entry(url, title, _summarise(summary), _parse_date(date)))
     else:  # RSS 2.0 (<rss><channel><item>) or RSS 1.0 (<rdf:RDF><item>)
         channel = _child(root, "channel")
         if channel is not None:
             feed_title = _text(channel, "title")
-        items = [el for el in root.iter() if _local(el.tag) == "item"]
-        for it in items:
-            url = _text(it, "link")
+        items = [element for element in root.iter() if _local(element.tag) == "item"]
+        for item in items:
+            url = _text(item, "link")
             if not url:
-                guid = _child(it, "guid")
+                guid = _child(item, "guid")
                 if guid is not None and guid.get("isPermaLink", "true") != "false":
                     url = (guid.text or "").strip()
-            title = html_to_text(_text(it, "title"))
-            summary = _text(it, "description") or _text(it, "encoded", "summary")
-            date = _text(it, "pubDate", "date", "published", "updated")
+            title = html_to_text(_text(item, "title"))
+            summary = _text(item, "description") or _text(item, "encoded", "summary")
+            date = _text(item, "pubDate", "date", "published", "updated")
             if url and title:
                 entries.append(Entry(url, title, _summarise(summary), _parse_date(date)))
     return html_to_text(feed_title), entries
@@ -213,8 +220,8 @@ def parse_feed(data: bytes) -> tuple[str, list[Entry]]:
 def _decompress(data: bytes, encoding: str) -> bytes:
     if encoding not in ("gzip", "x-gzip", "deflate"):
         return data
-    d = zlib.decompressobj(wbits=47 if "gzip" in encoding else 15)  # 47: auto gzip/zlib header
-    out = d.decompress(data, MAX_FEED_BYTES + 1)
+    decompressor = zlib.decompressobj(wbits=47 if "gzip" in encoding else 15)  # 47: auto gzip/zlib header
+    out = decompressor.decompress(data, MAX_FEED_BYTES + 1)
     if len(out) > MAX_FEED_BYTES:
         raise ValueError("feed too large")
     return out
@@ -232,79 +239,82 @@ def fetch_conditional(url: str, etag: str | None = None, last_modified: str | No
         headers["If-None-Match"] = etag
     if last_modified:
         headers["If-Modified-Since"] = last_modified
-    req = urllib.request.Request(url, headers=headers)
+    request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = resp.read(MAX_FEED_BYTES + 1)
-            meta = {"etag": resp.headers.get("ETag"), "last_modified": resp.headers.get("Last-Modified")}
-            encoding = (resp.headers.get("Content-Encoding") or "").lower()
-    except urllib.error.HTTPError as e:
-        if e.code == 304:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = response.read(MAX_FEED_BYTES + 1)
+            metadata = {"etag": response.headers.get("ETag"), "last_modified": response.headers.get("Last-Modified")}
+            encoding = (response.headers.get("Content-Encoding") or "").lower()
+    except urllib.error.HTTPError as error:
+        if error.code == 304:
             return None, {"etag": etag, "last_modified": last_modified}
         raise
     if len(data) > MAX_FEED_BYTES:
         raise ValueError("feed too large")
-    return _decompress(data, encoding), meta
+    return _decompress(data, encoding), metadata
 
 
 def fetch(url: str, timeout: int = 30) -> bytes:
-    return fetch_conditional(url, timeout=timeout)[0]
+    data = fetch_conditional(url, timeout=timeout)[0]
+    if data is None:  # 304 without If-None-Match/If-Modified-Since: a broken server
+        raise ValueError(f"unexpected 304 Not Modified from {url}")
+    return data
 
 
 def _fetch_group(feeds, states, stop):
     """Fetch feeds that share a host one after another, to be polite to that host."""
     results = []
-    for f in feeds:
+    for feed in feeds:
         if stop is not None and stop.is_set():
             break
-        st = states.get(f.url)
+        state = states.get(feed.url)
         try:
-            data, meta = fetch_conditional(f.url, st["etag"] if st else None,
-                                           st["last_modified"] if st else None)
+            data, metadata = fetch_conditional(feed.url, state["etag"] if state else None,
+                                           state["last_modified"] if state else None)
             if data is None:
-                results.append((f, "not-modified", None, meta))
+                results.append((feed, "not-modified", None, metadata))
             else:
-                results.append((f, "ok", parse_feed(data), meta))
-        except Exception as e:
-            results.append((f, "error", None, f"{type(e).__name__}: {e}"))
+                results.append((feed, "ok", parse_feed(data), metadata))
+        except Exception as error:
+            results.append((feed, "error", None, f"{type(error).__name__}: {error}"))
     return results
 
 
-def update_all(cfg, db, stop=None) -> int:
+def update_all(config, database, stop=None) -> int:
     """Fetch all due feeds; return number of new articles stored."""
     now = time.time()
-    states = db.feed_states()
-    due = [f for f in cfg.feeds
-           if f.url not in states or (states[f.url]["next_attempt"] or 0) <= now]
+    states = database.feed_states()
+    due = [feed for feed in config.feeds
+           if feed.url not in states or (states[feed.url]["next_attempt"] or 0) <= now]
     groups: dict[str, list] = {}
-    for f in due:
-        groups.setdefault(urllib.parse.urlsplit(f.url).hostname or "", []).append(f)
+    for feed in due:
+        groups.setdefault(feed.host, []).append(feed)
 
     new = changed = unchanged = failed = 0
-    with ThreadPoolExecutor(max_workers=max(1, cfg.fetch_concurrency)) as pool:
-        for results in pool.map(lambda g: _fetch_group(g, states, stop), groups.values()):
-            for f, status, parsed, meta in results:
+    with ThreadPoolExecutor(max_workers=max(1, config.fetch_concurrency)) as pool:
+        for results in pool.map(lambda group: _fetch_group(group, states, stop), groups.values()):
+            for feed, status, parsed, metadata in results:
                 if status == "error":
                     failed += 1
-                    db.feed_failed(f.url, meta, cfg.fetch_interval_minutes * 60)
-                    log.debug("feed %s failed: %s", f.url, meta)
+                    database.feed_failed(feed.url, metadata, config.fetch_interval_minutes * 60)
+                    log.debug("feed %s failed: %s", feed.url, metadata)
                     continue
                 if status == "not-modified":
                     unchanged += 1
-                    db.feed_ok(f.url, "", meta["etag"], meta["last_modified"])
+                    database.feed_ok(feed.url, "", metadata["etag"], metadata["last_modified"])
                     continue
                 title, entries = parsed
-                source = f.name or title or f.url
-                entries.sort(key=lambda en: en.published or 0, reverse=True)
-                n = 0
-                for en in entries[: f.max_items]:
-                    if db.add_article(en.url, en.title, title_key(en.title), en.summary,
-                                      source, en.published, f.category):
-                        n += 1
-                db.feed_ok(f.url, title, meta["etag"], meta["last_modified"])
+                source = feed.name or title or feed.url
+                entries.sort(key=lambda entry: entry.published or 0, reverse=True)
+                added = 0
+                for entry in entries[: feed.max_items]:
+                    if database.add_article(entry.url, entry.title, entry.title_key, entry.summary,
+                                      source, entry.published, feed.category):
+                        added += 1
+                database.feed_ok(feed.url, title, metadata["etag"], metadata["last_modified"])
                 changed += 1
-                new += n
-            db.conn.commit()
+                new += added
+            database.connection.commit()
     log.info("feeds: %d due, %d updated, %d unchanged, %d failed; %d new articles",
              len(due), changed, unchanged, failed, new)
     return new

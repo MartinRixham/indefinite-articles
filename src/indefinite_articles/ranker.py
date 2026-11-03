@@ -4,7 +4,9 @@ import bisect
 import hashlib
 import logging
 import random
+from collections import Counter
 from datetime import date
+from typing import Any, Protocol
 
 from .llm import LLM, LLMError, LLMUnavailable
 
@@ -27,36 +29,38 @@ PROFILE_SYSTEM = (
 )
 
 
-def ensure_profile(cfg, db):
-    row = db.current_profile()
+def ensure_profile(config, database):
+    row = database.current_profile()
     if row is None:
-        text = cfg.interests or DEFAULT_PROFILE
-        db.add_profile(text, note="initial (from config)")
-        row = db.current_profile()
+        text = config.interests or DEFAULT_PROFILE
+        database.add_profile(text, note="initial (from config)")
+        row = database.current_profile()
+        assert row is not None  # just inserted
     return row
 
 
-def _examples(db) -> str:
-    def fmt(rows):
-        out = []
-        for r in rows:
-            s = f"- {r['title']} ({r['source']})"
-            if r["comment"]:
-                s += f' — reader said: "{r["comment"][:150]}"'
-            out.append(s)
-        return "\n".join(out) or "(none yet)"
+def _format_examples(rows) -> str:
+    out = []
+    for row in rows:
+        line = f"- {row['title']} ({row['source']})"
+        if row["comment"]:
+            line += f' — reader said: "{row["comment"][:150]}"'
+        out.append(line)
+    return "\n".join(out) or "(none yet)"
 
+
+def _examples(database) -> str:
     return (
-        "Articles the reader recently LIKED:\n" + fmt(db.rated_examples(1, 15)) +
-        "\n\nArticles the reader recently DISLIKED:\n" + fmt(db.rated_examples(-1, 15))
+        "Articles the reader recently LIKED:\n" + _format_examples(database.rated_examples(1, 15)) +
+        "\n\nArticles the reader recently DISLIKED:\n" + _format_examples(database.rated_examples(-1, 15))
     )
 
 
-def article_text(a, limit: int) -> str:
+def article_text(article, limit: int) -> str:
     """Best available description of an article: page text if fetched, else the feed summary."""
-    text = a["content"] or a["summary"] or ""
-    if a["content"] and a["summary"] and len(a["content"]) < len(a["summary"]):
-        text = a["summary"]
+    text = article["content"] or article["summary"] or ""
+    if article["content"] and article["summary"] and len(article["content"]) < len(article["summary"]):
+        text = article["summary"]
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
@@ -86,18 +90,24 @@ def score_prefix(profile_text: str, examples: str) -> str:
     )
 
 
-def score_one(llm: LLM, prefix: str, a, per_article: int = 1500) -> tuple[float, str]:
+class JSONChat(Protocol):
+    def chat_json(self, system: str, user: str) -> Any: ...
+
+
+def score_one(llm: JSONChat, prefix: str, article, per_article: int = 1500) -> tuple[float, str]:
     """Score a single article from 0 to 10 for the reader described in `prefix`."""
-    src = f"{a['source']} ({a['category']})" if a["category"] else a["source"]
+    source = f"{article['source']} ({article['category']})" if article["category"] else article["source"]
     user = (
         prefix + "Article to rate:\n"
-        f"Title: {a['title']}\nSource: {src}\n{article_text(a, per_article)}"
+        f"Title: {article['title']}\nSource: {source}\n{article_text(article, per_article)}"
     )
     data = llm.chat_json(SCORE_SYSTEM, user)
     if isinstance(data, dict) and isinstance(data.get("ratings"), list) and data["ratings"]:
         data = data["ratings"][0]  # some models keep the old batch shape
     if isinstance(data, list) and data:
         data = data[0]
+    if not isinstance(data, dict):
+        raise LLMError(f"no score in LLM output: {str(data)[:200]}")
     try:
         score = max(0.0, min(10.0, float(data["score"])))
     except (KeyError, TypeError, ValueError):
@@ -105,190 +115,184 @@ def score_one(llm: LLM, prefix: str, a, per_article: int = 1500) -> tuple[float,
     return score, str(data.get("reason", ""))[:200]
 
 
-def shortlist(cfg, db) -> list:
+def shortlist(config, database) -> list:
     """The articles worth spending LLM time on today.
 
     Uses the embedding pre-filter when available: the best matches (with a per-source
     cap so no single feed dominates) plus ~10% random picks for exploration. Without
     embeddings, falls back to the newest articles balanced across sources.
     """
-    pool = db.pool(cfg.max_article_age_days)
-    scored = [a for a in pool if a["prefilter"] is not None]
-    n = cfg.max_candidates
+    pool = database.pool(config.max_article_age_days)
+    scored = [article for article in pool if article["prefilter"] is not None]
+    limit = config.max_candidates
     if not scored:
-        return db.candidates(cfg.max_article_age_days, n)
-    n_random = max(1, n // 10)
-    cap = max(3, n // 15)
-    ranked = sorted(scored, key=lambda a: a["prefilter"], reverse=True)
+        return database.candidates(config.max_article_age_days, limit)
+    random_count = max(1, limit // 10)
+    cap = max(3, limit // 15)
+    ranked = sorted(scored, key=lambda article: article["prefilter"], reverse=True)
     out, per_source = [], {}
-    for a in ranked:
-        if len(out) >= n - n_random:
+    for article in ranked:
+        if len(out) >= limit - random_count:
             break
-        if per_source.get(a["source"], 0) < cap:
-            per_source[a["source"]] = per_source.get(a["source"], 0) + 1
-            out.append(a)
-    chosen = {a["id"] for a in out}
+        if per_source.get(article["source"], 0) < cap:
+            per_source[article["source"]] = per_source.get(article["source"], 0) + 1
+            out.append(article)
+    chosen = {article["id"] for article in out}
     # With only a few feeds the cap can't fill the list: top up ignoring it.
-    for a in ranked:
-        if len(out) >= n - n_random:
+    for article in ranked:
+        if len(out) >= limit - random_count:
             break
-        if a["id"] not in chosen:
-            out.append(a)
-            chosen.add(a["id"])
+        if article["id"] not in chosen:
+            out.append(article)
+            chosen.add(article["id"])
     # Random picks that stay the same all day, so they aren't re-chosen every hour.
     today = date.today().isoformat()
-    rest = sorted((a for a in pool if a["id"] not in chosen),
-                  key=lambda a: hashlib.sha1(f"{today}:{a['id']}".encode()).digest())
-    out += rest[:n_random]
+    rest = sorted((article for article in pool if article["id"] not in chosen),
+                  key=lambda article: hashlib.sha1(f"{today}:{article['id']}".encode()).digest())
+    out += rest[:random_count]
     return out
 
 
-def score_candidates(cfg, db, llm: LLM, stop=None) -> int:
+def score_candidates(config, database, llm: LLM, stop=None) -> int:
     """Score shortlisted articles that are unscored or were scored against an older profile."""
-    profile = ensure_profile(cfg, db)
-    todo = [a for a in shortlist(cfg, db) if a["score_profile_id"] != profile["id"]]
+    profile = ensure_profile(config, database)
+    todo = [article for article in shortlist(config, database) if article["score_profile_id"] != profile["id"]]
     if not todo:
         return 0
     # Unscored first, so a profile change never leaves fresh articles without any score.
-    todo.sort(key=lambda a: a["score"] is not None)
-    prefix = score_prefix(profile["text"], _examples(db))
+    todo.sort(key=lambda article: article["score"] is not None)
+    prefix = score_prefix(profile["text"], _examples(database))
     # Room left for the article after the shared prefix.
-    per_article = min(cfg.article_chars, max(1000, cfg.llm.max_prompt_chars - len(prefix) - 300))
+    per_article = min(config.article_chars, max(1000, config.llm.max_prompt_chars - len(prefix) - 300))
     done = 0
-    for a in todo:
+    for article in todo:
         if stop is not None and stop.is_set():
             break
         try:
-            score, reason = score_one(llm, prefix, a, per_article)
-        except LLMError as e:
-            log.warning("scoring article %d failed: %s", a["id"], e)
-            if isinstance(e, LLMUnavailable):
+            score, reason = score_one(llm, prefix, article, per_article)
+        except LLMError as error:
+            log.warning("scoring article %d failed: %s", article["id"], error)
+            if isinstance(error, LLMUnavailable):
                 break  # leave the rest for the next round
             continue
-        db.set_score(a["id"], score, reason, profile["id"])
-        db.conn.commit()
+        database.set_score(article["id"], score, reason, profile["id"])
+        database.connection.commit()
         done += 1
     log.info("scored %d/%d candidate articles", done, len(todo))
     return done
 
 
-def _source_bonus(stats: dict, source: str) -> float:
-    likes, dislikes = stats.get(source, (0, 0))
+def _source_bonus(statistics: dict, source: str) -> float:
+    likes, dislikes = statistics.get(source, (0, 0))
     # Beta(2,2) prior -> smoothed like rate in (0,1); bonus in [-1.5, 1.5]
     rate = (likes + 2) / (likes + dislikes + 4)
     return 3.0 * (rate - 0.5)
 
 
-def select(cfg, db, rng: random.Random | None = None, debug: dict | None = None):
+def _breakdown(article, statistics: dict, prefilter_ranks: list[float]) -> dict:
+    bonus = _source_bonus(statistics, article["source"])
+    # Where the embedding pre-filter ranks the article among the candidates, 0..1.
+    rank = None
+    if article["prefilter"] is not None and prefilter_ranks:
+        rank = bisect.bisect_left(prefilter_ranks, article["prefilter"]) / len(prefilter_ranks)
+    if article["score"] is None:
+        # Not scored by the LLM (e.g. it was down): use the pre-filter rank, mapped to 2..6.
+        base = 4.0 if rank is None else 2.0 + 4.0 * rank
+        return {"llm": None, "base": base, "bonus": bonus, "final": base + bonus}
+    # The LLM score, nudged (by up to ±2) by the embedding rank, so that a single
+    # over-enthusiastic LLM score can't put an unrelated article at the top.
+    agree = 0.0 if rank is None else 4.0 * rank - 2.0
+    return {"llm": article["score"], "base": agree, "bonus": bonus,
+            "final": article["score"] + agree + bonus}
+
+
+def _add_capped(chosen: list, articles, limit: int, exploratory: bool, max_per_source: int) -> None:
+    """Append articles to `chosen` until it has `limit`, at most `max_per_source` per source."""
+    per_source = Counter(article["source"] for article, _ in chosen)
+    for article in articles:
+        if len(chosen) >= limit:
+            break
+        if per_source[article["source"]] >= max_per_source:
+            continue
+        per_source[article["source"]] += 1
+        chosen.append((article, exploratory))
+
+
+def select(config, database, randomizer: random.Random | None = None, debug: dict | None = None):
     """Choose the digest: top-ranked articles plus a few exploratory picks.
 
     Returns a list of (article_row, exploratory: bool). If `debug` is a dict it is
     filled with candidate counts and each candidate's score breakdown.
     """
-    rng = rng or random.Random()
-    cands = shortlist(cfg, db)
-    if not cands:
+    randomizer = randomizer or random.Random()
+    candidates = shortlist(config, database)
+    if not candidates:
         return []
     # Also anything the LLM already scored against the current profile.
-    profile = ensure_profile(cfg, db)
-    ids = {a["id"] for a in cands}
-    cands += [a for a in db.pool(cfg.max_article_age_days)
-              if a["id"] not in ids and a["score_profile_id"] == profile["id"]]
-    stats = db.source_stats()
-    pre = sorted(a["prefilter"] for a in cands if a["prefilter"] is not None)
-
-    def fallback(a):
-        # Not scored by the LLM (e.g. it was down): use the pre-filter rank, mapped to 2..6.
-        if a["prefilter"] is None or not pre:
-            return 4.0
-        return 2.0 + 4.0 * bisect.bisect_left(pre, a["prefilter"]) / len(pre)
-
-    def breakdown(a) -> dict:
-        bonus = _source_bonus(stats, a["source"])
-        if a["score"] is None:
-            base = fallback(a)
-            return {"llm": None, "base": base, "bonus": bonus, "final": base + bonus}
-        # The LLM score, nudged (by up to ±2) by the embedding rank, so that a single
-        # over-enthusiastic LLM score can't put an unrelated article at the top.
-        agree = 0.0
-        if a["prefilter"] is not None and pre:
-            agree = 4.0 * bisect.bisect_left(pre, a["prefilter"]) / len(pre) - 2.0
-        return {"llm": a["score"], "base": agree, "bonus": bonus,
-                "final": a["score"] + agree + bonus}
-
-    parts = {a["id"]: breakdown(a) for a in cands}
-    ranked = sorted(cands, key=lambda a: parts[a["id"]]["final"], reverse=True)
+    profile = ensure_profile(config, database)
+    ids = {article["id"] for article in candidates}
+    candidates += [article for article in database.pool(config.max_article_age_days)
+              if article["id"] not in ids and article["score_profile_id"] == profile["id"]]
+    statistics = database.source_statistics()
+    prefilter_ranks = sorted(article["prefilter"] for article in candidates if article["prefilter"] is not None)
+    parts = {article["id"]: _breakdown(article, statistics, prefilter_ranks) for article in candidates}
+    ranked = sorted(candidates, key=lambda article: parts[article["id"]]["final"], reverse=True)
     if debug is not None:
-        debug["candidates"] = len(cands)
-        debug["llm_scored"] = sum(a["score_profile_id"] == profile["id"] for a in cands)
-        debug["stale_scored"] = sum(a["score"] is not None and a["score_profile_id"] != profile["id"]
-                                    for a in cands)
+        debug["candidates"] = len(candidates)
+        debug["llm_scored"] = sum(article["score_profile_id"] == profile["id"] for article in candidates)
+        debug["stale_scored"] = sum(article["score"] is not None and article["score_profile_id"] != profile["id"]
+                                    for article in candidates)
         debug["scores"] = parts
-        debug["rank"] = {a["id"]: i for i, a in enumerate(ranked, start=1)}
-    n = cfg.articles_per_digest
-    n_explore = min(cfg.exploration, max(0, n - 1))
-    per_source: dict[str, int] = {}
-    chosen = []
-
-    def take(a, exploratory):
-        if per_source.get(a["source"], 0) >= cfg.max_per_source:
-            return False
-        per_source[a["source"]] = per_source.get(a["source"], 0) + 1
-        chosen.append((a, exploratory))
-        return True
-
-    for a in ranked:
-        if len(chosen) >= n - n_explore:
-            break
-        take(a, False)
+        debug["rank"] = {article["id"]: rank for rank, article in enumerate(ranked, start=1)}
+    limit = config.articles_per_digest
+    explore_count = min(config.exploration, max(0, limit - 1))
+    chosen: list = []
+    _add_capped(chosen, ranked, limit - explore_count, False, config.max_per_source)
 
     # Exploration: random picks from the rest, biased towards less-seen sources,
     # so the model keeps learning about things outside its current beliefs.
-    picked = {a["id"] for a, _ in chosen}
-    rest = [a for a in ranked if a["id"] not in picked]
-    rng.shuffle(rest)
-    rest.sort(key=lambda a: sum(stats.get(a["source"], (0, 0))))
-    for a in rest:
-        if len(chosen) >= n:
-            break
-        take(a, True)
+    picked = {article["id"] for article, _ in chosen}
+    rest = [article for article in ranked if article["id"] not in picked]
+    randomizer.shuffle(rest)
+    rest.sort(key=lambda article: sum(statistics.get(article["source"], (0, 0))))
+    _add_capped(chosen, rest, limit, True, config.max_per_source)
 
     # Too few sources to honour the cap: fill remaining slots ignoring it.
-    picked = {a["id"] for a, _ in chosen}
-    for a in ranked:
-        if len(chosen) >= n:
+    picked = {article["id"] for article, _ in chosen}
+    for article in ranked:
+        if len(chosen) >= limit:
             break
-        if a["id"] not in picked:
-            chosen.append((a, False))
+        if article["id"] not in picked:
+            chosen.append((article, False))
     return chosen
 
 
-def update_profile(cfg, db, llm: LLM) -> bool:
+def _format_feedback(rows) -> str:
+    return "\n".join(
+        f"- {row['title']} ({row['source']})" + (f' — "{row["comment"]}"' if row["comment"] else "")
+        for row in rows
+    ) or "(none)"
+
+
+def update_profile(config, database, llm: LLM) -> bool:
     """Rewrite the reader profile from feedback received since the current profile was made.
 
     Returns True if the profile changed. Pending feedback stays pending if the LLM
     is unavailable, so this is safe to call repeatedly.
     """
-    profile = ensure_profile(cfg, db)
-    fb, comments = db.feedback_since(profile["created_at"])
-    if not fb and not comments:
+    profile = ensure_profile(config, database)
+    feedback, comments = database.feedback_since(profile["created_at"])
+    if not feedback and not comments:
         return False
-    liked = [r for r in fb if r["rating"] > 0]
-    disliked = [r for r in fb if r["rating"] < 0]
-    neutral = [r for r in fb if r["rating"] == 0]
-
-    def fmt(items):
-        return "\n".join(
-            f"- {r['title']} ({r['source']})" + (f' — "{r["comment"]}"' if r["comment"] else "")
-            for r in items
-        ) or "(none)"
-
+    liked = [row for row in feedback if row["rating"] > 0]
+    disliked = [row for row in feedback if row["rating"] < 0]
+    neutral = [row for row in feedback if row["rating"] == 0]
     user = (
         f"Current reader profile:\n{profile['text']}\n\n"
-        f"New feedback from the reader.\nLiked:\n{fmt(liked)}\n\nDisliked:\n{fmt(disliked)}\n\n"
-        f"Comments on specific articles (no explicit like/dislike):\n{fmt(neutral)}\n\n"
+        f"New feedback from the reader.\nLiked:\n{_format_feedback(liked)}\n\nDisliked:\n{_format_feedback(disliked)}\n\n"
+        f"Comments on specific articles (no explicit like/dislike):\n{_format_feedback(neutral)}\n\n"
         "General comments from the reader:\n"
-        + ("\n".join(f'- "{c["comment"]}"' for c in comments) or "(none)")
+        + ("\n".join(f'- "{comment["comment"]}"' for comment in comments) or "(none)")
         + "\n\nRewrite the profile to incorporate this feedback. Keep established preferences "
         "unless the new feedback contradicts them; treat explicit comments as strong signals "
         "and single likes/dislikes as weak signals. Describe topics, angles, depth and styles "
@@ -297,13 +301,13 @@ def update_profile(cfg, db, llm: LLM) -> bool:
     )
     try:
         text = llm.chat(PROFILE_SYSTEM, user).strip()
-    except LLMError as e:
-        log.warning("profile update failed (will retry later): %s", e)
+    except LLMError as error:
+        log.warning("profile update failed (will retry later): %s", error)
         return False
     if len(text) < 20:
         log.warning("profile update returned implausibly short text; keeping old profile")
         return False
-    db.add_profile(
+    database.add_profile(
         text[:4000],
         note=f"{len(liked)} likes, {len(disliked)} dislikes, {len(neutral) + len(comments)} comments",
     )

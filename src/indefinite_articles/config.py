@@ -3,8 +3,12 @@
 import os
 import re
 import tomllib
-import xml.etree.ElementTree as ET
+import urllib.parse
+import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from email.message import EmailMessage
+from email.utils import formatdate, getaddresses, make_msgid
 from pathlib import Path
 
 DEFAULT_CONFIG_PATH = "/etc/indefinite-articles/indefinite-articles.toml"
@@ -21,6 +25,16 @@ class Feed:
     category: str = ""
     max_items: int = 40  # newest entries kept per fetch
 
+    @classmethod
+    def from_table(cls, table: dict) -> "Feed":
+        """A `[[feeds]]` entry from the config file."""
+        return cls(url=table["url"], name=table.get("name", ""), category=table.get("category", ""),
+                   max_items=int(table.get("max_items", 40)))
+
+    @property
+    def host(self) -> str:
+        return urllib.parse.urlsplit(self.url).hostname or ""
+
 
 @dataclass
 class LLMConfig:
@@ -34,6 +48,16 @@ class LLMConfig:
     temperature: float = 0.2
     require_gpu: bool = True  # refuse to run if Ollama loads the model on CPU only
 
+    @classmethod
+    def from_section(cls, section: dict, base: Path) -> "LLMConfig":
+        llm = cls()
+        _copy_settings(llm, section, ("base_url", "model", "api_key", "max_prompt_chars", "temperature",
+                                      "embedding_model", "embedding_prefix", "embedding_batch", "require_gpu"))
+        if section.get("api_key_file"):
+            llm.api_key = _secret(section, "api_key", base)
+        llm.base_url = llm.base_url.rstrip("/")
+        return llm
+
 
 @dataclass
 class ServerConfig:
@@ -42,6 +66,19 @@ class ServerConfig:
     security: str = "ssl"  # ssl | starttls | none
     username: str = ""
     password: str = ""
+
+    @classmethod
+    def from_section(cls, section: dict, default_port: int, base: Path) -> "ServerConfig":
+        security = section.get("security", "ssl" if default_port in (465, 993) else "starttls")
+        if security not in ("ssl", "starttls", "none"):
+            raise ConfigError(f"security must be ssl, starttls or none (got {security!r})")
+        return cls(
+            host=section.get("host", ""),
+            port=int(section.get("port", default_port)),
+            security=security,
+            username=section.get("username", ""),
+            password=_secret(section, "password", base),
+        )
 
 
 @dataclass
@@ -55,6 +92,37 @@ class EmailConfig:
     allowed_senders: list[str] = field(default_factory=list)
     send_acknowledgement: bool = True
     debug_info: bool = True  # append pipeline/scoring diagnostics to each digest
+
+    @classmethod
+    def from_section(cls, section: dict, base: Path) -> "EmailConfig":
+        imap = section.get("imap", {})
+        to = section.get("to", "")
+        return cls(
+            to=to,
+            sender=section.get("from", ""),
+            smtp=ServerConfig.from_section(section.get("smtp", {}), 587, base),
+            imap=ServerConfig.from_section(imap, 993, base),
+            imap_folder=imap.get("folder", "INBOX"),
+            processed_folder=imap.get("processed_folder", ""),
+            allowed_senders=[sender.lower() for sender in section.get("allowed_senders", [])]
+                            or ([to.lower()] if to else []),
+            send_acknowledgement=bool(section.get("send_acknowledgement", True)),
+            debug_info=bool(section.get("debug_info", True)),
+        )
+
+    def new_message(self, kind: str) -> EmailMessage:
+        """An empty message from `sender` to `to`, with Date and Message-ID set."""
+        domain = self.sender.rsplit("@", 1)[-1].strip(">") if "@" in self.sender else "localhost"
+        message = EmailMessage()
+        message["From"] = self.sender
+        message["To"] = self.to
+        message["Date"] = formatdate(localtime=True)
+        message["Message-ID"] = make_msgid(kind, domain=domain)
+        return message
+
+    def is_allowed_sender(self, message) -> bool:
+        addresses = [address.lower() for _, address in getaddresses(message.get_all("From", []))]
+        return any(address in self.allowed_senders for address in addresses)
 
 
 @dataclass
@@ -82,33 +150,52 @@ class Config:
 
     @property
     def digest_hour_minute(self) -> tuple[int, int]:
-        m = re.fullmatch(r"(\d{1,2}):(\d{2})", self.digest_time.strip())
-        if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+        match = re.fullmatch(r"(\d{1,2}):(\d{2})", self.digest_time.strip())
+        if not match or int(match.group(1)) > 23 or int(match.group(2)) > 59:
             raise ConfigError(f"digest_time must be HH:MM, got {self.digest_time!r}")
-        return int(m.group(1)), int(m.group(2))
+        return int(match.group(1)), int(match.group(2))
+
+    def next_digest_time(self) -> float:
+        """When the next digest is due (epoch seconds), always in the future.
+
+        Long-running work (LLM requests, the hourly job) must be finished by then.
+        """
+        hour, minute = self.digest_hour_minute
+        now = datetime.now()
+        at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if at <= now:
+            at += timedelta(days=1)
+        return at.timestamp()
+
+    def problems(self) -> list[str]:
+        """Human-readable problems that would stop the daemon working."""
+        problems = []
+        if not self.feeds:
+            problems.append("no feeds configured (add files to feeds.d/ or [[feeds]] entries)")
+        if not self.email.to or not self.email.sender:
+            problems.append("email.to and email.from must be set")
+        if not self.email.smtp.host:
+            problems.append("email.smtp.host is not set")
+        if not self.email.imap.host:
+            problems.append("email.imap.host is not set (replies will not be read)")
+        return problems
+
+
+def _copy_settings(target, section: dict, keys) -> None:
+    """Copy the given keys from a TOML section, converted to the type of the default."""
+    for key in keys:
+        if key in section:
+            setattr(target, key, type(getattr(target, key))(section[key]))
 
 
 def _secret(section: dict, key: str, base: Path) -> str:
     """Read `key` directly, or from `key_file` (relative paths resolve next to the config)."""
     if section.get(f"{key}_file"):
-        p = Path(section[f"{key}_file"])
-        if not p.is_absolute():
-            p = base / p
-        return p.read_text().strip()
+        secret_path = Path(section[f"{key}_file"])
+        if not secret_path.is_absolute():
+            secret_path = base / secret_path
+        return secret_path.read_text().strip()
     return str(section.get(key, ""))
-
-
-def _server(section: dict, default_port: int, base: Path) -> ServerConfig:
-    sec = section.get("security", "ssl" if default_port in (465, 993) else "starttls")
-    if sec not in ("ssl", "starttls", "none"):
-        raise ConfigError(f"security must be ssl, starttls or none (got {sec!r})")
-    return ServerConfig(
-        host=section.get("host", ""),
-        port=int(section.get("port", default_port)),
-        security=sec,
-        username=section.get("username", ""),
-        password=_secret(section, "password", base),
-    )
 
 
 def load(path: str | os.PathLike | None = None) -> Config:
@@ -117,92 +204,65 @@ def load(path: str | os.PathLike | None = None) -> Config:
         raw = tomllib.loads(path.read_text())
     except FileNotFoundError:
         raise ConfigError(f"config file not found: {path}") from None
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f"{path}: {e}") from None
+    except tomllib.TOMLDecodeError as error:
+        raise ConfigError(f"{path}: {error}") from None
     base = path.parent
 
-    g = raw.get("general", {})
-    cfg = Config()
-    for k in (
+    general = raw.get("general", {})
+    config = Config()
+    _copy_settings(config, general, (
         "database", "digest_time", "articles_per_digest", "exploration", "max_per_source",
         "max_article_age_days", "max_candidates", "fetch_interval_minutes",
         "poll_interval_minutes", "fetch_full_articles", "article_chars", "fetch_workers",
         "allow_private_addresses", "feeds_dir", "fetch_concurrency",
-    ):
-        if k in g:
-            setattr(cfg, k, type(getattr(cfg, k))(g[k]))
-    cfg.exclude_categories = [c.lower() for c in g.get("exclude_categories", [])]
-    cfg.interests = raw.get("profile", {}).get("interests", "").strip()
+    ))
+    config.exclude_categories = [category.lower() for category in general.get("exclude_categories", [])]
+    config.interests = raw.get("profile", {}).get("interests", "").strip()
 
-    l = raw.get("llm", {})
-    for k in ("base_url", "model", "api_key", "max_prompt_chars", "temperature", "embedding_model", "embedding_prefix",
-              "embedding_batch", "require_gpu"):
-        if k in l:
-            setattr(cfg.llm, k, type(getattr(cfg.llm, k))(l[k]))
-    if l.get("api_key_file"):
-        cfg.llm.api_key = _secret(l, "api_key", base)
-    cfg.llm.base_url = cfg.llm.base_url.rstrip("/")
-
-    e = raw.get("email", {})
-    cfg.email.to = e.get("to", "")
-    cfg.email.sender = e.get("from", "")
-    cfg.email.smtp = _server(e.get("smtp", {}), 587, base)
-    imap = e.get("imap", {})
-    cfg.email.imap = _server(imap, 993, base)
-    cfg.email.imap_folder = imap.get("folder", "INBOX")
-    cfg.email.processed_folder = imap.get("processed_folder", "")
-    cfg.email.allowed_senders = [s.lower() for s in e.get("allowed_senders", [])] or (
-        [cfg.email.to.lower()] if cfg.email.to else []
-    )
-    cfg.email.send_acknowledgement = bool(e.get("send_acknowledgement", True))
-    cfg.email.debug_info = bool(e.get("debug_info", True))
+    config.llm = LLMConfig.from_section(raw.get("llm", {}), base)
+    config.email = EmailConfig.from_section(raw.get("email", {}), base)
 
     feeds: list[Feed] = []
-    for f in raw.get("feeds", []):
-        if isinstance(f, str):
-            feeds.append(Feed(url=f))
-        elif f.get("url"):
-            feeds.append(Feed(url=f["url"], name=f.get("name", ""),
-                              category=f.get("category", ""),
-                              max_items=int(f.get("max_items", 40))))
-    fdir = Path(cfg.feeds_dir)
-    if not fdir.is_absolute():
-        fdir = base / fdir
-    feeds += load_feed_dir(fdir)
+    for feed in raw.get("feeds", []):
+        if isinstance(feed, str):
+            feeds.append(Feed(url=feed))
+        elif feed.get("url"):
+            feeds.append(Feed.from_table(feed))
+    feeds_path = Path(config.feeds_dir)
+    if not feeds_path.is_absolute():
+        feeds_path = base / feeds_path
+    feeds += load_feed_dir(feeds_path)
     seen = set()
-    for f in feeds:
-        if f.url in seen or f.category.lower() in cfg.exclude_categories:
+    for feed in feeds:
+        if feed.url in seen or feed.category.lower() in config.exclude_categories:
             continue
-        seen.add(f.url)
-        cfg.feeds.append(f)
+        seen.add(feed.url)
+        config.feeds.append(feed)
 
-    cfg.digest_hour_minute  # validate
-    return cfg
+    config.digest_hour_minute  # validate
+    return config
 
 
 def parse_opml(data: bytes) -> list[Feed]:
     """Feeds from an OPML file; the enclosing outline's title becomes the category."""
-    out: list[Feed] = []
+    body = ElementTree.fromstring(data).find("body")
+    return list(_opml_feeds(body, "")) if body is not None else []
 
-    def walk(el, category):
-        for o in el:
-            if o.tag != "outline":
-                continue
-            label = o.get("title") or o.get("text") or ""
-            if o.get("xmlUrl"):
-                try:
-                    max_items = int(o.get("maxItems", 40))
-                except ValueError:
-                    max_items = 40
-                out.append(Feed(url=o.get("xmlUrl").strip(), name=label.strip(),
-                                category=category, max_items=max_items))
-            else:
-                walk(o, label.strip() or category)
 
-    body = ET.fromstring(data).find("body")
-    if body is not None:
-        walk(body, "")
-    return out
+def _opml_feeds(element, category: str):
+    for outline in element:
+        if outline.tag != "outline":
+            continue
+        label = outline.get("title") or outline.get("text") or ""
+        if outline.get("xmlUrl"):
+            try:
+                max_items = int(outline.get("maxItems", 40))
+            except ValueError:
+                max_items = 40
+            yield Feed(url=outline.get("xmlUrl").strip(), name=label.strip(),
+                       category=category, max_items=max_items)
+        else:
+            yield from _opml_feeds(outline, label.strip() or category)
 
 
 def parse_feed_list(text: str) -> list[Feed]:
@@ -224,26 +284,13 @@ def load_feed_dir(path: Path) -> list[Feed]:
     if not path.is_dir():
         return []
     feeds: list[Feed] = []
-    for p in sorted(path.iterdir()):
+    for file_path in sorted(path.iterdir()):
         try:
-            if p.suffix.lower() in (".opml", ".xml"):
-                feeds += parse_opml(p.read_bytes())
-            elif p.suffix.lower() == ".txt":
-                feeds += parse_feed_list(p.read_text())
-        except (OSError, ET.ParseError, UnicodeDecodeError) as e:
-            raise ConfigError(f"{p}: {e}") from None
+            if file_path.suffix.lower() in (".opml", ".xml"):
+                feeds += parse_opml(file_path.read_bytes())
+            elif file_path.suffix.lower() == ".txt":
+                feeds += parse_feed_list(file_path.read_text())
+        except (OSError, ElementTree.ParseError, UnicodeDecodeError) as error:
+            raise ConfigError(f"{file_path}: {error}") from None
     return feeds
 
-
-def validate_for_daemon(cfg: Config) -> list[str]:
-    """Return a list of human-readable problems that would stop the daemon working."""
-    problems = []
-    if not cfg.feeds:
-        problems.append("no feeds configured (add files to feeds.d/ or [[feeds]] entries)")
-    if not cfg.email.to or not cfg.email.sender:
-        problems.append("email.to and email.from must be set")
-    if not cfg.email.smtp.host:
-        problems.append("email.smtp.host is not set")
-    if not cfg.email.imap.host:
-        problems.append("email.imap.host is not set (replies will not be read)")
-    return problems

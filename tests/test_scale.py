@@ -5,9 +5,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles import config, embed, feeds, ranker
-from indefinite_articles.config import Config, Feed
-from indefinite_articles.db import DB
+from indefinite_articles import embed, feeds, ranker
+from indefinite_articles.config import Config, Feed, load as load_config, parse_feed_list, parse_opml
+from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,7 +19,7 @@ FEED = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>
 class FeedServer(BaseHTTPRequestHandler):
     hits: list = []
 
-    def log_message(self, *a):
+    def log_message(self, format, *args):
         pass
 
     def do_GET(self):
@@ -46,25 +46,25 @@ class FeedListTests(unittest.TestCase):
         <outline text="Science"><outline text="Quanta" xmlUrl="https://q/feed" maxItems="5"/>
           <outline text="Sub"><outline title="Deep" xmlUrl="https://d/feed"/></outline></outline>
         <outline text="Loose" xmlUrl="https://l/feed"/></body></opml>"""
-        fs = config.parse_opml(opml)
-        self.assertEqual([(f.name, f.category, f.max_items) for f in fs],
+        feed_list = parse_opml(opml)
+        self.assertEqual([(feed.name, feed.category, feed.max_items) for feed in feed_list],
                          [("Quanta", "Science", 5), ("Deep", "Sub", 40), ("Loose", "", 40)])
 
     def test_txt(self):
-        fs = config.parse_feed_list("# Tech\nhttps://a/feed  A blog\n\nhttps://b/feed\n# News\nhttps://c/feed")
-        self.assertEqual([(f.url, f.name, f.category) for f in fs],
+        feed_list = parse_feed_list("# Tech\nhttps://a/feed  A blog\n\nhttps://b/feed\n# News\nhttps://c/feed")
+        self.assertEqual([(feed.url, feed.name, feed.category) for feed in feed_list],
                          [("https://a/feed", "A blog", "Tech"), ("https://b/feed", "", "Tech"),
                           ("https://c/feed", "", "News")])
 
     def test_exclude_categories_and_dedupe(self):
         import tempfile, os
-        with tempfile.TemporaryDirectory() as d:
-            os.mkdir(f"{d}/feeds.d")
-            Path(f"{d}/feeds.d/a.txt").write_text("# Sports\nhttps://s/feed\n# Tech\nhttps://t/feed\n")
-            Path(f"{d}/r.toml").write_text(
+        with tempfile.TemporaryDirectory() as directory:
+            os.mkdir(f"{directory}/feeds.d")
+            Path(f"{directory}/feeds.d/a.txt").write_text("# Sports\nhttps://s/feed\n# Tech\nhttps://t/feed\n")
+            Path(f"{directory}/r.toml").write_text(
                 '[general]\nexclude_categories = ["sports"]\n[[feeds]]\nurl = "https://t/feed"\nname = "dup"\n')
-            cfg = config.load(f"{d}/r.toml")
-            self.assertEqual([(f.url, f.name) for f in cfg.feeds], [("https://t/feed", "dup")])
+            config = load_config(f"{directory}/r.toml")
+            self.assertEqual([(feed.url, feed.name) for feed in config.feeds], [("https://t/feed", "dup")])
 
 
 class LenientParseTests(unittest.TestCase):
@@ -100,110 +100,111 @@ class FetchTests(unittest.TestCase):
         cls.server.shutdown()
 
     def test_conditional_get_and_backoff(self):
-        cfg = Config()
-        cfg.feeds = [Feed(url=f"{self.base}/a", category="C"), Feed(url=f"{self.base}/b"),
+        config = Config()
+        config.feeds = [Feed(url=f"{self.base}/a", category="C"), Feed(url=f"{self.base}/b"),
                      Feed(url=f"{self.base}/broken")]
-        db = DB(":memory:")
+        database = Database(":memory:")
         FeedServer.hits.clear()
-        self.assertEqual(feeds.update_all(cfg, db), 2)
-        row = db.conn.execute("SELECT category FROM articles WHERE url LIKE '%/a'").fetchone()
+        self.assertEqual(feeds.update_all(config, database), 2)
+        row = database.connection.execute("SELECT category FROM articles WHERE url LIKE '%/a'").fetchone()
         self.assertEqual(row["category"], "C")
         # Second run: unchanged feeds answer 304 and add nothing; broken feed retried once.
-        self.assertEqual(feeds.update_all(cfg, db), 0)
+        self.assertEqual(feeds.update_all(config, database), 0)
         self.assertIn(("/a", '"v1"'), FeedServer.hits)
-        st = db.feed_states()
-        self.assertEqual(st[f"{self.base}/broken"]["failures"], 2)
+        state = database.feed_states()
+        self.assertEqual(state[f"{self.base}/broken"]["failures"], 2)
         # ...and then it backs off instead of being fetched every cycle.
-        self.assertGreater(st[f"{self.base}/broken"]["next_attempt"], time.time() + 3000)
+        self.assertGreater(state[f"{self.base}/broken"]["next_attempt"], time.time() + 3000)
         FeedServer.hits.clear()
-        feeds.update_all(cfg, db)
-        self.assertNotIn("/broken", [p for p, _ in FeedServer.hits])
+        feeds.update_all(config, database)
+        self.assertNotIn("/broken", [path for path, _ in FeedServer.hits])
 
 
 class PrefilterTests(unittest.TestCase):
-    def _cfg(self):
-        cfg = Config()
-        cfg.max_candidates = 20
-        cfg.interests = "rust compilers systems programming"
-        return cfg
+    def _config(self):
+        config = Config()
+        config.max_candidates = 20
+        config.interests = "rust compilers systems programming"
+        return config
 
-    def _db(self, n_per_topic=30):
-        db = DB(":memory:")
+    def _database(self, per_topic=30):
+        database = Database(":memory:")
         topics = {"Rust Weekly": "rust compilers borrow checker systems programming",
                   "Celeb News": "celebrity gossip red carpet fashion",
                   "Garden": "tomatoes compost garden soil"}
-        for src, words in topics.items():
-            for i in range(n_per_topic):
-                db.add_article(f"https://{src}/{i}", f"{words} {i}", f"{src}{i}", words, src, None)
-        db.conn.commit()
-        return db
+        for source, words in topics.items():
+            for index in range(per_topic):
+                database.add_article(f"https://{source}/{index}", f"{words} {index}", f"{source}{index}",
+                                     words, source, None)
+        database.connection.commit()
+        return database
 
     def _llm(self):
         from test_indefinite_articles import fake_embedding
         llm = mock.Mock(spec=LLM)
-        llm.embed.side_effect = lambda texts: [fake_embedding(t) for t in texts]
+        llm.embed.side_effect = lambda texts: [fake_embedding(text) for text in texts]
         return llm
 
     def test_shortlist_prefers_matches_with_source_cap_and_exploration(self):
-        cfg, db, llm = self._cfg(), self._db(), self._llm()
-        embed.embed_new(cfg, db, llm)
-        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
-        sl = ranker.shortlist(cfg, db)
-        self.assertEqual(len(sl), 20)
-        by_src = {}
-        for a in sl:
-            by_src[a["source"]] = by_src.get(a["source"], 0) + 1
-        top = [a["source"] for a in sl[:3]]
+        config, database, llm = self._config(), self._database(), self._llm()
+        embed.embed_new(config, database, llm)
+        embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
+        shortlisted = ranker.shortlist(config, database)
+        self.assertEqual(len(shortlisted), 20)
+        by_source = {}
+        for article in shortlisted:
+            by_source[article["source"]] = by_source.get(article["source"], 0) + 1
+        top = [article["source"] for article in shortlisted[:3]]
         self.assertEqual(top, ["Rust Weekly"] * 3)
         # The cap spreads the first picks across sources; with only 3 sources the list is
         # then topped up from the best remaining matches, i.e. mostly Rust.
-        first9 = [a["source"] for a in sl[:9]]
+        first9 = [article["source"] for article in shortlisted[:9]]
         self.assertEqual(sorted(set(first9)), ["Celeb News", "Garden", "Rust Weekly"])
         self.assertEqual(first9.count("Rust Weekly"), 3)
-        self.assertGreater(by_src["Rust Weekly"], 10)
-        self.assertEqual(ranker.shortlist(cfg, db)[-2:], sl[-2:])  # random picks stable
+        self.assertGreater(by_source["Rust Weekly"], 10)
+        self.assertEqual(ranker.shortlist(config, database)[-2:], shortlisted[-2:])  # random picks stable
 
     def test_feedback_changes_ranking(self):
-        cfg, db, llm = self._cfg(), self._db(), self._llm()
-        cfg.interests = "anything"
-        embed.embed_new(cfg, db, llm)
-        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
-        garden = db.conn.execute("SELECT id FROM articles WHERE source='Garden' LIMIT 1").fetchone()["id"]
-        db.conn.execute("UPDATE articles SET sent_digest_id=1 WHERE id=?", (garden,))
-        db.add_feedback(garden, 1, "")
-        db.conn.commit()
-        self.assertGreater(embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db)), 0)
-        best = max(db.pool(3), key=lambda a: a["prefilter"])
+        config, database, llm = self._config(), self._database(), self._llm()
+        config.interests = "anything"
+        embed.embed_new(config, database, llm)
+        embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
+        garden = database.connection.execute("SELECT id FROM articles WHERE source='Garden' LIMIT 1").fetchone()["id"]
+        database.connection.execute("UPDATE articles SET sent_digest_id=1 WHERE id=?", (garden,))
+        database.add_feedback(garden, 1, "")
+        database.connection.commit()
+        self.assertGreater(embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database)), 0)
+        best = max(database.pool(3), key=lambda article: article["prefilter"])
         self.assertEqual(best["source"], "Garden")
-        self.assertEqual(embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db)), 0)
+        self.assertEqual(embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database)), 0)
 
     def test_model_change_resets_embeddings(self):
-        cfg, db, llm = self._cfg(), self._db(2), self._llm()
-        embed.embed_new(cfg, db, llm)
-        cfg.llm.embedding_model = "other-model"
-        self.assertEqual(embed.embed_new(cfg, db, llm), 6)
+        config, database, llm = self._config(), self._database(2), self._llm()
+        embed.embed_new(config, database, llm)
+        config.llm.embedding_model = "other-model"
+        self.assertEqual(embed.embed_new(config, database, llm), 6)
 
-    def _rate(self, db, source, rating, n=6):
-        ids = [r["id"] for r in db.conn.execute(
-            "SELECT id FROM articles WHERE source=? LIMIT ?", (source, n))]
-        for i in ids:
-            db.conn.execute("UPDATE articles SET sent_digest_id=1 WHERE id=?", (i,))
-            db.add_feedback(i, rating, "")
-        db.conn.commit()
+    def _rate(self, database, source, rating, count=6):
+        ids = [row["id"] for row in database.connection.execute(
+            "SELECT id FROM articles WHERE source=? LIMIT ?", (source, count))]
+        for article_id in ids:
+            database.connection.execute("UPDATE articles SET sent_digest_id=1 WHERE id=?", (article_id,))
+            database.add_feedback(article_id, rating, "")
+        database.connection.commit()
 
     def test_classifier_learns_from_ratings(self):
-        cfg, db, llm = self._cfg(), self._db(), self._llm()
-        cfg.interests = "anything"
-        embed.embed_new(cfg, db, llm)
-        self._rate(db, "Garden", 1)
-        self._rate(db, "Celeb News", -1, n=4)  # too few dislikes: nearest-neighbour scoring
-        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
-        self.assertEqual(db.get_state("classifier"), "")
-        self._rate(db, "Celeb News", -1)
-        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
-        self.assertNotEqual(db.get_state("classifier"), "")
-        self.assertEqual(db.get_state("classifier_info"), "6:6")
-        ranked = sorted(db.pool(3), key=lambda a: a["prefilter"], reverse=True)
+        config, database, llm = self._config(), self._database(), self._llm()
+        config.interests = "anything"
+        embed.embed_new(config, database, llm)
+        self._rate(database, "Garden", 1)
+        self._rate(database, "Celeb News", -1, count=4)  # too few dislikes: nearest-neighbour scoring
+        embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
+        self.assertEqual(database.get_state("classifier"), "")
+        self._rate(database, "Celeb News", -1)
+        embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
+        self.assertNotEqual(database.get_state("classifier"), "")
+        self.assertEqual(database.get_state("classifier_info"), "6:6")
+        ranked = sorted(database.pool(3), key=lambda article: article["prefilter"], reverse=True)
         self.assertEqual(ranked[0]["source"], "Garden")
         self.assertEqual(ranked[-1]["source"], "Celeb News")
 
@@ -211,10 +212,11 @@ class PrefilterTests(unittest.TestCase):
         from test_indefinite_articles import fake_embedding
         texts = ["rust code compilers", "rust borrow checker", "systems code",
                  "garden soil", "tomatoes compost", "celebrity gossip"]
-        vecs = [embed.pack(fake_embedding(t)) for t in texts]
-        w, b = embed.train_classifier(vecs, [1, 1, 1, 0, 0, 0], [0, 30, 400, 10, 0, 900])
-        p = embed.predict(vecs, w, b)
-        self.assertTrue(all(x > 0.5 for x in p[:3]) and all(x < 0.5 for x in p[3:]))
+        vectors = [embed.pack(fake_embedding(text)) for text in texts]
+        weights, bias = embed.train_classifier(vectors, [1, 1, 1, 0, 0, 0], [0, 30, 400, 10, 0, 900])
+        probabilities = embed.predict(vectors, weights, bias)
+        self.assertTrue(all(probability > 0.5 for probability in probabilities[:3]))
+        self.assertTrue(all(probability < 0.5 for probability in probabilities[3:]))
 
     def test_split_profile(self):
         likes, avoid = embed.split_profile(
@@ -227,12 +229,12 @@ class PrefilterTests(unittest.TestCase):
 
     def test_profile_dislikes_push_articles_down(self):
         # A profile naming a topic only as a dislike must not rank that topic first.
-        cfg, db, llm = self._cfg(), self._db(), self._llm()
-        cfg.interests = "I like tomatoes compost garden soil. I dislike celebrity gossip red carpet fashion."
+        config, database, llm = self._config(), self._database(), self._llm()
+        config.interests = "I like tomatoes compost garden soil. I dislike celebrity gossip red carpet fashion."
         llm.chat_json.side_effect = LLMError("down")  # keyword split
-        embed.embed_new(cfg, db, llm)
-        embed.update_prefilter(cfg, db, llm, ranker.ensure_profile(cfg, db))
-        ranked = sorted(db.pool(3), key=lambda a: a["prefilter"], reverse=True)
+        embed.embed_new(config, database, llm)
+        embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
+        ranked = sorted(database.pool(3), key=lambda article: article["prefilter"], reverse=True)
         self.assertEqual(ranked[0]["source"], "Garden")
         self.assertEqual(ranked[-1]["source"], "Celeb News")
 

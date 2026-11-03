@@ -1,0 +1,6 @@
+Reply to this email to teach me what you like. Any of these work:
+  +1 +4 -2          (like 1 and 4, dislike 2)
+  3 like - more deep dives on compilers please
+  5 no, I don't care about crypto
+...or just write in plain words, e.g. "loved the Rust one, less politics".
+Items you don't mention are ignored.

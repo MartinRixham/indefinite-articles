@@ -3,10 +3,23 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-from indefinite_articles import config, extract, feeds, ranker
-from indefinite_articles.db import DB
+from indefinite_articles import extract, feeds, ranker
+from indefinite_articles.config import load as load_config
+from indefinite_articles.database import Database
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+class StubLLM:
+    """Answers every chat_json request with `reply` and records the prompts."""
+
+    def __init__(self, reply: dict):
+        self.reply = reply
+        self.prompts: list[str] = []
+
+    def chat_json(self, system, user):
+        self.prompts.append(user)
+        return self.reply
 
 PAGE = """<!doctype html><html><head><title>T</title>
 <meta name="description" content="Meta description of the page.">
@@ -27,7 +40,7 @@ mutable access is exclusive.</p>
 
 
 class Page(BaseHTTPRequestHandler):
-    def log_message(self, *a):
+    def log_message(self, format, *args):
         pass
 
     def do_GET(self):
@@ -36,9 +49,9 @@ class Page(BaseHTTPRequestHandler):
             self.send_header("Location", "http://169.254.169.254/latest/meta-data")
             self.end_headers()
             return
-        body, ctype = (b"%PDF-1.4", "application/pdf") if self.path.endswith(".pdf") else (PAGE.encode(), "text/html; charset=utf-8")
+        body, content_type = (b"%PDF-1.4", "application/pdf") if self.path.endswith(".pdf") else (PAGE.encode(), "text/html; charset=utf-8")
         self.send_response(200)
-        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -67,7 +80,7 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(extract.extract_text(html), "Only meta here.")
 
     def test_truncation(self):
-        self.assertLessEqual(len(extract.extract_text(PAGE, max_chars=80)), 80)
+        self.assertLessEqual(len(extract.extract_text(PAGE, max_characters=80)), 80)
 
     def test_private_addresses_blocked_by_default(self):
         with self.assertRaises(extract.BlockedAddress):
@@ -77,72 +90,63 @@ class ExtractTests(unittest.TestCase):
 
     def test_redirect_to_private_blocked(self):
         # Even when the first host is allowed, redirects are re-checked.
-        orig = extract._check_host
-        extract._check_host = lambda host, allow: orig(host, allow and host == "127.0.0.1")
+        original = extract._check_host
+        extract._check_host = lambda host, allow: original(host, allow and host == "127.0.0.1")
         try:
             with self.assertRaises(extract.BlockedAddress):
                 extract.fetch_page(self.base + "/redirect", 1000, allow_private=True)
         finally:
-            extract._check_host = orig
+            extract._check_host = original
 
     def test_non_html_rejected(self):
         with self.assertRaises(ValueError):
             extract.fetch_page(self.base + "/paper.pdf", 1000, allow_private=True)
 
     def test_enrich_candidates_and_prompt_text(self):
-        cfg = config.load(ROOT / "dist" / "indefinite-articles.toml")
-        cfg.allow_private_addresses = True
-        db = DB(":memory:")
-        db.add_article(self.base + "/a", "Borrow checker", "borrowchecker", "Feed blurb.", "S", None)
-        db.add_article(self.base + "/b.pdf", "A paper", "apaper", "Abstract text.", "S", None)
-        db.conn.commit()
-        self.assertEqual(extract.enrich_candidates(cfg, db), 1)
-        rows = {r["title"]: r for r in db.candidates(3, 10)}
+        config = load_config(ROOT / "dist" / "indefinite-articles.toml")
+        config.allow_private_addresses = True
+        database = Database(":memory:")
+        database.add_article(self.base + "/a", "Borrow checker", "borrowchecker", "Feed blurb.", "S", None)
+        database.add_article(self.base + "/b.pdf", "A paper", "apaper", "Abstract text.", "S", None)
+        database.connection.commit()
+        self.assertEqual(extract.enrich_candidates(config, database), 1)
+        rows = {row["title"]: row for row in database.candidates(3, 10)}
         self.assertEqual(rows["Borrow checker"]["content_status"], "ok")
         self.assertIn("borrow checker enforces", ranker.article_text(rows["Borrow checker"], 1500))
         self.assertTrue(rows["A paper"]["content_status"].startswith("failed"))
         self.assertEqual(ranker.article_text(rows["A paper"], 1500), "Abstract text.")
-        self.assertEqual(extract.enrich_candidates(cfg, db), 0)  # not retried
+        self.assertEqual(extract.enrich_candidates(config, database), 0)  # not retried
 
     def test_score_one_shares_prefix_and_reads_score(self):
-        prompts = []
-
-        class StubLLM:
-            def chat_json(self, system, user):
-                prompts.append(user)
-                return {"reason": "fits", "score": 12}
-
+        llm = StubLLM({"reason": "fits", "score": 12})
+        prompts = llm.prompts
         prefix = ranker.score_prefix("Likes Rust.", "(examples)")
-        rows = [{"title": f"Article {i}", "content": "x" * 3000, "summary": "", "source": "S",
-                 "category": ""} for i in range(3)]
-        results = [ranker.score_one(StubLLM(), prefix, a, 500) for a in rows]
+        rows = [{"title": f"Article {index}", "content": "x" * 3000, "summary": "", "source": "S",
+                 "category": ""} for index in range(3)]
+        results = [ranker.score_one(llm, prefix, article, 500) for article in rows]
         self.assertEqual(results[0], (10.0, "fits"))  # clamped to 0-10
-        self.assertTrue(all(p.startswith(prefix) for p in prompts))
-        self.assertTrue(all(len(p) < len(prefix) + 600 for p in prompts))
+        self.assertTrue(all(prompt.startswith(prefix) for prompt in prompts))
+        self.assertTrue(all(len(prompt) < len(prefix) + 600 for prompt in prompts))
         self.assertIn("Title: Article 2", prompts[2])
 
     def test_score_one_rejects_missing_score(self):
-        class StubLLM:
-            def chat_json(self, system, user):
-                return {"reason": "no number"}
-
         row = {"title": "t", "content": "", "summary": "s", "source": "S", "category": ""}
         with self.assertRaises(ranker.LLMError):
-            ranker.score_one(StubLLM(), "p", row)
+            ranker.score_one(StubLLM({"reason": "no number"}), "p", row)
 
     def test_migration_from_old_schema(self):
         import sqlite3, tempfile, os
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "old.db")
-            c = sqlite3.connect(path)
-            c.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, title TEXT NOT NULL, "
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "old.db")
+            connection = sqlite3.connect(path)
+            connection.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, title TEXT NOT NULL, "
                       "title_key TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', "
                       "published REAL, fetched_at REAL NOT NULL, score REAL, reason TEXT, "
                       "score_profile_id INTEGER, sent_digest_id INTEGER)")
-            c.commit(); c.close()
-            db = DB(path)
-            cols = {r["name"] for r in db.conn.execute("PRAGMA table_info(articles)")}
-            self.assertTrue({"content", "content_status"} <= cols)
+            connection.commit(); connection.close()
+            database = Database(path)
+            columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(articles)")}
+            self.assertTrue({"content", "content_status"} <= columns)
 
 
 if __name__ == "__main__":
