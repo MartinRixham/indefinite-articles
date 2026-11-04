@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ElementTree
 import zlib
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +22,7 @@ from . import __version__
 from .article import title_key
 from .config import Config, Feed
 from .database import Database
+from .feed_result import FeedResult
 
 log = logging.getLogger(__name__)
 
@@ -68,16 +70,6 @@ class FetchResult:
     """A fetched feed body (None when the server says it hasn't changed) and its validators."""
     data: bytes | None
     validators: CacheValidators
-
-
-@dataclass
-class FeedResult:
-    """The outcome of fetching one feed: "ok", "not-modified" or "error"."""
-    feed: Feed
-    status: str
-    parsed: ParsedFeed | None = None
-    fetched: FetchResult | None = None
-    error: str = ""
 
 
 class _TextExtractor(HTMLParser):
@@ -266,7 +258,7 @@ def _decompress(data: bytes, encoding: str) -> bytes:
     return out
 
 
-def _fetch_conditional(url: str, validators: CacheValidators | None = None,
+def fetch_conditional(url: str, validators: CacheValidators | None = None,
                       timeout: int = 30) -> FetchResult:
     """GET a feed. `data` is None when the server says it hasn't changed."""
     headers = {
@@ -292,7 +284,7 @@ def _fetch_conditional(url: str, validators: CacheValidators | None = None,
 
 
 def fetch(url: str, timeout: int = 30) -> bytes:
-    data = _fetch_conditional(url, timeout=timeout).data
+    data = fetch_conditional(url, timeout=timeout).data
     if data is None:  # 304 without If-None-Match/If-Modified-Since: a broken server
         raise ValueError(f"unexpected 304 Not Modified from {url}")
     return data
@@ -304,16 +296,7 @@ def _fetch_group(feeds: list[Feed], states: dict[str, sqlite3.Row], stop: thread
     for feed in feeds:
         if stop is not None and stop.is_set():
             break
-        state = states.get(feed.url)
-        try:
-            validators = CacheValidators(state["etag"], state["last_modified"]) if state else None
-            fetched = _fetch_conditional(feed.url, validators)
-            if fetched.data is None:
-                results.append(FeedResult(feed, "not-modified", fetched=fetched))
-            else:
-                results.append(FeedResult(feed, "ok", parse_feed(fetched.data), fetched))
-        except Exception as error:
-            results.append(FeedResult(feed, "error", error=f"{type(error).__name__}: {error}"))
+        results.append(FeedResult.fetch(feed, states.get(feed.url)))
     return results
 
 
@@ -327,33 +310,14 @@ def update_all(config: Config, database: Database, stop: threading.Event | None 
     for feed in due:
         groups.setdefault(feed.host, []).append(feed)
 
-    new = changed = unchanged = failed = 0
+    new = 0
+    statuses: Counter[str] = Counter()
     with ThreadPoolExecutor(max_workers=max(1, config.fetch_concurrency)) as pool:
         for results in pool.map(lambda group: _fetch_group(group, states, stop), groups.values()):
             for result in results:
-                feed = result.feed
-                if result.status == "error":
-                    failed += 1
-                    database.feed_failed(feed.url, result.error, config.fetch_interval_minutes * 60)
-                    log.debug("feed %s failed: %s", feed.url, result.error)
-                    continue
-                assert result.fetched is not None
-                if result.status == "not-modified":
-                    unchanged += 1
-                    database.feed_ok(feed.url, "", result.fetched.validators)
-                    continue
-                assert result.parsed is not None
-                title, entries = result.parsed.title, result.parsed.entries
-                source = feed.name or title or feed.url
-                entries.sort(key=lambda entry: entry.published or 0, reverse=True)
-                added = 0
-                for entry in entries[: feed.max_items]:
-                    if database.add_article(entry, source, feed.category):
-                        added += 1
-                database.feed_ok(feed.url, title, result.fetched.validators)
-                changed += 1
-                new += added
+                new += result.store(config, database)
+                statuses[result.status] += 1
             database.connection.commit()
     log.info("feeds: %d due, %d updated, %d unchanged, %d failed; %d new articles",
-             len(due), changed, unchanged, failed, new)
+             len(due), statuses["ok"], statuses["not-modified"], statuses["error"], new)
     return new

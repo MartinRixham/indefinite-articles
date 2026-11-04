@@ -100,18 +100,9 @@ class Digest:
 
     def _render(self, template_name: str, escape: Callable[[str], str], item_separator: str) -> str:
         sections = _sections(template_name)
-        rendered = []
-        for position, pick in enumerate(self.items, start=1):
-            article = pick.article
-            rendered.append(_render(sections["item"], {
-                "position": str(position),
-                "title": escape(article.title),
-                "source": escape(article.source),
-                "exploratory": _render(sections["exploratory"], {}) if pick.exploratory else "",
-                "url": escape(article.url),
-                "reason": escape(article.reason or ""),
-                "blurb": escape(article.blurb()),
-            }))
+        exploratory_marker = _render(sections["exploratory"], {})
+        rendered = [_render(sections["item"], pick.template_values(position, escape, exploratory_marker))
+                    for position, pick in enumerate(self.items, start=1)]
         debug = self.debug
         return _render(sections["page"], {
             "count": str(len(self.items)),

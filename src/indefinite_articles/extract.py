@@ -228,6 +228,13 @@ class ArticleContent:
     text: str | None
     status: str
 
+    def store(self, database: Database) -> None:
+        """Save the text and status, and commit, so the write lock isn't held while waiting for more pages."""
+        database.set_content(self)
+        database.connection.commit()
+        if self.status != "ok":
+            log.debug("article %d: %s", self.article_id, self.status)
+
 
 def _fetch_article(config: Config, stop: threading.Event | None, article: Article) -> ArticleContent:
     if stop is not None and stop.is_set():
@@ -254,12 +261,8 @@ def enrich_candidates(config: Config, database: Database, stop: threading.Event 
         for content in pool.map(partial(_fetch_article, config, stop), todo):
             if content.status == "skipped":
                 continue
-            database.set_content(content)
-            database.connection.commit()  # don't hold the write lock while waiting for more pages
-            if content.status == "ok":
-                ok += 1
-            else:
-                log.debug("article %d: %s", content.article_id, content.status)
+            content.store(database)
+            ok += content.status == "ok"
     database.connection.commit()
     log.info("fetched full text for %d/%d articles", ok, len(todo))
     return ok

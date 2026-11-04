@@ -7,7 +7,7 @@ import random
 import sqlite3
 import threading
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
@@ -104,6 +104,24 @@ class DigestPick:
     """An article chosen for the digest; exploratory picks are random, to keep learning."""
     article: Article
     exploratory: bool
+
+    def template_values(self, position: int, escape: Callable[[str], str], exploratory_marker: str) -> dict[str, str]:
+        """The `$placeholders` of the digest's `item` template section for this pick."""
+        return {
+            "position": str(position),
+            "exploratory": exploratory_marker if self.exploratory else "",
+            **self.article.template_values(escape),
+        }
+
+    def debug_line(self, position: int, score: "ScoreBreakdown", rank: int) -> str:
+        """This pick's row in the digest's debug table."""
+        article = self.article
+        llm_score = f"{score.llm:5.1f}" if score.llm is not None else "    -"
+        return (
+            f"{position:<3} {rank:>4}  {score.final:5.2f} = {llm_score} {score.base:+5.2f}"
+            f" {score.bonus:+5.2f}   {(article.content_status or '-')[:8]:8}  {article.source[:30]}"
+            + ("  [explore]" if self.exploratory else "")
+        )
 
 
 @dataclass

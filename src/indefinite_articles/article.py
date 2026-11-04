@@ -2,6 +2,7 @@
 
 import re
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, fields
 
 EMBEDDING_SUMMARY_CHARACTERS = 600  # of the summary, embedded after the title
@@ -76,6 +77,16 @@ class Article:
     def blurb(self, limit: int = BLURB_CHARACTERS) -> str:
         """A short description for the digest: the feed summary, or else the start of the page text."""
         return _shorten(self.summary or self.content or "", limit)
+
+    def template_values(self, escape: Callable[[str], str]) -> dict[str, str]:
+        """The digest item placeholders that describe the article itself, passed through `escape`."""
+        return {
+            "title": escape(self.title),
+            "source": escape(self.source),
+            "url": escape(self.url),
+            "reason": escape(self.reason or ""),
+            "blurb": escape(self.blurb()),
+        }
 
     def embedding_text(self) -> str:
         """What the embedding pre-filter embeds: the title and the start of the summary."""

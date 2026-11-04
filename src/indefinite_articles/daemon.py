@@ -147,16 +147,9 @@ def _debug_report(config: Config, database: Database, items: list[ranker.DigestP
     ]
     scores, rank = selection.get("scores", {}), selection.get("rank", {})
     for position, pick in enumerate(items, start=1):
-        article = pick.article
-        score = scores.get(article.id)
-        if score is None:
-            continue
-        llm_score = f"{score.llm:5.1f}" if score.llm is not None else "    -"
-        lines.append(
-            f"{position:<3} {rank.get(article.id, 0):>4}  {score.final:5.2f} = {llm_score} {score.base:+5.2f}"
-            f" {score.bonus:+5.2f}   {(article.content_status or '-')[:8]:8}  {article.source[:30]}"
-            + ("  [explore]" if pick.exploratory else "")
-        )
+        score = scores.get(pick.article.id)
+        if score is not None:
+            lines.append(pick.debug_line(position, score, rank.get(pick.article.id, 0)))
     lines.append("(adj: embedding agreement, or fallback rank when the LLM did not score;"
                  " src: source like/dislike bonus)")
     return lines

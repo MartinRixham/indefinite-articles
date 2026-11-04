@@ -166,6 +166,19 @@ class BlurbTests(unittest.TestCase):
         self.assertTrue(blurb.endswith("…"))
         self.assertLessEqual(len(blurb), BLURB_CHARACTERS)
 
+
+class TemplateValuesTests(unittest.TestCase):
+    def test_escapes_every_value(self) -> None:
+        article = make_article(title="A & B", source="<Blog>", reason="Why", summary="Short summary.")
+        self.assertEqual(article.template_values(str.upper), {
+            "title": "A & B", "source": "<BLOG>", "url": "HTTPS://EXAMPLE.COM/1",
+            "reason": "WHY", "blurb": "SHORT SUMMARY.",
+        })
+
+    def test_missing_reason_and_blurb_are_empty(self) -> None:
+        self.assertEqual(make_article().template_values(str),
+                         {"title": "Title", "source": "", "url": "https://example.com/1", "reason": "", "blurb": ""})
+
     def test_given_limit(self) -> None:
         self.assertEqual(make_article(summary="alpha beta gamma").blurb(12), "alpha beta…")
 
