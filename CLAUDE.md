@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Fedora service (Python 3.14, stdlib + numpy only) that fetches ~500 RSS/Atom feeds, ranks the articles with a local LLM (Ollama or llama.cpp, via the OpenAI-compatible `/v1` API), emails a daily digest, and learns from the user's email replies. See README.md for the user-facing description and config.
+A Fedora service (Python 3.14 on Fedora 44, 3.15 on Fedora 45; stdlib + numpy only) that fetches ~500 RSS/Atom feeds, ranks the articles with a local LLM (Ollama or llama.cpp, via the OpenAI-compatible `/v1` API), emails a daily digest, and learns from the user's email replies. See README.md for the user-facing description and config.
 
 ## Commands
 
@@ -44,7 +44,7 @@ Schema changes: `database.SCHEMA` uses `CREATE TABLE IF NOT EXISTS`. New `articl
 - `dist/` holds the files installed to `/etc` and systemd: the config, `feeds.d/default.opml`, the unit file, sysusers and the Ollama iGPU drop-in.
 - `packaging/indefinite-articles.spec` builds the RPM. The `Containerfile` installs that RPM, so container paths match the RPM's.
 - The version lives in `pyproject.toml`. The Makefile reads it from there, and the README's install example mentions it too.
-- CI (`.github/workflows/build.yml`) runs the tests, then builds the RPM on Fedora 44, then publishes the container image to ghcr.
+- CI (`.github/workflows/build.yml`) runs the tests, then builds the RPM on Fedora 44 and 45, then publishes the container image to ghcr.
 
 ## Code style
 

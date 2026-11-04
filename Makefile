@@ -24,6 +24,7 @@ rpm: tarball
 	@find $(TOPDIR)/RPMS $(TOPDIR)/SRPMS -name '*.rpm'
 
 # Build inside a clean Fedora container (no root needed on the host).
+# Pass FEDORA=45 to build for Fedora 45.
 FEDORA ?= 44
 container-rpm:
 	podman run --rm -v $(CURDIR):/src:Z -w /src registry.fedoraproject.org/fedora:$(FEDORA) \
