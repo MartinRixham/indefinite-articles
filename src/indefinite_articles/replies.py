@@ -3,11 +3,13 @@
 import logging
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from email.message import EmailMessage
 
 from .article import Article
+from .assistant import Assistant
 from .feeds import html_to_text
+from .interpretation import Interpretation, Rating
 from .llm import LLM, LLMError
 
 log = logging.getLogger(__name__)
@@ -25,38 +27,11 @@ _COMPACT_TOKEN = re.compile(r"([+-])\s?(\d{1,2})|(\d{1,2})\s?([+-])")
 _ITEM_LINE = re.compile(r"^\s*#?(\d{1,2})\s*[.):,]?\s*(.*)$")
 
 
-@dataclass(frozen=True)
-class Rating:
-    """The reader's verdict on one article: 1 liked, -1 disliked, 0 just a comment."""
-    rating: int
-    comment: str = ""
-
-    @property
-    def label(self) -> str:
-        return {1: "👍 liked", -1: "👎 disliked", 0: "💬 noted"}[self.rating]
-
-
 @dataclass
 class Sentiment:
     """A like/dislike word found at the start of a line (None if there was none), and the rest."""
     rating: int | None
     comment: str
-
-
-@dataclass
-class Interpretation:
-    """What a reply says: ratings by item number, and comments not about one article."""
-    ratings: dict[int, Rating] = field(default_factory=dict)
-    general: list[str] = field(default_factory=list)
-
-    def filled_in_by(self, other: "Interpretation") -> "Interpretation":
-        """These ratings, plus `other`'s for items these leave out or only comment on;
-        `other`'s general comments."""
-        ratings = dict(self.ratings)
-        for item_number, rating in other.ratings.items():
-            if item_number not in ratings or ratings[item_number].rating == 0:
-                ratings[item_number] = rating
-        return Interpretation(ratings, other.general)
 
 
 @dataclass
@@ -146,41 +121,6 @@ def _parse_structured(text: str, item_count: int) -> StructuredReply:
     return StructuredReply(ratings, general, unresolved)
 
 
-INTERPRET_SYSTEM = (
-    "You interpret a reader's email reply to a numbered list of recommended articles. "
-    "Work out which articles they liked or disliked and what general preferences they expressed."
-)
-
-
-def _interpret_with_llm(llm: LLM, text: str, items: Sequence[Article]) -> Interpretation:
-    listing = "\n".join(f"{item_number}. {article.title} ({article.source})"
-                        for item_number, article in enumerate(items, start=1))
-    user = (
-        f"The reader was sent these articles:\n{listing}\n\n"
-        f"Their reply:\n\"\"\"\n{text[:4000]}\n\"\"\"\n\n"
-        "Respond with JSON only, in the form "
-        '{"ratings": [{"item": 1, "rating": "like" or "dislike" or "neutral", '
-        '"comment": "what they said about it, or empty"}], '
-        '"general_comment": "any preference not tied to one article, or empty"}. '
-        "Only include articles the reader actually referred to."
-    )
-    data = llm.chat_json(INTERPRET_SYSTEM, user)
-    if not isinstance(data, dict):
-        raise LLMError("unexpected interpretation format")
-    ratings: dict[int, Rating] = {}
-    for entry in data.get("ratings") or []:
-        try:
-            item_number = int(entry["item"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not 1 <= item_number <= len(items):
-            continue
-        rating = {"like": 1, "dislike": -1}.get(str(entry.get("rating", "")).lower(), 0)
-        ratings[item_number] = Rating(rating, str(entry.get("comment") or "")[:500])
-    general = str(data.get("general_comment") or "").strip()
-    return Interpretation(ratings, [general] if general else [])
-
-
 def understand(llm: LLM | None, text: str, items: Sequence[Article]) -> Interpretation:
     """Combine the structured parser with LLM interpretation for free-form replies."""
     parsed = _parse_structured(text, len(items))
@@ -189,7 +129,7 @@ def understand(llm: LLM | None, text: str, items: Sequence[Article]) -> Interpre
         return structured
     try:
         # Explicit structured ratings win; the LLM fills in the rest.
-        return structured.filled_in_by(_interpret_with_llm(llm, text, items))
+        return structured.filled_in_by(Assistant(llm).interpret_reply(text, items))
     except LLMError as error:
         log.warning("could not interpret free-form reply with LLM: %s", error)
         return structured

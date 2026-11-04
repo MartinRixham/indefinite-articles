@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .assistant import MAX_PHRASES, Assistant
 from .classifier import Classifier
 from .config import Config
 from .database import Database
@@ -36,19 +37,7 @@ EPOCHS = 100                # full-batch gradient descent steps
 L2 = 1e-3                   # weight decay; also keeps probabilities modest with little data
 HALF_LIFE_DAYS = 365        # older ratings count less, as tastes drift
 CLASSIFIER_WEIGHT = 0.5     # weight of (probability - 0.5) next to the profile match
-MAX_PHRASES = 12  # per side, from the reader profile
 DEFAULT_WANTED = "substantive, well-written, informative articles"
-
-PREFERENCES_SYSTEM = "You turn a reader's profile into short phrases for a search engine."
-PREFERENCES_PROMPT = (
-    "Reader profile:\n{profile}\n\n"
-    "List the kinds of article this reader wants, and separately the kinds they want to "
-    "avoid, as short positive descriptions of article topics, angles or styles, e.g. "
-    '"in-depth articles on Rust compiler internals" or "celebrity gossip". Never use '
-    'negations such as "no", "not" or "avoid" inside a phrase: put unwanted things in '
-    "the avoid list instead. At most {max_phrases} phrases per list.\n"
-    'Respond with JSON only: {{"likes": ["..."], "avoid": ["..."]}}'
-)
 
 # Words that mark a profile sentence as describing what the reader does NOT want.
 _NEGATIVE = re.compile(
@@ -85,25 +74,12 @@ def _split_profile(text: str) -> tuple[list[str], list[str]]:
 def _split_phrases(llm: LLM, text: str) -> tuple[list[str], list[str]]:
     """Wanted and unwanted phrases from the profile: the LLM's split, else `_split_profile`."""
     try:
-        prompt = PREFERENCES_PROMPT.format(profile=text[:4000], max_phrases=MAX_PHRASES)
-        data = llm.chat_json(PREFERENCES_SYSTEM, prompt)
+        return Assistant(llm).profile_phrases(text)
     except LLMError as error:
         log.info("profile split by LLM failed, using keyword split: %s", error)
-        data = None
-    if isinstance(data, dict):
-        likes, avoid = _phrase_list(data, "likes"), _phrase_list(data, "avoid")
-        if likes:
-            return likes, avoid
     wanted, unwanted = _split_profile(text)
     wanted = wanted or [DEFAULT_WANTED]  # e.g. a profile that only lists dislikes
     return wanted, unwanted
-
-
-def _phrase_list(data: dict, key: str) -> list[str]:
-    items = data.get(key)
-    if not isinstance(items, list):
-        return []
-    return [str(item).strip()[:200] for item in items if str(item).strip()][:MAX_PHRASES]
 
 
 def embed_new(

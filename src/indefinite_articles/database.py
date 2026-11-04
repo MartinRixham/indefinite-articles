@@ -12,7 +12,8 @@ from .article import Article
 if TYPE_CHECKING:
     from .extract import ArticleContent
     from .feeds import CacheValidators, Entry
-    from .ranker import ArticleScore, DigestPick
+    from .assistant import ArticleScore
+    from .ranker import DigestPick
 
 
 @dataclass(frozen=True)

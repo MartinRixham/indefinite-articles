@@ -1,12 +1,10 @@
-import json
 import signal
-import re
 import threading
 import time
 import unittest
 from datetime import date
 from email.message import EmailMessage
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -16,6 +14,8 @@ from indefinite_articles.article import Article
 from indefinite_articles.config import Config, TimeOfDay, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
+
+from fake_llm import FakeLLM
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -49,79 +49,6 @@ def current_text(database: Database) -> str:
 
 def row_count(database: Database, table: str) -> int:
     return database.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-
-
-def fake_embedding(text: str, dimension: int = 64):
-    """Bag-of-words hashed vector: texts sharing words are similar, like real embeddings."""
-    import zlib
-    vector = [0.0] * dimension
-    for word in re.findall(r"[a-z]{3,}", text.lower()):
-        vector[zlib.crc32(word.encode()) % dimension] += 1.0
-    return vector
-
-
-class FakeLLM(BaseHTTPRequestHandler):
-    """OpenAI-compatible endpoint: scores titles containing 'Rust'/'Linux' highly."""
-    requests = []
-    size_vram = 1
-    delay = 0.0      # seconds before the first token
-    gap = 0.0        # seconds between tokens
-    hang_after: int | None = None  # stop sending after this many tokens (a hung server)
-
-    def log_message(self, format: str, *args: object):
-        pass
-
-    def do_GET(self):
-        self._json({"models": [{"name": "qwen2.5:14b", "size_vram": FakeLLM.size_vram}]})
-
-    def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        FakeLLM.requests.append(body)
-        if self.path.endswith("/embeddings"):
-            return self._json({"data": [{"index": index, "embedding": fake_embedding(text)}
-                                        for index, text in enumerate(body["input"])]})
-        system, user = body["messages"][0]["content"], body["messages"][1]["content"]
-        if "Article to rate:" in user:
-            match = re.search(r"^Title: (.+)$", user, re.M)
-            assert match is not None
-            title = match.group(1)
-            good = any(word in title for word in ("Rust", "Linux"))
-            content = "```json\n" + json.dumps({"reason": "test", "score": 9 if good else 2}) + "\n```"
-        elif "interpret a reader" in system:
-            content = json.dumps({"ratings": [{"item": 2, "rating": "dislike", "comment": "boring"}],
-                                  "general_comment": "less gossip"})
-        elif "maintain a concise profile" in system:
-            content = "- Likes Rust and systems programming\n- Dislikes gossip"
-        else:
-            content = "OK"
-        if not body.get("stream"):
-            return self._json({"choices": [{"message": {"role": "assistant", "content": content}}]})
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.end_headers()
-        time.sleep(FakeLLM.delay)
-        tokens = [content[index:index + 4] for index in range(0, len(content), 4)]
-        try:
-            for index, chunk in enumerate(tokens):
-                if FakeLLM.hang_after is not None and index >= FakeLLM.hang_after:
-                    time.sleep(5)
-                    return
-                if index:
-                    time.sleep(FakeLLM.gap)
-                event = {"choices": [{"index": 0, "delta": {"content": chunk}}]}
-                self.wfile.write(b"data: " + json.dumps(event).encode() + b"\n\n")
-                self.wfile.flush()
-            self.wfile.write(b"data: [DONE]\n\n")
-        except (BrokenPipeError, ConnectionResetError):
-            pass  # the client gave up
-
-    def _json(self, payload: object):
-        out = json.dumps(payload).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(out)))
-        self.end_headers()
-        self.wfile.write(out)
 
 
 class FeedTests(unittest.TestCase):

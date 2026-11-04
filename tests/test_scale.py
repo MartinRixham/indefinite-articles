@@ -167,7 +167,7 @@ class PrefilterTests(unittest.TestCase):
         return database
 
     def _llm(self):
-        from test_indefinite_articles import fake_embedding
+        from fake_llm import fake_embedding
         llm = mock.Mock(spec=LLM)
         llm.embed.side_effect = lambda texts: [fake_embedding(text) for text in texts]
         return llm
