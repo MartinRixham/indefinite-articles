@@ -181,14 +181,22 @@ class LLMTests(unittest.TestCase):
         import time
         llm = LLM(self.config, deadline=lambda: time.time() + 0.2)
         original = Server._answer
+        finished = threading.Event()
 
-        def slow(handler: Server):
+        def slow(handler: Server) -> None:
             time.sleep(1)
-            original(handler)
+            try:
+                original(handler)
+            except ConnectionError:  # the client gave up at the deadline, as it should
+                pass
+            finally:
+                finished.set()
 
         with mock.patch.object(Server, "_answer", slow):
             with self.assertRaisesRegex(LLMUnavailable, "next digest is due"):
                 llm.embed(["x"])
+            # Otherwise the handler outlives the test and reports the broken pipe on a later test's stderr.
+            self.assertTrue(finished.wait(5))
 
 
 if __name__ == "__main__":
