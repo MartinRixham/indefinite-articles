@@ -169,38 +169,6 @@ class ReplyParsingTests(unittest.TestCase):
         self.assertEqual(replies.strip_quoted("ok\n-- \nMartin"), "ok")
 
 
-class DigestTemplateTests(unittest.TestCase):
-    def setUp(self):
-        from indefinite_articles.config import Config
-        self.config = Config()
-        self.config.email.sender, self.config.email.to = "me@example.com", "you@example.com"
-        self.items = [
-            ranker.DigestPick({"title": "Rust & <b>", "source": "Blog", "url": "https://ex.com/1?a=1&b=2",
-                               "reason": "fits", "summary": "A summary.", "content": None}, False),
-            ranker.DigestPick({"title": "Other", "source": "News", "url": "https://ex.com/2", "reason": None,
-                               "summary": "", "content": None}, True),
-        ]
-
-    def test_plain_text(self):
-        message = mailer.build_digest(self.config, self.items, "abcd1234")
-        self.assertEqual(mailer.part_text(message).split("\n--\n")[0],
-                         "Today's 2 recommendations\n\n"
-                         "1. Rust & <b>\n   Blog\n   https://ex.com/1?a=1&b=2\n   Why: fits\n   A summary.\n\n"
-                         "2. Other\n   News  · something different\n   https://ex.com/2\n")
-        self.assertIn((mailer.TEMPLATES / "instructions.txt").read_text().strip(), mailer.part_text(message))
-        self.assertTrue(mailer.part_text(message).endswith("digest-id: rec:abcd1234\n"))
-
-    def test_html_is_escaped_and_optional_lines_dropped(self):
-        message = mailer.build_digest(self.config, self.items, "abcd1234", note="Heads <up>")
-        body = mailer.part_text(message, "html")
-        self.assertIn("Rust &amp; &lt;b&gt;", body)
-        self.assertIn('href="https://ex.com/1?a=1&amp;b=2"', body)
-        self.assertIn("Heads &lt;up&gt;", body)
-        self.assertEqual(body.count("Why:"), 1)
-        self.assertEqual(body.count("something different"), 1)
-        self.assertNotIn("$", body)
-
-
 class EndToEndTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

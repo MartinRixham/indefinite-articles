@@ -13,11 +13,12 @@ from email.message import EmailMessage
 from . import mailer, replies
 from .config import Config
 from .database import Database
+from .digest import TOKEN_PREFIX
 from .llm import LLM
 
 log = logging.getLogger(__name__)
 
-TOKEN_RE = re.compile(re.escape(mailer.TOKEN_PREFIX) + r"([0-9a-f]{8})")
+TOKEN_RE = re.compile(re.escape(TOKEN_PREFIX) + r"([0-9a-f]{8})")
 
 
 @dataclass

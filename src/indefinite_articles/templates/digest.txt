@@ -1,7 +1,7 @@
 Plain-text part of the daily digest email.
 
 Each "@@ name" line starts a section. $name placeholders are filled in by
-mailer.build_digest. A line whose placeholders are all empty is left out, and
+digest.Digest. A line whose placeholders are all empty is left out, and
 runs of blank lines are collapsed into one. Everything above the first section
 (this text) is ignored.
 

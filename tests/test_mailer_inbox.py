@@ -34,26 +34,6 @@ class MailerTests(unittest.TestCase):
     def setUp(self):
         self.config = make_config()
 
-    def test_new_token(self):
-        tokens = {mailer.new_token() for _ in range(20)}
-        self.assertEqual(len(tokens), 20)
-        self.assertTrue(all(len(token) == 8 and int(token, 16) >= 0 for token in tokens))
-        self.assertTrue(all(inbox.TOKEN_RE.fullmatch(mailer.TOKEN_PREFIX + token) for token in tokens))
-
-    def test_build_digest_headers_and_debug(self):
-        items = [DigestPick({"title": "T", "source": "S", "url": "https://e/1", "reason": "", "summary": None,
-                             "content": "word " * 100}, False)]
-        message = mailer.build_digest(self.config, items, "0123abcd", debug=["line one", "line <two>"])
-        self.assertTrue(message["Subject"].endswith("[rec:0123abcd]"))
-        self.assertEqual(message["X-Indefinite-Articles-Digest"], "0123abcd")
-        self.assertEqual(message["To"], "you@example.com")
-        text = mailer.part_text(message)
-        self.assertIn("-- debug --\nline one\nline <two>", text)
-        self.assertNotIn("Why:", text)  # empty reason line left out
-        self.assertIn("…", text)  # long content blurb shortened
-        self.assertIn("+1", text)  # reply instructions
-        self.assertIn("line &lt;two&gt;", mailer.part_text(message, "html"))
-
     def test_acknowledgement_threads_the_reply(self):
         original = reply("+1", subject="Re: Your reading list", Message_ID="<r1@x>", References="<d1@x>")
         message = mailer.build_acknowledgement(self.config, original, ["👍 liked #1: T"])

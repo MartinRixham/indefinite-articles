@@ -11,6 +11,7 @@ from email.message import EmailMessage
 from . import __version__, embed, extract, feeds, inbox, mailer, ranker
 from .config import Config
 from .database import Database, PendingFeedback
+from .digest import Digest
 from .llm import LLM, LLMError
 
 log = logging.getLogger(__name__)
@@ -190,12 +191,12 @@ def send_digest(config: Config, database: Database, dry_run: bool = False,
             debug = _debug_report(config, database, items, info)
         except Exception:  # diagnostics must never stop the digest going out
             log.exception("building debug report failed")
-    token = mailer.new_token()
-    message = mailer.build_digest(config, items, token, note, debug)
+    digest = Digest(items, note, debug)
+    message = digest.message(config)
     if dry_run:
         return message
     mailer.send(config, message)
-    database.record_digest(token, message["Message-ID"], datetime.now().date().isoformat(), items)
+    database.record_digest(digest.token, message["Message-ID"], digest.day.isoformat(), digest.items)
     return message
 
 
