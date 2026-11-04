@@ -24,7 +24,7 @@ def _setup_logging(verbose: bool):
 
 
 def _command_run(config: Config, args: argparse.Namespace):
-    from .daemon import Service
+    from .service import Service
     problems = config.problems()
     for problem in problems:
         logging.warning("config: %s", problem)

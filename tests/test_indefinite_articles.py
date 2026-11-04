@@ -15,6 +15,7 @@ from indefinite_articles.config import Config, TimeOfDay, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
 from indefinite_articles.parsed_feed import ParsedFeed
+from indefinite_articles.service import Service
 
 from fake_llm import FakeLLM
 
@@ -362,7 +363,7 @@ class EndToEndTests(unittest.TestCase):
         return 0
 
     def _run_service(self):  # the service must be built on the thread that runs it
-        service = daemon.Service(self.config)
+        service = Service(self.config)
         service.TICK = 0.05
         service.run()
 

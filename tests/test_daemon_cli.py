@@ -1,24 +1,20 @@
 import contextlib
 import io
 import shutil
-import signal
 import tempfile
-import threading
-import time
 import unittest
-from collections.abc import Callable
-from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles import cli, daemon, embed, extract, feeds, inbox, mailer, ranker
+from indefinite_articles import cli, daemon, embed, extract, feeds, mailer, ranker
 from indefinite_articles.article import Article
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database
 from indefinite_articles.entry import Entry
 from indefinite_articles.feed import Feed
 from indefinite_articles.llm import LLM, LLMError
+from indefinite_articles.service import Service
 
 
 def config_with_articles(count: int = 3) -> tuple[Config, Database]:
@@ -108,114 +104,6 @@ class DaemonFunctionTests(unittest.TestCase):
         self.assertIn("llm stall limits: none learned yet", text)
         self.assertIn("classifier: not trained yet", text)
         self.assertEqual(sum(line[:1].isdigit() for line in lines), self.config.articles_per_digest)  # one row per item
-
-
-class ServiceTests(unittest.TestCase):
-    """Drives the service through run() and stops it the way SIGTERM does."""
-
-    def setUp(self):
-        directory = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, directory)
-        self.config = Config()
-        self.config.database = str(directory / "service.db")
-        self.first_scoring = threading.Event()
-        self.score = mock.Mock(return_value=0)
-        self.score.side_effect = lambda *args, **kwargs: (self.first_scoring.set(), self.score.return_value)[1]
-        # Quiet defaults: fetching waits until the service stops, the inbox is empty and
-        # today's digest has already gone out.
-        for patch in (mock.patch.object(feeds, "update_all", self._fetch_nothing),
-                      mock.patch.object(daemon, "prefilter", lambda *args: None),
-                      mock.patch.object(extract, "enrich_candidates", lambda *args, **kwargs: 0),
-                      mock.patch.object(ranker, "score_candidates", self.score),
-                      mock.patch.object(inbox, "poll", return_value=0),
-                      mock.patch.object(ranker, "update_profile", return_value=False)):
-            patch.start()
-            self.addCleanup(patch.stop)
-        self._set_last_digest_date(datetime.now().date().isoformat())
-
-    @staticmethod
-    def _fetch_nothing(*args: object, stop: threading.Event, **kwargs: object) -> int:
-        stop.wait()
-        return 0
-
-    def _set_last_digest_date(self, value: str):
-        database = Database(self.config.database)
-        database.set_state("last_digest_date", value)
-        database.connection.commit()
-        database.close()
-
-    def _run_service(self, until: Callable[[dict[str, dict]], bool]) -> dict[str, dict]:
-        """Run the service until `until(service.jobs)` holds, then stop it; returns its jobs."""
-        services: list[daemon.Service] = []
-
-        def run():  # the service must be built on the thread that runs it
-            service = daemon.Service(self.config)
-            service.TICK = 0.01
-            services.append(service)
-            service.run()
-
-        with mock.patch.object(signal, "signal") as register_handler:
-            thread = threading.Thread(target=run)
-            thread.start()
-            try:
-                deadline = time.monotonic() + 5
-                while not (services and until(services[0].jobs)):
-                    self.assertLess(time.monotonic(), deadline, f"timed out; jobs: {services and services[0].jobs}")
-                    time.sleep(0.01)
-            finally:
-                for call in register_handler.call_args_list[:1]:  # as if sent SIGTERM
-                    call.args[1](signal.SIGTERM, None)
-                thread.join(10)
-        self.assertFalse(thread.is_alive())
-        return services[0].jobs
-
-    def test_fetch_asks_for_scoring(self):
-        def fetch_after_first_scoring(*args: object, **kwargs: object) -> int:
-            self.first_scoring.wait(5)
-            return 4
-
-        with mock.patch.object(feeds, "update_all", fetch_after_first_scoring):
-            jobs = self._run_service(lambda jobs: self.score.call_count >= 2)
-        self.assertEqual(jobs["feed fetch"]["last_result"], "4 new articles")
-
-    def test_score_reports_skips(self):
-        self.score.return_value = 7
-        jobs = self._run_service(lambda jobs: "last_end" in jobs["scoring"])
-        self.assertEqual(jobs["scoring"]["last_result"], "scored 7")
-        self.score.side_effect = LLMError("down")
-        with self.assertLogs("indefinite_articles.daemon", "WARNING"):
-            jobs = self._run_service(lambda jobs: "last_end" in jobs["scoring"])
-        self.assertEqual(jobs["scoring"]["last_result"], "skipped: down")
-
-    def test_poll_and_learn(self):
-        with mock.patch.object(inbox, "poll", return_value=2):
-            jobs = self._run_service(lambda jobs: "last_end" in jobs["inbox poll"] and "last_end" in jobs["scoring"])
-        self.assertEqual(jobs["inbox poll"]["last_result"], "2 replies")
-        self.assertEqual(self.score.call_count, 1)  # only the run at startup
-
-    def test_profile_update_asks_for_scoring(self):
-        def update_after_first_scoring(*args: object) -> bool:
-            self.first_scoring.wait(5)
-            return True
-
-        with mock.patch.object(ranker, "update_profile", update_after_first_scoring):
-            jobs = self._run_service(lambda jobs: self.score.call_count >= 2)
-        self.assertEqual(jobs["inbox poll"]["last_result"], "0 replies, profile updated")
-
-    def test_digest_marks_the_day_even_when_empty(self):
-        self.config.digest_time = "00:00"
-        self._set_last_digest_date("")
-        today = datetime.now().date().isoformat()
-
-        def digest_done(jobs: dict[str, dict]) -> bool:
-            database = Database(self.config.database)
-            try:
-                return database.get_state("last_digest_date") == today
-            finally:
-                database.close()
-
-        with self.assertLogs("indefinite_articles.daemon", "WARNING"):
-            self._run_service(digest_done)
 
 
 class CommandLineTests(unittest.TestCase):
@@ -309,23 +197,23 @@ class CommandLineTests(unittest.TestCase):
 
     def test_run_refuses_incomplete_config(self):
         self.config_path.write_text(f'[general]\ndatabase = "{self.directory}/data.db"\n')
-        with mock.patch.object(daemon.Service, "run", side_effect=AssertionError("started")), \
+        with mock.patch.object(Service, "run", side_effect=AssertionError("started")), \
              self.assertLogs(level="ERROR"):
             self.assertEqual(self._run("run")[0], 1)
 
     def test_run_refuses_cpu_only(self):
         self.config_path.write_text(self.config_path.read_text() + '[email.smtp]\nhost = "smtp.example.org"\n')
-        with mock.patch.object(daemon.Service, "run", side_effect=AssertionError("started")), \
+        with mock.patch.object(Service, "run", side_effect=AssertionError("started")), \
              mock.patch.object(LLM, "ping", return_value="OK"), \
              mock.patch.object(LLM, "on_cpu_only", return_value=True), \
              self.assertLogs(level="WARNING"):
             self.assertEqual(self._run("run")[0], 78)
-        with mock.patch.object(daemon.Service, "run", side_effect=AssertionError("started")), \
+        with mock.patch.object(Service, "run", side_effect=AssertionError("started")), \
              mock.patch.object(LLM, "ping", side_effect=LLMError("down")), \
              self.assertLogs(level="WARNING"):
             self.assertEqual(self._run("run")[0], 1)
         # Like the real run(), the stand-in closes the service's database when it returns.
-        with mock.patch.object(daemon.Service, "run", autospec=True,
+        with mock.patch.object(Service, "run", autospec=True,
                                side_effect=lambda service: service.database.close()) as run, \
              mock.patch.object(LLM, "ping", return_value="OK"), \
              mock.patch.object(LLM, "on_cpu_only", return_value=False), \
