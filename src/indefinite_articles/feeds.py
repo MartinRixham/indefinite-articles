@@ -53,6 +53,15 @@ class CacheValidators:
     etag: str | None = None
     last_modified: str | None = None
 
+    def request_headers(self) -> dict[str, str]:
+        """The headers that make a GET conditional on these validators."""
+        headers = {}
+        if self.etag:
+            headers["If-None-Match"] = self.etag
+        if self.last_modified:
+            headers["If-Modified-Since"] = self.last_modified
+        return headers
+
 
 @dataclass
 class FetchResult:
@@ -266,10 +275,7 @@ def _fetch_conditional(url: str, validators: CacheValidators | None = None,
         "Accept-Encoding": "gzip",
     }
     validators = validators or CacheValidators()
-    if validators.etag:
-        headers["If-None-Match"] = validators.etag
-    if validators.last_modified:
-        headers["If-Modified-Since"] = validators.last_modified
+    headers.update(validators.request_headers())
     request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:

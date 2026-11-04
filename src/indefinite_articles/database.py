@@ -29,6 +29,11 @@ class SourceStatistics:
         """The like rate with a Beta(2,2) prior, so a source with few votes stays near 0.5."""
         return (self.likes + 2) / (self.total + 4)
 
+    @property
+    def bonus(self) -> float:
+        """In [-1.5, 1.5], from how much the reader liked the source's articles."""
+        return 3.0 * (self.smoothed_like_rate - 0.5)
+
 
 @dataclass
 class PendingFeedback:

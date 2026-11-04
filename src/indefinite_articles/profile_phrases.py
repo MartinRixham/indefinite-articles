@@ -1,7 +1,9 @@
 """The reader profile as short phrases, for comparing with article embeddings."""
 
+import numpy as np
+
 from .llm import LLM
-from .vectors import pack
+from .vectors import max_similarities, pack
 
 
 class ProfilePhrases:
@@ -29,6 +31,12 @@ class ProfilePhrases:
     def dimension(self) -> int:
         """Length in bytes of each packed vector; embeds the wanted phrases on first use."""
         return len(self.wanted_vectors()[0])
+
+    def match(self, matrix: np.ndarray) -> np.ndarray:
+        """How well each article vector (a row of `matrix`) matches the profile: its similarity
+        to the closest wanted phrase, less half its similarity to the closest unwanted one."""
+        return (max_similarities(matrix, self.wanted_vectors())
+                - 0.5 * max_similarities(matrix, self.unwanted_vectors()))
 
     def _embed(self, phrases: list[str]) -> list[bytes]:
         return [pack(vector) for vector in self._llm.embed(phrases)] if phrases else []

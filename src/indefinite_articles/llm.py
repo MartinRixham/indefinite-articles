@@ -31,6 +31,11 @@ STALL_FACTOR = 4
 MIN_STALL = 60.0
 
 
+def stall_limit(slowest: float) -> float:
+    """Seconds without data after which a wait is abandoned, given the longest silence seen."""
+    return max(MIN_STALL, STALL_FACTOR * slowest)
+
+
 class LLMError(Exception):
     pass
 
@@ -63,7 +68,7 @@ class LLM:
     def _limit(self, kind: str) -> WaitLimit:
         with self._lock:
             slowest = self._slowest.get(kind)
-        stall = None if slowest is None else max(MIN_STALL, STALL_FACTOR * slowest)
+        stall = None if slowest is None else stall_limit(slowest)
         left = None
         if self.deadline is not None:
             left = self.deadline() - time.time()
@@ -72,6 +77,11 @@ class LLM:
         if stall is not None and (left is None or stall < left):
             return WaitLimit(stall, True)
         return WaitLimit(left, False)
+
+    def slowest_waits(self) -> dict[str, float]:
+        """The longest silence seen so far for each kind of wait, in seconds (a copy)."""
+        with self._lock:
+            return dict(self._slowest)
 
     def _observe(self, kind: str, seconds: float):
         with self._lock:

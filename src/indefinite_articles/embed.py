@@ -24,7 +24,7 @@ from .config import Config
 from .database import Database
 from .llm import LLM, LLMError
 from .profile_phrases import ProfilePhrases
-from .vectors import pack
+from .vectors import max_similarities, pack, unpack
 
 log = logging.getLogger(__name__)
 
@@ -135,12 +135,6 @@ def embed_new(
     return done
 
 
-def _max_similarities(matrix: np.ndarray, refs: list[bytes]) -> np.ndarray:
-    if not refs:
-        return np.zeros(len(matrix), dtype=np.float32)
-    return (matrix @ np.frombuffer(b"".join(refs), dtype=np.float32).reshape(len(refs), -1).T).max(axis=1)
-
-
 def _score(vectors: list[bytes], phrases: ProfilePhrases, likes: list[bytes],
            dislikes: list[bytes]) -> list[float]:
     """Pre-filter score of each article vector, used before the classifier is trained.
@@ -150,17 +144,15 @@ def _score(vectors: list[bytes], phrases: ProfilePhrases, likes: list[bytes],
     """
     if not vectors:
         return []
-    matrix = np.frombuffer(b"".join(vectors), dtype=np.float32).reshape(len(vectors), -1)
-    wanted = _max_similarities(matrix, phrases.wanted_vectors())
-    unwanted = _max_similarities(matrix, phrases.unwanted_vectors())
-    matched = wanted - 0.5 * unwanted
+    matrix = unpack(vectors)
+    matched = phrases.match(matrix)
     if likes:
-        similarities = matrix @ np.frombuffer(b"".join(likes), dtype=np.float32).reshape(len(likes), -1).T
+        similarities = matrix @ unpack(likes).T
         top = min(2, similarities.shape[1])
         liked = np.sort(similarities, axis=1)[:, -top:].mean(axis=1)
     else:
         liked = matched
-    disliked = _max_similarities(matrix, dislikes)
+    disliked = max_similarities(matrix, dislikes)
     return (0.4 * matched + 0.6 * liked - 0.4 * disliked).tolist()
 
 
@@ -176,7 +168,7 @@ def _sample_weights(labels: list[int], ages_days: list[float]) -> list[float]:
 
 
 def _train(vectors: list[bytes], labels: list[int], weights: list[float]) -> Classifier:
-    features = np.frombuffer(b"".join(vectors), dtype=np.float32).reshape(len(vectors), -1).astype(np.float64)
+    features = unpack(vectors).astype(np.float64)
     target = np.asarray(labels, dtype=np.float64)
     sample_weights = np.asarray(weights, dtype=np.float64)
     mean = features.mean(axis=0)
@@ -201,17 +193,11 @@ def _train_classifier(vectors: list[bytes], labels: list[int], ages_days: list[f
     return _train(vectors, labels, _sample_weights(labels, ages_days))
 
 
-def _profile_match(vectors: list[bytes], phrases: ProfilePhrases) -> list[float]:
-    """How well each article matches the profile's phrases (closest phrase on each side).
-
-    With no rated articles, `_score` reduces to exactly this match.
-    """
-    return _score(vectors, phrases, [], [])
-
-
 def _score_with_classifier(vectors: list[bytes], phrases: ProfilePhrases,
                           classifier: Classifier) -> list[float]:
-    matches = _profile_match(vectors, phrases)
+    if not vectors:
+        return []
+    matches = phrases.match(unpack(vectors)).tolist()
     probabilities = classifier.predict(vectors)
     return [match + CLASSIFIER_WEIGHT * (probability - 0.5) for match, probability in zip(matches, probabilities)]
 

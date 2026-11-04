@@ -12,7 +12,7 @@ from . import __version__, embed, extract, feeds, inbox, mailer, ranker
 from .config import Config
 from .database import Database, PendingFeedback
 from .digest import Digest
-from .llm import LLM, LLMError
+from .llm import LLM, LLMError, stall_limit
 
 log = logging.getLogger(__name__)
 
@@ -93,11 +93,8 @@ def _job_status(name: str, job: dict) -> str:
 
 
 def _llm_limits(llm: LLM) -> str:
-    from .llm import MIN_STALL, STALL_FACTOR
-    with llm._lock:
-        slowest = dict(llm._slowest)
-    parts = [f"{kind} {_duration(max(MIN_STALL, STALL_FACTOR * seconds))} (slowest {seconds:.1f}s)"
-             for kind, seconds in sorted(slowest.items())]
+    parts = [f"{kind} {_duration(stall_limit(seconds))} (slowest {seconds:.1f}s)"
+             for kind, seconds in sorted(llm.slowest_waits().items())]
     return "llm stall limits: " + (", ".join(parts) if parts else "none learned yet")
 
 

@@ -208,13 +208,9 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
     return done
 
 
-def _source_bonus(statistics: dict, source: str) -> float:
-    """In [-1.5, 1.5], from how much the reader liked the source's articles."""
-    return 3.0 * (statistics.get(source, SourceStatistics()).smoothed_like_rate - 0.5)
-
-
-def _breakdown(article: Article, statistics: dict, prefilter_ranks: list[float]) -> ScoreBreakdown:
-    bonus = _source_bonus(statistics, article.source)
+def _breakdown(article: Article, statistics: dict[str, SourceStatistics],
+               prefilter_ranks: list[float]) -> ScoreBreakdown:
+    bonus = statistics.get(article.source, SourceStatistics()).bonus
     # Where the embedding pre-filter ranks the article among the candidates, 0..1.
     rank = None
     if article.prefilter is not None and prefilter_ranks:

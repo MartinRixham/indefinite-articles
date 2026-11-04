@@ -5,6 +5,7 @@ import base64
 import numpy as np
 
 from .database import Database
+from .vectors import unpack
 
 
 class Classifier:
@@ -18,8 +19,7 @@ class Classifier:
         """Probability that the reader likes each article (vectors as packed float32 bytes)."""
         if not vectors:
             return []
-        matrix = np.frombuffer(b"".join(vectors), dtype=np.float32).reshape(len(vectors), -1)
-        logits = np.clip(matrix.astype(np.float64) @ np.asarray(self.weights) + self.bias, -30, 30)
+        logits = np.clip(unpack(vectors).astype(np.float64) @ np.asarray(self.weights) + self.bias, -30, 30)
         return (1.0 / (1.0 + np.exp(-logits))).tolist()
 
     def save(self, database: Database) -> None:
