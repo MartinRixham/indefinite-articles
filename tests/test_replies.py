@@ -109,7 +109,14 @@ class UnderstandTests(unittest.TestCase):
                         "general_comment": "variety is good"})
         interpretation = replies.understand(llm, "1 hmm\n+2\nthe garden one was great", ITEMS)
         ratings, general = interpretation.ratings, interpretation.general
-        self.assertEqual(ratings, {1: replies.Rating(1, "hmm, actually yes"), 2: replies.Rating(1), 3: replies.Rating(1)})
+        self.assertEqual(
+            ratings,
+            {
+                1: replies.Rating(1, "hmm, actually yes"),
+                2: replies.Rating(1),
+                3: replies.Rating(1),
+            },
+        )
         self.assertEqual(general, ["variety is good"])
 
     def test_llm_failure_falls_back(self):

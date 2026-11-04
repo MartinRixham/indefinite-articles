@@ -63,7 +63,9 @@ class FeedListTests(unittest.TestCase):
                          [("Quanta", "Science", 5), ("Deep", "Sub", 40), ("Loose", "", 40)])
 
     def test_txt(self):
-        feed_list = load_feed_files({"feeds.txt": "# Tech\nhttps://a/feed  A blog\n\nhttps://b/feed\n# News\nhttps://c/feed"})
+        feed_list = load_feed_files({
+            "feeds.txt": "# Tech\nhttps://a/feed  A blog\n\nhttps://b/feed\n# News\nhttps://c/feed",
+        })
         self.assertEqual([(feed.url, feed.name, feed.category) for feed in feed_list],
                          [("https://a/feed", "A blog", "Tech"), ("https://b/feed", "", "Tech"),
                           ("https://c/feed", "", "News")])
@@ -81,14 +83,20 @@ class FeedListTests(unittest.TestCase):
 
 class LenientParseTests(unittest.TestCase):
     def test_html_entities_and_leading_junk(self):
-        data = b"\n\n<?xml version='1.0'?><rss><channel><title>X&nbsp;Y</title><item><title>A &mdash; B</title><link>https://e/1</link></item></channel></rss>"
+        data = (
+            b"\n\n<?xml version='1.0'?><rss><channel><title>X&nbsp;Y</title>"
+            b"<item><title>A &mdash; B</title><link>https://e/1</link></item></channel></rss>"
+        )
         parsed = feeds.parse_feed(data)
         title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "X\xa0Y".replace("\xa0", " ").strip() or title)
         self.assertEqual(entries[0].title, "A — B")
 
     def test_broken_markup_regex_fallback(self):
-        data = b"<rss><channel><title>T</title><item><title>Good</title><link>https://e/1</link><description><![CDATA[<p>hi</p>]]></description></item><br></channel></rss>"
+        data = (
+            b"<rss><channel><title>T</title><item><title>Good</title><link>https://e/1</link>"
+            b"<description><![CDATA[<p>hi</p>]]></description></item><br></channel></rss>"
+        )
         parsed = feeds.parse_feed(data)
         title, entries = parsed.title, parsed.entries
         self.assertEqual((entries[0].title, entries[0].summary), ("Good", "hi"))
@@ -244,7 +252,10 @@ class PrefilterTests(unittest.TestCase):
         llm.chat_json.return_value = {"likes": ["rust compilers"], "avoid": ["celebrity gossip"]}
         self.assertEqual(phrases_for("whatever"), {"wanted": ["rust compilers"], "unwanted": ["celebrity gossip"]})
         llm.chat_json.return_value = {"oops": 1}  # unusable answer: keyword split
-        self.assertEqual(phrases_for("Likes rust. Avoids gossip."), {"wanted": ["Likes rust"], "unwanted": ["Avoids gossip"]})
+        self.assertEqual(
+            phrases_for("Likes rust. Avoids gossip."),
+            {"wanted": ["Likes rust"], "unwanted": ["Avoids gossip"]},
+        )
 
 
 if __name__ == "__main__":

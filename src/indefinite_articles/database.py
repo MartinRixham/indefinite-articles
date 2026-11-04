@@ -451,11 +451,15 @@ class Database:
     def statistics(self) -> dict:
         return {
             "articles": self._count("SELECT COUNT(*) FROM articles"),
-            "unsent_scored": self._count("SELECT COUNT(*) FROM articles WHERE sent_digest_id IS NULL AND score IS NOT NULL"),
+            "unsent_scored": self._count(
+                "SELECT COUNT(*) FROM articles WHERE sent_digest_id IS NULL AND score IS NOT NULL"
+            ),
             "embedded": self._count("SELECT COUNT(*) FROM embeddings"),
             "feeds_failing": self._count("SELECT COUNT(*) FROM feeds WHERE failures > 0"),
             "full_text": self._count("SELECT COUNT(*) FROM articles WHERE content_status = 'ok'"),
-            "full_text_failed": self._count("SELECT COUNT(*) FROM articles WHERE content_status NOT IN ('ok', 'empty')"),
+            "full_text_failed": self._count(
+                "SELECT COUNT(*) FROM articles WHERE content_status NOT IN ('ok', 'empty')"
+            ),
             "digests": self._count("SELECT COUNT(*) FROM digests"),
             "likes": self._count("SELECT COUNT(*) FROM feedback WHERE rating > 0"),
             "dislikes": self._count("SELECT COUNT(*) FROM feedback WHERE rating < 0"),

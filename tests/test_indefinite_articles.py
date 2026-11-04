@@ -261,8 +261,16 @@ class EndToEndTests(unittest.TestCase):
 
         # A digest that we sent ourselves must never be read back as feedback.
         message.replace_header("From", "you@example.com")
-        self.assertEqual(inbox.handle_message(self.config, self.database, self.llm, message, message["Message-ID"]).status,
-                         "ignored:own")
+        self.assertEqual(
+            inbox.handle_message(
+                self.config,
+                self.database,
+                self.llm,
+                message,
+                message["Message-ID"],
+            ).status,
+            "ignored:own",
+        )
 
         reply = EmailMessage()
         reply["From"] = "Me <you@example.com>"
@@ -280,8 +288,16 @@ class EndToEndTests(unittest.TestCase):
 
         # Unknown sender is ignored.
         reply.replace_header("From", "stranger@evil.example")
-        self.assertEqual(inbox.handle_message(self.config, self.database, self.llm, reply, "<reply2@example.com>").status,
-                         "ignored:sender")
+        self.assertEqual(
+            inbox.handle_message(
+                self.config,
+                self.database,
+                self.llm,
+                reply,
+                "<reply2@example.com>",
+            ).status,
+            "ignored:sender",
+        )
 
         self.assertTrue(ranker.update_profile(self.config, self.database, self.llm))
         self.assertIn("Rust", current_text(self.database))

@@ -90,7 +90,13 @@ def message_id(message: EmailMessage, fallback: str) -> str:
     return (message.get("Message-ID") or fallback).strip()
 
 
-def handle_message(config: Config, database: Database, llm: LLM | None, message: EmailMessage, reply_id: str) -> ReplyResult:
+def handle_message(
+    config: Config,
+    database: Database,
+    llm: LLM | None,
+    message: EmailMessage,
+    reply_id: str,
+) -> ReplyResult:
     """Process a reply exactly once: its feedback and the processed marker are committed
     in one transaction, so a crash can never record one without the other."""
     if database.message_processed(reply_id):

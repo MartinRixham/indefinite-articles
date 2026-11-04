@@ -124,10 +124,12 @@ class ExtractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "old.db")
             connection = sqlite3.connect(path)
-            connection.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, title TEXT NOT NULL, "
-                      "title_key TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', "
-                      "published REAL, fetched_at REAL NOT NULL, score REAL, reason TEXT, "
-                      "score_profile_id INTEGER, sent_digest_id INTEGER)")
+            connection.execute(
+                "CREATE TABLE articles (id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, title TEXT NOT NULL, "
+                "title_key TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', "
+                "published REAL, fetched_at REAL NOT NULL, score REAL, reason TEXT, "
+                "score_profile_id INTEGER, sent_digest_id INTEGER)"
+            )
             connection.commit(); connection.close()
             with Database(path) as database:
                 columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(articles)")}

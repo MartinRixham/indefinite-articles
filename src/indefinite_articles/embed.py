@@ -110,7 +110,13 @@ def _phrase_list(data: dict, key: str) -> list[str]:
     return [str(item).strip()[:200] for item in items if str(item).strip()][:MAX_PHRASES]
 
 
-def embed_new(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None, limit: int = 20000) -> int:
+def embed_new(
+    config: Config,
+    database: Database,
+    llm: LLM,
+    stop: threading.Event | None = None,
+    limit: int = 20000,
+) -> int:
     if database.get_state("embedding_model") != config.llm.embedding_model:
         # Vectors from different models aren't comparable: start again.
         database.connection.execute("DELETE FROM embeddings")

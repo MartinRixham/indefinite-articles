@@ -173,7 +173,10 @@ class RankerTests(unittest.TestCase):
     def _add_described(self, title: str, summary: str, content: str | None = None, category: str = ""):
         self.database.add_article(Entry(f"https://e/{title}", title, summary, time.time()), "S", category)
         if content is not None:
-            article_id = self.database.connection.execute("SELECT id FROM articles WHERE title=?", (title,)).fetchone()[0]
+            article_id = self.database.connection.execute(
+                "SELECT id FROM articles WHERE title=?",
+                (title,),
+            ).fetchone()[0]
             self.database.set_content(ArticleContent(article_id, content, "ok"))
         self.database.connection.commit()
 

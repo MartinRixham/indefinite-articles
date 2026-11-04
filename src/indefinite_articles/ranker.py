@@ -237,7 +237,13 @@ def _breakdown(article: ArticleRow, statistics: dict, prefilter_ranks: list[floa
     return ScoreBreakdown(article["score"], agree, bonus, article["score"] + agree + bonus)
 
 
-def _add_capped(chosen: list[DigestPick], articles: Iterable[ArticleRow], limit: int, exploratory: bool, max_per_source: int) -> None:
+def _add_capped(
+    chosen: list[DigestPick],
+    articles: Iterable[ArticleRow],
+    limit: int,
+    exploratory: bool,
+    max_per_source: int,
+) -> None:
     """Append articles to `chosen` until it has `limit`, at most `max_per_source` per source."""
     per_source = Counter(pick.article["source"] for pick in chosen)
     for article in articles:
@@ -322,7 +328,8 @@ def update_profile(config: Config, database: Database, llm: LLM) -> bool:
     neutral = [row for row in feedback if row["rating"] == 0]
     user = (
         f"Current reader profile:\n{profile['text']}\n\n"
-        f"New feedback from the reader.\nLiked:\n{_format_feedback(liked)}\n\nDisliked:\n{_format_feedback(disliked)}\n\n"
+        f"New feedback from the reader.\nLiked:\n{_format_feedback(liked)}\n\n"
+        f"Disliked:\n{_format_feedback(disliked)}\n\n"
         f"Comments on specific articles (no explicit like/dislike):\n{_format_feedback(neutral)}\n\n"
         "General comments from the reader:\n"
         + ("\n".join(f'- "{comment["comment"]}"' for comment in comments) or "(none)")
