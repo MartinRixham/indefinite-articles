@@ -10,8 +10,10 @@ from indefinite_articles import embed, feeds, ranker
 from indefinite_articles.article import Article
 from indefinite_articles.config import Config, load as load_config
 from indefinite_articles.database import Database
+from indefinite_articles.entry import Entry
 from indefinite_articles.feed import Feed
 from indefinite_articles.llm import LLM, LLMError
+from indefinite_articles.parsed_feed import ParsedFeed
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -89,7 +91,7 @@ class LenientParseTests(unittest.TestCase):
             b"\n\n<?xml version='1.0'?><rss><channel><title>X&nbsp;Y</title>"
             b"<item><title>A &mdash; B</title><link>https://e/1</link></item></channel></rss>"
         )
-        parsed = feeds.parse_feed(data)
+        parsed = ParsedFeed.parse(data)
         title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "X\xa0Y".replace("\xa0", " ").strip() or title)
         self.assertEqual(entries[0].title, "A — B")
@@ -99,13 +101,13 @@ class LenientParseTests(unittest.TestCase):
             b"<rss><channel><title>T</title><item><title>Good</title><link>https://e/1</link>"
             b"<description><![CDATA[<p>hi</p>]]></description></item><br></channel></rss>"
         )
-        parsed = feeds.parse_feed(data)
+        parsed = ParsedFeed.parse(data)
         title, entries = parsed.title, parsed.entries
         self.assertEqual((entries[0].title, entries[0].summary), ("Good", "hi"))
 
     def test_html_page_rejected(self):
         with self.assertRaises(ValueError):
-            feeds.parse_feed(b"<!DOCTYPE html><html><body>nope</body></html>")
+            ParsedFeed.parse(b"<!DOCTYPE html><html><body>nope</body></html>")
 
 
 class FetchTests(unittest.TestCase):
@@ -162,7 +164,7 @@ class PrefilterTests(unittest.TestCase):
                   "Garden": "tomatoes compost garden soil"}
         for source, words in topics.items():
             for index in range(per_topic):
-                database.add_article(feeds.Entry(f"https://{source}/{index}", f"{words} {index}", words, None),
+                database.add_article(Entry(f"https://{source}/{index}", f"{words} {index}", words, None),
                                      source)
         database.connection.commit()
         return database

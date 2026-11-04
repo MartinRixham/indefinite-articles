@@ -4,7 +4,7 @@ import unittest
 from indefinite_articles.article import (BLURB_CHARACTERS, EMBEDDING_SUMMARY_CHARACTERS, TITLE_KEY_CHARACTERS,
                                          Article, title_key)
 from indefinite_articles.database import Database
-from indefinite_articles.feeds import Entry
+from indefinite_articles.entry import Entry
 
 
 def make_article(**fields: object) -> Article:

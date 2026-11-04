@@ -16,6 +16,7 @@ from indefinite_articles import cli, daemon, embed, extract, feeds, inbox, maile
 from indefinite_articles.article import Article
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database
+from indefinite_articles.entry import Entry
 from indefinite_articles.feed import Feed
 from indefinite_articles.llm import LLM, LLMError
 
@@ -28,7 +29,7 @@ def config_with_articles(count: int = 3) -> tuple[Config, Database]:
     config.exploration = 0
     database = Database(":memory:")
     for index in range(count):
-        database.add_article(feeds.Entry(f"https://e/{index}", f"Article {index}", "", None), f"S{index}")
+        database.add_article(Entry(f"https://e/{index}", f"Article {index}", "", None), f"S{index}")
     database.connection.commit()
     return config, database
 
@@ -283,7 +284,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("no candidate articles", error)
         database = self._database()
-        database.add_article(feeds.Entry("https://e/1", "Something", "", None), "S")
+        database.add_article(Entry("https://e/1", "Something", "", None), "S")
         database.connection.commit()
         with mock.patch.object(mailer, "send", side_effect=AssertionError("sent")):
             code, out, _ = self._run("digest", "-n")
@@ -292,7 +293,7 @@ class CommandLineTests(unittest.TestCase):
 
     def test_feedback_from_file(self):
         database = self._database()
-        database.add_article(feeds.Entry("https://e/1", "Something", "", None), "S")
+        database.add_article(Entry("https://e/1", "Something", "", None), "S")
         database.record_digest("abcd1234", "<d@x>", "2026-11-03", [ranker.DigestPick(Article(1, "https://e/1", "Something"), False)])
         message = EmailMessage()
         message["From"] = "you@example.com"

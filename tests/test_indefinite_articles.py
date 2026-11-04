@@ -14,6 +14,7 @@ from indefinite_articles.article import Article
 from indefinite_articles.config import Config, TimeOfDay, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
+from indefinite_articles.parsed_feed import ParsedFeed
 
 from fake_llm import FakeLLM
 
@@ -53,7 +54,7 @@ def row_count(database: Database, table: str) -> int:
 
 class FeedTests(unittest.TestCase):
     def test_rss(self):
-        parsed = feeds.parse_feed(RSS)
+        parsed = ParsedFeed.parse(RSS)
         title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "Example RSS")
         self.assertEqual([entry.url for entry in entries], ["https://ex.com/rust", "https://ex.com/gossip"])
@@ -62,7 +63,7 @@ class FeedTests(unittest.TestCase):
         self.assertIsNotNone(entries[0].published)
 
     def test_atom(self):
-        parsed = feeds.parse_feed(ATOM)
+        parsed = ParsedFeed.parse(ATOM)
         title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "Example Atom")
         self.assertEqual(entries[0].url, "https://ex.org/linux")
@@ -120,7 +121,7 @@ class EndToEndTests(unittest.TestCase):
 
     def _load_articles(self, score: bool = True):
         for data in (RSS, ATOM):
-            parsed = feeds.parse_feed(data)
+            parsed = ParsedFeed.parse(data)
             title, entries = parsed.title, parsed.entries
             for entry in entries:
                 self.database.add_article(entry, title)
@@ -203,7 +204,7 @@ class EndToEndTests(unittest.TestCase):
         """Send a digest from a file-backed DB and build a reply to it."""
         database = Database(database_path)
         for data in (RSS, ATOM):
-            parsed = feeds.parse_feed(data)
+            parsed = ParsedFeed.parse(data)
             title, entries = parsed.title, parsed.entries
             for entry in entries:
                 database.add_article(entry, title)
@@ -374,7 +375,7 @@ class EndToEndTests(unittest.TestCase):
             self.config.digest_time = "00:00"  # due as soon as today's isn't marked as sent
             database = Database(self.config.database)
             for data in (RSS, ATOM):
-                parsed = feeds.parse_feed(data)
+                parsed = ParsedFeed.parse(data)
                 title, entries = parsed.title, parsed.entries
                 for entry in entries:
                     database.add_article(entry, title)

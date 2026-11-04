@@ -8,7 +8,7 @@ from unittest import mock
 import numpy as np
 
 from indefinite_articles import embed, ranker
-from indefinite_articles.feeds import Entry
+from indefinite_articles.entry import Entry
 from indefinite_articles.classifier import Classifier
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database

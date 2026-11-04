@@ -3,7 +3,8 @@ import unittest
 
 from indefinite_articles.database import Database, PendingFeedback, SourceStatistics
 from indefinite_articles.extract import ArticleContent
-from indefinite_articles.feeds import CacheValidators, Entry
+from indefinite_articles.entry import Entry
+from indefinite_articles.feeds import CacheValidators
 from indefinite_articles.ranker import ArticleScore, DigestPick
 
 DAY = 86400

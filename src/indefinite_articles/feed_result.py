@@ -9,7 +9,8 @@ from .database import Database
 from .feed import Feed
 
 if TYPE_CHECKING:
-    from .feeds import FetchResult, ParsedFeed
+    from .feeds import FetchResult
+    from .parsed_feed import ParsedFeed
 
 log = logging.getLogger(__name__)
 
@@ -42,13 +43,14 @@ class FeedResult:
     @classmethod
     def fetch(cls, feed: Feed, state: sqlite3.Row | None) -> "FeedResult":
         """Fetch `feed`, conditionally on the validators stored in its `state`; never raises."""
-        from .feeds import CacheValidators, fetch_conditional, parse_feed  # feeds imports this module
+        from .feeds import CacheValidators, fetch_conditional  # feeds imports this module
+        from .parsed_feed import ParsedFeed
         try:
             validators = CacheValidators(state["etag"], state["last_modified"]) if state else None
             fetched = fetch_conditional(feed.url, validators)
             if fetched.data is None:
                 return cls(feed, "not-modified", fetched=fetched)
-            return cls(feed, "ok", parse_feed(fetched.data), fetched)
+            return cls(feed, "ok", ParsedFeed.parse(fetched.data), fetched)
         except Exception as error:
             return cls(feed, "error", error=f"{type(error).__name__}: {error}")
 

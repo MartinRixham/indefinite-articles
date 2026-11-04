@@ -6,7 +6,9 @@ from indefinite_articles.config import Config
 from indefinite_articles.database import Database
 from indefinite_articles.feed import Feed
 from indefinite_articles.feed_result import FeedResult
-from indefinite_articles.feeds import CacheValidators, Entry, FetchResult, ParsedFeed
+from indefinite_articles.entry import Entry
+from indefinite_articles.feeds import CacheValidators, FetchResult
+from indefinite_articles.parsed_feed import ParsedFeed
 
 FEED_BODY = (b'<?xml version="1.0"?><rss version="2.0"><channel><title>Channel</title>'
              b"<item><title>One</title><link>https://example.com/1</link></item></channel></rss>")

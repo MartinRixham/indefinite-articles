@@ -5,10 +5,12 @@ import unittest
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from indefinite_articles import feeds
+from indefinite_articles import feeds, parsed_feed
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database
+from indefinite_articles.entry import Entry
 from indefinite_articles.feed import Feed
+from indefinite_articles.parsed_feed import ParsedFeed
 
 
 def rss(*items: str, title: str = "Channel") -> bytes:
@@ -49,20 +51,8 @@ class Server(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-class HTMLToTextTests(unittest.TestCase):
-    def test_strips_tags_scripts_and_entities(self):
-        self.assertEqual(feeds.html_to_text("<p>One&amp;two</p><script>evil()</script><div>three</div>"),
-                         "One&two three")
-
-    def test_empty(self):
-        self.assertEqual(feeds.html_to_text(""), "")
-
-    def test_collapses_whitespace(self):
-        self.assertEqual(feeds.html_to_text("  a\n\n\tb  "), "a b")
-
-
 def title_key(title: str) -> str:
-    return feeds.Entry("https://example.com/", title, "", None).title_key
+    return Entry("https://example.com/", title, "", None).title_key
 
 
 class TitleKeyTests(unittest.TestCase):
@@ -83,7 +73,7 @@ class ParseFeedTests(unittest.TestCase):
 <channel><title>RDF feed</title></channel>
 <item><title>First</title><link>https://example.com/first</link><dc:date>2026-11-02T08:00:00Z</dc:date></item>
 </rdf:RDF>"""
-        parsed = feeds.parse_feed(data)
+        parsed = ParsedFeed.parse(data)
         title, entries = parsed.title, parsed.entries
         self.assertEqual(title, "RDF feed")
         self.assertEqual([entry.url for entry in entries], ["https://example.com/first"])
@@ -93,19 +83,19 @@ class ParseFeedTests(unittest.TestCase):
         data = rss(item("", "https://example.com/untitled"),
                    '<item><title>No link</title><guid isPermaLink="false">id-1</guid></item>',
                    item("Kept", "https://example.com/kept"))
-        self.assertEqual([entry.title for entry in feeds.parse_feed(data).entries], ["Kept"])
+        self.assertEqual([entry.title for entry in ParsedFeed.parse(data).entries], ["Kept"])
 
     def test_long_summary_truncated_at_word(self):
         summary = "word " * 300
         data = rss(f"<item><title>T</title><link>https://e/1</link><description>{summary}</description></item>")
-        result = feeds.parse_feed(data).entries[0].summary
-        self.assertLessEqual(len(result), feeds.SUMMARY_CHARACTERS)
+        result = ParsedFeed.parse(data).entries[0].summary
+        self.assertLessEqual(len(result), parsed_feed.SUMMARY_CHARACTERS)
         self.assertTrue(result.endswith("word…"))
 
     def test_dates(self):
         data = rss(item("A", "https://e/a", "Mon, 02 Nov 2026 10:00:00 GMT"),
                    item("B", "https://e/b", "not a date"))
-        first, second = feeds.parse_feed(data).entries
+        first, second = ParsedFeed.parse(data).entries
         self.assertEqual(first.published, datetime(2026, 11, 2, 10, tzinfo=timezone.utc).timestamp())
         self.assertIsNone(second.published)
 
@@ -114,13 +104,13 @@ class ParseFeedTests(unittest.TestCase):
                 b'<entry><title type="html">&lt;b&gt;Bold&lt;/b&gt;</title><link href="https://e/1"/>'
                 b'<content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Body</p></div></content>'
                 b'<published>2026-11-02T08:00:00+00:00</published></entry></feed>')
-        parsed = feeds.parse_feed(data)
+        parsed = ParsedFeed.parse(data)
         title, entries = parsed.title, parsed.entries
         self.assertEqual((title, entries[0].title, entries[0].summary), ("A", "Bold", "Body"))
 
     def test_unparseable(self):
         with self.assertRaises(Exception):
-            feeds.parse_feed(b"this is not xml at all")
+            ParsedFeed.parse(b"this is not xml at all")
 
 
 class FetchTests(unittest.TestCase):

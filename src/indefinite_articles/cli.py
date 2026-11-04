@@ -11,6 +11,7 @@ from . import __version__, extract, feeds, inbox, mailer, ranker
 from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load as load_config
 from .database import Database, SourceStatistics
 from .llm import LLM, LLMError
+from .parsed_feed import ParsedFeed
 
 
 def _setup_logging(verbose: bool):
@@ -186,7 +187,7 @@ def _command_check(config: Config, args: argparse.Namespace):
     print(f"[info] {len(config.feeds)} feeds configured")
     for feed in config.feeds[: args.feeds]:
         try:
-            parsed = feeds.parse_feed(feeds.fetch(feed.url))
+            parsed = ParsedFeed.parse(feeds.fetch(feed.url))
             print(f"[ok]   feed {feed.source(parsed.title)}: {len(parsed.entries)} entries")
         except Exception as error:
             ok = False

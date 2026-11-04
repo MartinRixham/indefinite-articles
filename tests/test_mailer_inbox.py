@@ -6,7 +6,7 @@ from indefinite_articles import inbox, mailer
 from indefinite_articles.article import Article
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database, SourceStatistics
-from indefinite_articles.feeds import Entry
+from indefinite_articles.entry import Entry
 from indefinite_articles.llm import LLM
 from indefinite_articles.ranker import DigestPick
 

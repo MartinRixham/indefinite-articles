@@ -8,9 +8,9 @@ from email.message import EmailMessage
 
 from .article import Article
 from .assistant import Assistant
-from .feeds import html_to_text
 from .interpretation import Interpretation, Rating
 from .llm import LLM, LLMError
+from .text_extractor import TextExtractor
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def body_text(message: EmailMessage) -> str:
     if part is not None:
         markup = re.sub(r"(?is)<blockquote.*?</blockquote>", "", part.get_content())
         markup = re.sub(r"(?i)<br\s*/?>|</p>|</div>", "\n", markup)
-        return "\n".join(html_to_text(line) for line in markup.splitlines())
+        return "\n".join(TextExtractor.extract(line) for line in markup.splitlines())
     return ""
 
 

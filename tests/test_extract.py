@@ -5,9 +5,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles import extract, feeds
+from indefinite_articles import extract
 from indefinite_articles.config import load as load_config
 from indefinite_articles.database import Database
+from indefinite_articles.entry import Entry
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -108,8 +109,8 @@ class ExtractTests(unittest.TestCase):
         config.allow_private_addresses = True
         database = Database(":memory:")
         self.addCleanup(database.close)
-        database.add_article(feeds.Entry(self.base + "/a", "Borrow checker", "Feed blurb.", None), "S")
-        database.add_article(feeds.Entry(self.base + "/b.pdf", "A paper", "Abstract text.", None), "S")
+        database.add_article(Entry(self.base + "/a", "Borrow checker", "Feed blurb.", None), "S")
+        database.add_article(Entry(self.base + "/b.pdf", "A paper", "Abstract text.", None), "S")
         database.connection.commit()
         self.assertEqual(extract.enrich_candidates(config, database), 1)
         rows = {row.title: row for row in database.candidates(3, 10)}

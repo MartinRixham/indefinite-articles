@@ -11,7 +11,8 @@ from .article import Article
 
 if TYPE_CHECKING:
     from .extract import ArticleContent
-    from .feeds import CacheValidators, Entry
+    from .entry import Entry
+    from .feeds import CacheValidators
     from .assistant import ArticleScore
     from .ranker import DigestPick
 

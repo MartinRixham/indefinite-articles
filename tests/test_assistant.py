@@ -10,7 +10,7 @@ from indefinite_articles.article import Article
 from indefinite_articles.assistant import MAX_PHRASES, ArticleScore, Assistant
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database, PendingFeedback
-from indefinite_articles.feeds import Entry
+from indefinite_articles.entry import Entry
 from indefinite_articles.interpretation import Interpretation, Rating
 from indefinite_articles.llm import LLM, LLMError, LLMUnavailable
 
