@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 from indefinite_articles.config import LLMConfig
-from indefinite_articles.llm import LLM, LLMError, LLMUnavailable, extract_json
+from indefinite_articles.llm import LLM, LLMError, LLMUnavailable
 
 
 class Server(BaseHTTPRequestHandler):
@@ -45,21 +45,6 @@ def events(*chunks: dict, done: bool = True) -> bytes:
 
 def delta(text: str):
     return {"choices": [{"index": 0, "delta": {"content": text}}]}
-
-
-class ExtractJSONTests(unittest.TestCase):
-    def test_plain_and_fenced(self):
-        self.assertEqual(extract_json('{"a": 1}'), {"a": 1})
-        self.assertEqual(extract_json('```json\n{"a": [1, 2]}\n```'), {"a": [1, 2]})
-        self.assertEqual(extract_json("```\n[1]\n```"), [1])
-
-    def test_array_inside_prose(self):
-        self.assertEqual(extract_json("Here you go: [1, 2, 3]. Enjoy"), [1, 2, 3])
-
-    def test_no_json(self):
-        for text in ("", "nothing here", "{broken", "{not: json}"):
-            with self.subTest(text=text), self.assertRaises(ValueError):
-                extract_json(text)
 
 
 class LLMTests(unittest.TestCase):
@@ -114,9 +99,15 @@ class LLMTests(unittest.TestCase):
         self._stream(events(delta('Sure: {"score": '), delta("7}")))
         self.assertEqual(self.llm.chat_json("s", "u"), {"score": 7})
         self.assertEqual(Server.requests[-1][2]["response_format"], {"type": "json_object"})
-        self._stream(events(delta("no json here")))
-        with self.assertRaisesRegex(LLMError, "valid JSON"):
-            self.llm.chat_json("s", "u")
+        for answer, expected in (('{"a": 1}', {"a": 1}), ('```json\n{"a": [1, 2]}\n```', {"a": [1, 2]}),
+                                 ("```\n[1]\n```", [1]), ("Here you go: [1, 2, 3]. Enjoy", [1, 2, 3])):
+            self._stream(events(delta(answer)))
+            with self.subTest(answer=answer):
+                self.assertEqual(self.llm.chat_json("s", "u"), expected)
+        for answer in ("no json here", "{broken", "{not: json}"):
+            self._stream(events(delta(answer)))
+            with self.subTest(answer=answer), self.assertRaisesRegex(LLMError, "valid JSON"):
+                self.llm.chat_json("s", "u")
 
     def test_stream_errors(self):
         self._stream(events({"error": "model not found"}))

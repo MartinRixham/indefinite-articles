@@ -22,7 +22,7 @@ class Classifier:
         logits = np.clip(matrix.astype(np.float64) @ np.asarray(self.weights) + self.bias, -30, 30)
         return (1.0 / (1.0 + np.exp(-logits))).tolist()
 
-    def save(self, database: Database):
+    def save(self, database: Database) -> None:
         """Store in the state table, as float32 weights."""
         weights = np.asarray(self.weights, dtype=np.float32).tobytes()
         database.set_state("classifier", base64.b64encode(weights).decode())

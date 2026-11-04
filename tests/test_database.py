@@ -53,7 +53,7 @@ class DatabaseTests(unittest.TestCase):
         # An empty title key never matches another article.
         self.assertTrue(self.database.add_article(Entry("https://c", "?", "", None), "S"))
         self.assertTrue(self.database.add_article(Entry("https://d", "!", "", None), "S"))
-        self.assertEqual(self.database.count("SELECT COUNT(*) FROM articles"), 3)
+        self.assertEqual(self.database.statistics()["articles"], 3)
 
     def test_candidates_balance_sources_and_skip_old_or_sent(self):
         for index in range(20):
@@ -160,7 +160,8 @@ class DatabaseTests(unittest.TestCase):
         article_id = self._article("https://a", source="Blog")
         self.database.add_feedback(article_id, 1, "great")
         self.database.add_feedback(article_id, -1, "on reflection, no")
-        self.assertEqual(self.database.count("SELECT COUNT(*) FROM feedback"), 1)
+        statistics = self.database.statistics()
+        self.assertEqual((statistics["likes"], statistics["dislikes"]), (0, 1))
         self.assertEqual([tuple(row) for row in self.database.rated_examples(-1, 5)],
                          [("https://a", "Blog", "on reflection, no")])
         self.assertEqual(self.database.rated_examples(1, 5), [])
@@ -222,7 +223,7 @@ class DatabaseTests(unittest.TestCase):
         self.database.prune(30)
         ids = {row["id"] for row in self.database.connection.execute("SELECT id FROM articles")}
         self.assertEqual(ids, {old_sent, recent})
-        self.assertEqual(self.database.count("SELECT COUNT(*) FROM embeddings"), 0)
+        self.assertEqual(self.database.statistics()["embedded"], 0)
         self.assertFalse(self.database.message_processed("<old@x>"))
         self.assertTrue(self.database.message_processed("<new@x>"))
 

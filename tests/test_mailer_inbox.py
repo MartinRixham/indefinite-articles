@@ -2,7 +2,7 @@ import unittest
 from email.message import EmailMessage
 from unittest import mock
 
-from indefinite_articles import inbox, mailer, replies
+from indefinite_articles import inbox, mailer
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database, SourceStatistics
 from indefinite_articles.feeds import Entry
@@ -40,9 +40,6 @@ class MailerTests(unittest.TestCase):
         self.assertTrue(all(len(token) == 8 and int(token, 16) >= 0 for token in tokens))
         self.assertTrue(all(inbox.TOKEN_RE.fullmatch(mailer.TOKEN_PREFIX + token) for token in tokens))
 
-    def test_instructions_not_empty(self):
-        self.assertIn("+1", mailer.instructions())
-
     def test_build_digest_headers_and_debug(self):
         items = [DigestPick({"title": "T", "source": "S", "url": "https://e/1", "reason": "", "summary": None,
                              "content": "word " * 100}, False)]
@@ -54,6 +51,7 @@ class MailerTests(unittest.TestCase):
         self.assertIn("-- debug --\nline one\nline <two>", text)
         self.assertNotIn("Why:", text)  # empty reason line left out
         self.assertIn("…", text)  # long content blurb shortened
+        self.assertIn("+1", text)  # reply instructions
         self.assertIn("line &lt;two&gt;", mailer.part_text(message, "html"))
 
     def test_acknowledgement_threads_the_reply(self):
@@ -162,18 +160,18 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(inbox.message_id(reply("x", Message_ID=" <a@x> "), "fallback"), "<a@x>")
         self.assertEqual(inbox.message_id(reply("x"), "fallback"), "fallback")
 
-    def test_find_digest_by_subject_body_or_references(self):
-        for message in (reply("+1", subject="Re: list [rec:abcd1234]"),
-                        reply("+1\n> digest-id: rec:abcd1234"),
-                        reply("+1", In_Reply_To="<digest@example.org>"),
-                        reply("+1", References="<older@x> <digest@example.org>")):
+    def test_finds_digest_by_subject_body_or_references(self):
+        for index, message in enumerate((reply("+1", subject="Re: list [rec:abcd1234]"),
+                                         reply("+1\n> digest-id: rec:abcd1234"),
+                                         reply("+1", In_Reply_To="<digest@example.org>"),
+                                         reply("+1", References="<older@x> <digest@example.org>"))):
             with self.subTest(message=message["Subject"]):
-                found = inbox.find_digest(self.database, message, replies.body_text(message))
-                assert found is not None
-                self.assertEqual(found["id"], self.digest_id)
-        self.assertIsNone(inbox.find_digest(self.database, reply("+1"), "+1"))
+                result = inbox.handle_message(self.config, self.database, None, message, f"<found{index}@x>")
+                self.assertEqual(result, inbox.ReplyResult("ok", ["👍 liked #1: Article 1"]))
+        self.assertEqual(inbox.handle_message(self.config, self.database, None, reply("+1"), "<lost@x>"),
+                         inbox.ReplyResult("ignored:no-digest"))
 
-    def test_process_message_statuses(self):
+    def test_handle_message_statuses(self):
         cases = {
             "ignored:no-digest": reply("+1"),
             "ignored:own": reply("+1 rec:abcd1234", Auto_Submitted="auto-replied"),
@@ -182,16 +180,15 @@ class InboxTests(unittest.TestCase):
         }
         for expected, message in cases.items():
             with self.subTest(expected=expected):
-                self.assertEqual(inbox.process_message(self.config, self.database, None, message),
+                self.assertEqual(inbox.handle_message(self.config, self.database, None, message, f"<{expected}@x>"),
                                  inbox.ReplyResult(expected))
 
-    def test_process_message_records_feedback(self):
+    def test_handle_message_records_feedback(self):
         message = reply("+1\n2 meh, too long\nmore like the first", subject="Re: [rec:abcd1234]")
-        result = inbox.process_message(self.config, self.database, None, message)
+        result = inbox.handle_message(self.config, self.database, None, message, "<r1@x>")
         self.assertEqual(result.status, "ok")
         self.assertEqual(result.summary, ["👍 liked #1: Article 1", '👎 disliked #2: Article 2 — "too long"',
                                    '💬 general: "more like the first"'])
-        self.database.connection.commit()
         self.assertEqual(self.database.source_statistics(), {"S": SourceStatistics(1, 1)})
 
     def test_poll_without_imap_host(self):

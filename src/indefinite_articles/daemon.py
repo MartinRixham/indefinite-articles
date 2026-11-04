@@ -16,7 +16,7 @@ from .llm import LLM, LLMError
 log = logging.getLogger(__name__)
 
 
-def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None):
+def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> None:
     """Embed new articles and update pre-filter scores (skipped if no embedding model)."""
     if not config.llm.embedding_model:
         return
@@ -27,7 +27,7 @@ def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Even
         log.warning("embedding pre-filter unavailable, using newest articles instead: %s", error)
 
 
-def gather(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
+def _gather(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
     """Fetch feeds, pre-filter, and fetch full text for the shortlist."""
     new = feeds.update_all(config, database, stop=stop)
     prefilter(config, database, llm, stop)
@@ -37,7 +37,7 @@ def gather(config: Config, database: Database, llm: LLM, stop: threading.Event |
 
 def refresh(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
     """gather(), then LLM-score the shortlist."""
-    new = gather(config, database, llm, stop)
+    new = _gather(config, database, llm, stop)
     try:
         ranker.score_candidates(config, database, llm, stop=stop)
     except LLMError as error:
@@ -108,7 +108,7 @@ def _classifier_status(database: Database) -> str:
             f" needs {embed.MIN_PER_CLASS} of each)")
 
 
-def debug_report(config: Config, database: Database, items: list[ranker.DigestPick], info: dict) -> list[str]:
+def _debug_report(config: Config, database: Database, items: list[ranker.DigestPick], info: dict) -> list[str]:
     """Plain-text diagnostics appended to the digest: pipeline health and why each item was picked."""
     selection = info.get("select", {})
     statistics = database.statistics()
@@ -187,7 +187,7 @@ def send_digest(config: Config, database: Database, dry_run: bool = False,
     debug = None
     if config.email.debug_info:
         try:
-            debug = debug_report(config, database, items, info)
+            debug = _debug_report(config, database, items, info)
         except Exception:  # diagnostics must never stop the digest going out
             log.exception("building debug report failed")
     token = mailer.new_token()
@@ -247,19 +247,19 @@ class Service:
                                "last_result": result, "last_error": error}
 
     # -- jobs (each gets the database connection of the thread it runs on) ---------
-    def fetch(self, database: Database) -> str:
-        new = gather(self.config, database, self.llm, stop=self.stop)
+    def _fetch(self, database: Database) -> str:
+        new = _gather(self.config, database, self.llm, stop=self.stop)
         self.score_wanted.set()
         return f"{new} new articles"
 
-    def score(self, database: Database) -> str:
+    def _score(self, database: Database) -> str:
         try:
             return f"scored {ranker.score_candidates(self.config, database, self.llm, stop=self.stop)}"
         except LLMError as error:
             log.warning("scoring skipped: %s", error)
             return f"skipped: {error}"
 
-    def poll_and_learn(self, database: Database) -> str:
+    def _poll_and_learn(self, database: Database) -> str:
         used = inbox.poll(self.config, database, self.llm)
         if used:
             log.info("processed %d replies", used)
@@ -269,7 +269,7 @@ class Service:
             return f"{used} replies, profile updated"
         return f"{used} replies"
 
-    def digest(self):
+    def _digest(self):
         today = datetime.now().date().isoformat()
         message = send_digest(self.config, self.database,
                           status={"jobs": {key: dict(value) for key, value in self.jobs.items()}, "llm": self.llm})
@@ -308,7 +308,7 @@ class Service:
         self.stop.set()
         self.score_wanted.set()  # wake the scoring thread so it can see the stop
 
-    def run(self):
+    def run(self) -> None:
         for signature in (signal.SIGTERM, signal.SIGINT):
             signal.signal(signature, self._shutdown)
         ranker.ensure_profile(self.config, self.database)
@@ -317,12 +317,12 @@ class Service:
         # Daemon threads: one stuck in a slow LLM request must not stop the service exiting.
         threads = [
             threading.Thread(target=self._with_database, name="fetch", daemon=True,
-                             args=(self._every, "feed fetch", self.config.fetch_interval_minutes, self.fetch)),
+                             args=(self._every, "feed fetch", self.config.fetch_interval_minutes, self._fetch)),
             threading.Thread(target=self._with_database, name="score", daemon=True,
-                             args=(self._on_demand, "scoring", self.score)),
+                             args=(self._on_demand, "scoring", self._score)),
             threading.Thread(target=self._with_database, name="inbox", daemon=True,
                              args=(self._every, "inbox poll", self.config.poll_interval_minutes,
-                                   self.poll_and_learn)),
+                                   self._poll_and_learn)),
         ]
         for thread in threads:
             thread.start()
@@ -331,7 +331,7 @@ class Service:
             if now >= self.next_digest_attempt and self._digest_due():
                 # If sending fails (e.g. SMTP down) retry in 15 minutes, not every tick.
                 self.next_digest_attempt = now + 900
-                self._run_job("digest", self.digest)
+                self._run_job("digest", self._digest)
             if now - self.last_prune >= 86400:
                 self.last_prune = now
                 self._run_job("prune", self.database.prune)

@@ -66,11 +66,11 @@ class ClassifierFit:
     dislike_count: int
 
 
-def article_text(article: ArticleRow) -> str:
+def _article_text(article: ArticleRow) -> str:
     return f"{article['title']}. {(article['summary'] or '')[:600]}"
 
 
-def split_profile(text: str) -> ProfilePhrases:
+def _split_profile(text: str) -> tuple[list[str], list[str]]:
     """Split a free-text profile into wanted and unwanted phrases, without an LLM.
 
     Embeddings ignore negation, so "dislikes product announcements" sits close to
@@ -83,11 +83,11 @@ def split_profile(text: str) -> ProfilePhrases:
         if len(clause) < 3:
             continue
         (avoid if _NEGATIVE.search(clause) else likes).append(clause[:200])
-    return ProfilePhrases(likes[:MAX_PHRASES], avoid[:MAX_PHRASES])
+    return likes[:MAX_PHRASES], avoid[:MAX_PHRASES]
 
 
-def profile_phrases(llm: LLM, text: str) -> ProfilePhrases:
-    """Wanted and unwanted phrases from the profile: the LLM's split, else `split_profile`."""
+def _split_phrases(llm: LLM, text: str) -> tuple[list[str], list[str]]:
+    """Wanted and unwanted phrases from the profile: the LLM's split, else `_split_profile`."""
     try:
         prompt = PREFERENCES_PROMPT.format(profile=text[:4000], max_phrases=MAX_PHRASES)
         data = llm.chat_json(PREFERENCES_SYSTEM, prompt)
@@ -97,8 +97,10 @@ def profile_phrases(llm: LLM, text: str) -> ProfilePhrases:
     if isinstance(data, dict):
         likes, avoid = _phrase_list(data, "likes"), _phrase_list(data, "avoid")
         if likes:
-            return ProfilePhrases(likes, avoid)
-    return split_profile(text)
+            return likes, avoid
+    wanted, unwanted = _split_profile(text)
+    wanted = wanted or [DEFAULT_WANTED]  # e.g. a profile that only lists dislikes
+    return wanted, unwanted
 
 
 def _phrase_list(data: dict, key: str) -> list[str]:
@@ -121,7 +123,7 @@ def embed_new(config: Config, database: Database, llm: LLM, stop: threading.Even
         if stop is not None and stop.is_set():
             break
         batch = rows[start : start + batch_size]
-        vectors = llm.embed([article_text(article) for article in batch])
+        vectors = llm.embed([_article_text(article) for article in batch])
         for article, vector in zip(batch, vectors):
             database.set_embedding(article["id"], pack(vector))
         database.connection.commit()
@@ -137,10 +139,19 @@ def _max_similarities(matrix: np.ndarray, refs: list[bytes]) -> np.ndarray:
     return (matrix @ np.frombuffer(b"".join(refs), dtype=np.float32).reshape(len(refs), -1).T).max(axis=1)
 
 
-def _scores(vectors: list[bytes], wanted: list[bytes], unwanted: list[bytes], likes: list[bytes],
-            dislikes: list[bytes]):
+def _score(vectors: list[bytes], phrases: ProfilePhrases, likes: list[bytes],
+           dislikes: list[bytes]) -> list[float]:
+    """Pre-filter score of each article vector, used before the classifier is trained.
+
+    `phrases` are the profile's phrases (an article is judged by its closest phrase on
+    each side); `likes`/`dislikes` are articles the reader rated.
+    """
+    if not vectors:
+        return []
     matrix = np.frombuffer(b"".join(vectors), dtype=np.float32).reshape(len(vectors), -1)
-    matched = _max_similarities(matrix, wanted) - 0.5 * _max_similarities(matrix, unwanted)
+    wanted = _max_similarities(matrix, phrases.wanted_vectors())
+    unwanted = _max_similarities(matrix, phrases.unwanted_vectors())
+    matched = wanted - 0.5 * unwanted
     if likes:
         similarities = matrix @ np.frombuffer(b"".join(likes), dtype=np.float32).reshape(len(likes), -1).T
         top = min(2, similarities.shape[1])
@@ -149,18 +160,6 @@ def _scores(vectors: list[bytes], wanted: list[bytes], unwanted: list[bytes], li
         liked = matched
     disliked = _max_similarities(matrix, dislikes)
     return (0.4 * matched + 0.6 * liked - 0.4 * disliked).tolist()
-
-
-def score(vectors: list[bytes], wanted: list[bytes], unwanted: list[bytes], likes: list[bytes],
-          dislikes: list[bytes]):
-    """Pre-filter score of each article vector, used before the classifier is trained.
-
-    `wanted`/`unwanted` are the profile's embedded phrases (an article is judged by its
-    closest phrase on each side); `likes`/`dislikes` are articles the reader rated.
-    """
-    if not vectors:
-        return []
-    return _scores(vectors, wanted, unwanted, likes, dislikes)
 
 
 # -- classifier ----------------------------------------------------------------
@@ -190,7 +189,7 @@ def _train(vectors: list[bytes], labels: list[int], weights: list[float]) -> Cla
     return Classifier(coefficients, bias - float(coefficients @ mean))
 
 
-def train_classifier(vectors: list[bytes], labels: list[int], ages_days: list[float]) -> Classifier:
+def _train_classifier(vectors: list[bytes], labels: list[int], ages_days: list[float]) -> Classifier:
     """L2-regularised logistic regression from article vectors to like (1) / dislike (0).
 
     Features are centred (embeddings all point in roughly the same direction) and the
@@ -200,22 +199,22 @@ def train_classifier(vectors: list[bytes], labels: list[int], ages_days: list[fl
     return _train(vectors, labels, _sample_weights(labels, ages_days))
 
 
-def profile_match(vectors: list[bytes], wanted: list[bytes], unwanted: list[bytes]) -> list[float]:
+def _profile_match(vectors: list[bytes], phrases: ProfilePhrases) -> list[float]:
     """How well each article matches the profile's phrases (closest phrase on each side).
 
-    With no rated articles, `score` reduces to exactly this match.
+    With no rated articles, `_score` reduces to exactly this match.
     """
-    return score(vectors, wanted, unwanted, [], [])
+    return _score(vectors, phrases, [], [])
 
 
-def score_with_classifier(vectors: list[bytes], wanted: list[bytes], unwanted: list[bytes],
+def _score_with_classifier(vectors: list[bytes], phrases: ProfilePhrases,
                           classifier: Classifier) -> list[float]:
-    matches = profile_match(vectors, wanted, unwanted)
+    matches = _profile_match(vectors, phrases)
     probabilities = classifier.predict(vectors)
     return [match + CLASSIFIER_WEIGHT * (probability - 0.5) for match, probability in zip(matches, probabilities)]
 
 
-def fit_from_database(database: Database, dimension: int) -> ClassifierFit:
+def _fit_from_database(database: Database, dimension: int) -> ClassifierFit:
     """Train on the reader's ratings; no classifier when there are too few of either kind."""
     rows = [row for row in database.training_vectors(MAX_TRAIN) if len(row["vec"]) == dimension]
     labels = [1 if row["rating"] > 0 else 0 for row in rows]
@@ -224,26 +223,25 @@ def fit_from_database(database: Database, dimension: int) -> ClassifierFit:
     if like_count < MIN_PER_CLASS or dislike_count < MIN_PER_CLASS:
         return ClassifierFit(None, like_count, dislike_count)
     now = time.time()
-    classifier = train_classifier([row["vec"] for row in rows], labels,
+    classifier = _train_classifier([row["vec"] for row in rows], labels,
                                   [(now - row["received_at"]) / 86400 for row in rows])
     return ClassifierFit(classifier, like_count, dislike_count)
 
 
-def _current_phrases(config: Config, database: Database, llm: LLM, profile: sqlite3.Row) -> ProfilePhrases:
+def _profile_phrases(config: Config, database: Database, llm: LLM, profile: sqlite3.Row) -> ProfilePhrases:
     """The profile's phrases, worked out again (maybe with an LLM call) only when the profile changes."""
     phrases_for = f"{profile['id']}:{config.llm.embedding_model}"
     stored = database.get_state("profile_phrases")
     if stored and database.get_state("profile_phrases_for") == phrases_for:
         data = json.loads(stored)
-        return ProfilePhrases(data["wanted"], data["unwanted"])
-    phrases = profile_phrases(llm, profile["text"])
-    if not phrases.wanted:  # e.g. a profile that only lists dislikes
-        phrases = ProfilePhrases([DEFAULT_WANTED], phrases.unwanted)
-    log.info("profile phrases: wanted %s; unwanted %s", phrases.wanted, phrases.unwanted)
-    database.set_state("profile_phrases", json.dumps({"wanted": phrases.wanted, "unwanted": phrases.unwanted}))
-    database.set_state("profile_phrases_for", phrases_for)
-    database.connection.commit()
-    return phrases
+        wanted, unwanted = data["wanted"], data["unwanted"]
+    else:
+        wanted, unwanted = _split_phrases(llm, profile["text"])
+        log.info("profile phrases: wanted %s; unwanted %s", wanted, unwanted)
+        database.set_state("profile_phrases", json.dumps({"wanted": wanted, "unwanted": unwanted}))
+        database.set_state("profile_phrases_for", phrases_for)
+        database.connection.commit()
+    return ProfilePhrases(wanted, unwanted, llm)
 
 
 def update_prefilter(config: Config, database: Database, llm: LLM, profile: sqlite3.Row) -> int:
@@ -252,16 +250,15 @@ def update_prefilter(config: Config, database: Database, llm: LLM, profile: sqli
     Everything is rescored when the profile or the feedback changes; otherwise only
     newly embedded articles are scored.
     """
-    phrases = _current_phrases(config, database, llm, profile)
+    phrases = _profile_phrases(config, database, llm, profile)
     signature = f"{profile['id']}:{database.feedback_signature()}:{config.llm.embedding_model}"
     version = int(database.get_state("prefilter_version", "0"))
     changed = database.get_state("prefilter_sig") != signature
     if not changed and not database.prefilter_todo(config.max_article_age_days, version):
         return 0
-    wanted, unwanted = phrases.wanted_vectors(llm), phrases.unwanted_vectors(llm)
-    dimension = len(wanted[0])
+    dimension = phrases.dimension()
     if changed:
-        fit = fit_from_database(database, dimension)
+        fit = _fit_from_database(database, dimension)
         if fit.classifier is None:
             database.set_state("classifier", "")
             log.info("classifier needs %d likes and %d dislikes (have %d and %d); "
@@ -282,12 +279,12 @@ def update_prefilter(config: Config, database: Database, llm: LLM, profile: sqli
     vectors = [row["vec"] for row in todo]
     classifier = Classifier.load(database)
     if classifier is not None:
-        scores = score_with_classifier(vectors, wanted, unwanted, classifier)
+        scores = _score_with_classifier(vectors, phrases, classifier)
         log.info("pre-filter scored %d articles with the classifier", len(todo))
     else:
         likes = [vector for vector in database.rated_vectors(1, REFERENCE_LIKES) if len(vector) == dimension]
         dislikes = [vector for vector in database.rated_vectors(-1, REFERENCE_DISLIKES) if len(vector) == dimension]
-        scores = score(vectors, wanted, unwanted, likes, dislikes)
+        scores = _score(vectors, phrases, likes, dislikes)
         log.info("pre-filter scored %d articles (%d likes, %d dislikes as reference)",
                  len(todo), len(likes), len(dislikes))
     database.set_prefilter({row["id"]: prefilter_score for prefilter_score, row in zip(scores, todo)}, version)

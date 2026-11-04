@@ -16,24 +16,24 @@ npx pyright src tests                                         # type check; keep
 make container-rpm                                            # build the RPM in a Fedora container (podman)
 ```
 
-There is no virtualenv: numpy comes from the system Python. Tests need no network or LLM. `tests/test_indefinite_articles.py` starts an in-process `FakeLLM` HTTP server that answers chat, embedding and `/api/ps` requests based on the prompt text. If you change a prompt in `ranker.py` or `embed.py`, check that `FakeLLM.do_POST` still recognizes it. The tests load the shipped config `dist/indefinite-articles.toml` (with `:memory:` as the database), so that file must stay valid.
+There is no virtualenv: numpy comes from the system Python. Tests need no network or LLM. `tests/test_indefinite_articles.py` starts an in-process `FakeLLM` HTTP server that answers chat, embedding and `/api/ps` requests based on the prompt text. `FakeLLM.do_POST` recognizes each request by a marker string in its prompt: `Article to rate:` (scoring, `ranker.py`), `interpret a reader` (reply parsing, `replies.py`) and `maintain a concise profile` (profile update, `ranker.py`). If you reword one of those prompts, update the fake too. The tests load the shipped config `dist/indefinite-articles.toml` (with `:memory:` as the database), so that file must stay valid.
 
 ## Architecture
 
 Pipeline (all in `src/indefinite_articles/`):
 
 1. **Fetch.** `feeds.update_all` fetches feeds with conditional GET (ETag/Last-Modified) and exponential backoff for failing feeds, then stores new articles. Articles are deduplicated by `title_key`.
-2. **Pre-filter.** `embed.py` embeds every new article and scores it by cosine similarity against phrases from the reader profile and against recent likes and dislikes. Once there are `MIN_PER_CLASS` likes and dislikes, a numpy logistic-regression classifier trained on all ratings is blended in. The result is stored in `articles.prefilter`.
+2. **Pre-filter.** `embed.py` embeds every new article and scores it by cosine similarity against phrases from the reader profile and against recent likes and dislikes. Once there are `MIN_PER_CLASS` likes and dislikes, a numpy logistic-regression classifier (`classifier.Classifier`, trained in `embed.py`) is blended in. The result is stored in `articles.prefilter`.
 3. **Extract.** `extract.enrich_candidates` downloads the full text for the shortlist only. It refuses private addresses unless the config allows them.
-4. **Score.** `ranker.score_candidates` LLM-scores each shortlisted article in its own request. The prompt starts with an identical prefix (`score_prefix`: profile + examples) so the LLM server can reuse its KV cache. Scores are tied to `score_profile_id`, so a profile change triggers rescoring.
+4. **Score.** `ranker.score_candidates` LLM-scores each shortlisted article in its own request. The prompt starts with an identical prefix (`_score_prefix`: profile + examples) so the LLM server can reuse its KV cache. Scores are tied to `score_profile_id`, so a profile change triggers rescoring.
 5. **Digest.** `ranker.select`, then `mailer.build_digest`, which fills in `templates/digest.txt`, `templates/digest.html` and `templates/instructions.txt` (package data, listed in `pyproject.toml`). Template files are made of `@@ name` sections with `string.Template` `$placeholders`; a line whose placeholders are all empty is left out. The digest **never calls the LLM**. If nothing has been scored, it falls back to heuristics (source ratings and recency) and the email says so.
-6. **Replies.** `inbox.poll` reads replies over IMAP. `replies.parse_structured` handles `+1 -2` style ratings; lines it can't parse go to the LLM. `ranker.update_profile` rewrites the reader profile. Each reply is processed exactly once: its feedback and the "processed" marker are committed in the same transaction.
+6. **Replies.** `inbox.poll` reads replies over IMAP. `replies._parse_structured` handles `+1 -2` style ratings; lines it can't parse go to the LLM. `ranker.update_profile` rewrites the reader profile. Each reply is processed exactly once: its feedback and the "processed" marker are committed in the same transaction.
 
 `daemon.Service` runs fetch, score and inbox polling on separate daemon threads, so a slow LLM can't delay the digest. The main thread sends the digest and prunes old data. **Each thread has its own `Database` connection** (SQLite in WAL mode), so never share a `Database` across threads. `score_wanted` (a `threading.Event`) wakes the scoring thread after a fetch or a profile update.
 
 `llm.LLM` streams responses and learns the slowest normal response time for each request kind, then cuts off a stream that stalls (`STALL_FACTOR`, `MIN_STALL`). Requests are also cut off when the next digest is due (`deadline`). Raise `LLMUnavailable`/`LLMError` and let callers degrade gracefully. The service refuses to start if Ollama is running the model on the CPU only (`require_gpu`); in that case `cli` exits with code 78, which the systemd unit treats as "don't restart".
 
-Schema changes: `database.SCHEMA` uses `CREATE TABLE IF NOT EXISTS`. New `articles` columns must also be added to `Database._migrate` (an `ALTER TABLE ADD COLUMN` list), and `test_migration_from_old_schema` covers this.
+Schema changes: `database.SCHEMA` uses `CREATE TABLE IF NOT EXISTS`. New `articles` columns must also be added to `Database._migrate` (an `ALTER TABLE ADD COLUMN` list), and `test_migration_from_old_schema` (in `tests/test_extract.py`) covers this.
 
 ## Packaging
 
@@ -52,8 +52,6 @@ Exceptions:
 - Acronyms that are the normal name for the thing: `llm`, `url`, `html`, `json`, `sql`, `imap`, `smtp`, `ssl`, `ip`, `id`/`ids`, `uid`, `etag`, `guid`, `opml`, `rss`, `L2`.
 - Names fixed from outside: parameters of overridden library methods (e.g. `attrs` in `handle_starttag`), stdlib and third-party attributes and keyword arguments, TOML config keys (e.g. `max_prompt_chars`, `article_chars`), CLI flags and database column names.
 
-Every function parameter has a type annotation, in `src/` and `tests/` alike. This includes `*args`/`**kwargs`, overridden library methods (copy the typeshed signature) and nested helper functions. Only `self`, `cls` and lambda parameters are exempt, because Python has no syntax for annotating a lambda parameter. Use `Config`, `Database`, `threading.Event | None` for `stop`, `EmailMessage` for messages, and `database.ArticleRow` for an article that may be a `sqlite3.Row` or (in tests) a dict.
-
-Functions in `src/` never return a tuple: return an object with named attributes instead. This also applies to tuples inside returned containers (e.g. `dict[str, SourceStatistics]`). A class with no methods of its own is a `@dataclass` (e.g. `feeds.ParsedFeed`). A plain class with methods and an explicit `__init__` gets its own module and its own test file (e.g. `classifier.Classifier` and `tests/test_classifier.py`).
+Every function parameter has a type annotation, in `src/` and `tests/` alike. This includes `*args`/`**kwargs`, overridden library methods (copy the typeshed signature) and nested helper functions. Only `self`, `cls` and lambda parameters are exempt, because Python has no syntax for annotating a lambda parameter. Every public function and method (any name not starting with `_`, plus dunder methods such as `__eq__`) declares a return type, in `src/` and `tests/` alike; that includes `-> None` on test methods, `setUp` and overridden library methods. The exception is `__init__`, which doesn't need `-> None`. Use `Config`, `Database`, `threading.Event | None` for `stop`, `EmailMessage` for messages, and `database.ArticleRow` for an article that may be a `sqlite3.Row` or (in tests) a dict.
 
 Commit messages are short, sentence-style summaries ending with a period (e.g. "Feed fetch, scoring and digest on separate threads.").

@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import unittest
@@ -6,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from indefinite_articles import embed, feeds, ranker
-from indefinite_articles.config import Config, Feed, load as load_config, parse_feed_list, parse_opml
+from indefinite_articles.config import Config, Feed, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
 
@@ -40,18 +41,29 @@ class FeedServer(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def load_feed_files(files: dict[str, str]) -> list[Feed]:
+    """The feeds of a config whose feeds directory holds `files` (name to contents)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as directory:
+        (Path(directory) / "feeds.d").mkdir()
+        for name, contents in files.items():
+            (Path(directory) / "feeds.d" / name).write_text(contents)
+        (Path(directory) / "config.toml").write_text("")
+        return load_config(Path(directory) / "config.toml").feeds
+
+
 class FeedListTests(unittest.TestCase):
     def test_opml(self):
-        opml = b"""<?xml version="1.0"?><opml version="2.0"><body>
+        opml = """<?xml version="1.0"?><opml version="2.0"><body>
         <outline text="Science"><outline text="Quanta" xmlUrl="https://q/feed" maxItems="5"/>
           <outline text="Sub"><outline title="Deep" xmlUrl="https://d/feed"/></outline></outline>
         <outline text="Loose" xmlUrl="https://l/feed"/></body></opml>"""
-        feed_list = parse_opml(opml)
+        feed_list = load_feed_files({"feeds.opml": opml})
         self.assertEqual([(feed.name, feed.category, feed.max_items) for feed in feed_list],
                          [("Quanta", "Science", 5), ("Deep", "Sub", 40), ("Loose", "", 40)])
 
     def test_txt(self):
-        feed_list = parse_feed_list("# Tech\nhttps://a/feed  A blog\n\nhttps://b/feed\n# News\nhttps://c/feed")
+        feed_list = load_feed_files({"feeds.txt": "# Tech\nhttps://a/feed  A blog\n\nhttps://b/feed\n# News\nhttps://c/feed"})
         self.assertEqual([(feed.url, feed.name, feed.category) for feed in feed_list],
                          [("https://a/feed", "A blog", "Tech"), ("https://b/feed", "", "Tech"),
                           ("https://c/feed", "", "News")])
@@ -84,10 +96,6 @@ class LenientParseTests(unittest.TestCase):
     def test_html_page_rejected(self):
         with self.assertRaises(ValueError):
             feeds.parse_feed(b"<!DOCTYPE html><html><body>nope</body></html>")
-
-    def test_gzip(self):
-        import gzip
-        self.assertEqual(feeds._decompress(gzip.compress(FEED), "gzip"), FEED)
 
 
 class FetchTests(unittest.TestCase):
@@ -212,25 +220,6 @@ class PrefilterTests(unittest.TestCase):
         self.assertEqual(ranked[0]["source"], "Garden")
         self.assertEqual(ranked[-1]["source"], "Celeb News")
 
-    def test_classifier_separates_training_data(self):
-        from test_indefinite_articles import fake_embedding
-        texts = ["rust code compilers", "rust borrow checker", "systems code",
-                 "garden soil", "tomatoes compost", "celebrity gossip"]
-        vectors = [embed.pack(fake_embedding(text)) for text in texts]
-        classifier = embed.train_classifier(vectors, [1, 1, 1, 0, 0, 0], [0, 30, 400, 10, 0, 900])
-        probabilities = classifier.predict(vectors)
-        self.assertTrue(all(probability > 0.5 for probability in probabilities[:3]))
-        self.assertTrue(all(probability < 0.5 for probability in probabilities[3:]))
-
-    def test_split_profile(self):
-        phrases = embed.split_profile(
-            "- Likes Rust and compilers, but not marketing posts\n"
-            "- Dislikes celebrity gossip. Enjoys long science features.\n"
-            "* Fewer product announcements")
-        self.assertEqual(phrases.wanted, ["Likes Rust and compilers", "Enjoys long science features"])
-        self.assertEqual(phrases.unwanted, ["not marketing posts", "Dislikes celebrity gossip",
-                                 "Fewer product announcements"])
-
     def test_profile_dislikes_push_articles_down(self):
         # A profile naming a topic only as a dislike must not rank that topic first.
         config, database, llm = self._config(), self._database(), self._llm()
@@ -243,13 +232,19 @@ class PrefilterTests(unittest.TestCase):
         self.assertEqual(ranked[-1]["source"], "Celeb News")
 
     def test_profile_phrases_prefers_llm_split(self):
-        llm = self._llm()
+        config, database, llm = self._config(), self._database(0), self._llm()
+
+        def phrases_for(profile_text: str) -> dict:
+            database.add_profile(profile_text)
+            profile = database.current_profile()
+            assert profile is not None
+            embed.update_prefilter(config, database, llm, profile)
+            return json.loads(database.get_state("profile_phrases", ""))
+
         llm.chat_json.return_value = {"likes": ["rust compilers"], "avoid": ["celebrity gossip"]}
-        phrases = embed.profile_phrases(llm, "whatever")
-        self.assertEqual((phrases.wanted, phrases.unwanted), (["rust compilers"], ["celebrity gossip"]))
+        self.assertEqual(phrases_for("whatever"), {"wanted": ["rust compilers"], "unwanted": ["celebrity gossip"]})
         llm.chat_json.return_value = {"oops": 1}  # unusable answer: keyword split
-        phrases = embed.profile_phrases(llm, "Likes rust. Avoids gossip.")
-        self.assertEqual((phrases.wanted, phrases.unwanted), (["Likes rust"], ["Avoids gossip"]))
+        self.assertEqual(phrases_for("Likes rust. Avoids gossip."), {"wanted": ["Likes rust"], "unwanted": ["Avoids gossip"]})
 
 
 if __name__ == "__main__":

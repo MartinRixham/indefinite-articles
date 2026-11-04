@@ -22,7 +22,7 @@ def _setup_logging(verbose: bool):
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format=log_format)
 
 
-def command_run(config: Config, args: argparse.Namespace):
+def _command_run(config: Config, args: argparse.Namespace):
     from .daemon import Service
     problems = config.problems()
     for problem in problems:
@@ -45,7 +45,7 @@ def command_run(config: Config, args: argparse.Namespace):
     return 0
 
 
-def command_fetch(config: Config, args: argparse.Namespace):
+def _command_fetch(config: Config, args: argparse.Namespace):
     from .daemon import prefilter, refresh
     with Database(config.database) as database:
         llm = LLM(config.llm)
@@ -57,7 +57,7 @@ def command_fetch(config: Config, args: argparse.Namespace):
         return 0
 
 
-def command_feeds(config: Config, args: argparse.Namespace):
+def _command_feeds(config: Config, args: argparse.Namespace):
     """List configured feeds with their health."""
     import time
     with Database(config.database) as database:
@@ -95,7 +95,7 @@ def command_feeds(config: Config, args: argparse.Namespace):
         return 0
 
 
-def command_digest(config: Config, args: argparse.Namespace):
+def _command_digest(config: Config, args: argparse.Namespace):
     from .daemon import send_digest
     with Database(config.database) as database:
         message = send_digest(config, database, dry_run=args.dry_run)
@@ -109,7 +109,7 @@ def command_digest(config: Config, args: argparse.Namespace):
         return 0
 
 
-def command_poll(config: Config, args: argparse.Namespace):
+def _command_poll(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         llm = LLM(config.llm)
         print(f"processed {inbox.poll(config, database, llm)} replies")
@@ -118,7 +118,7 @@ def command_poll(config: Config, args: argparse.Namespace):
         return 0
 
 
-def command_feedback(config: Config, args: argparse.Namespace):
+def _command_feedback(config: Config, args: argparse.Namespace):
     """Process a reply saved as an .eml file (or stdin) without IMAP."""
     with Database(config.database) as database:
         llm = LLM(config.llm)
@@ -136,7 +136,7 @@ def command_feedback(config: Config, args: argparse.Namespace):
         return 0 if result.status == "ok" else 1
 
 
-def command_profile(config: Config, args: argparse.Namespace):
+def _command_profile(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         if args.set:
             database.add_profile(args.set, note="set manually")
@@ -152,13 +152,13 @@ def command_profile(config: Config, args: argparse.Namespace):
         return 0
 
 
-def command_extract(config: Config, args: argparse.Namespace):
+def _command_extract(config: Config, args: argparse.Namespace):
     """Show what the LLM would see for a URL."""
     print(extract.fetch_page(args.url, config.article_chars, config.allow_private_addresses))
     return 0
 
 
-def command_status(config: Config, args: argparse.Namespace):
+def _command_status(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         for key, value in database.statistics().items():
             print(f"{key:18} {value}")
@@ -166,7 +166,7 @@ def command_status(config: Config, args: argparse.Namespace):
         return 0
 
 
-def command_check(config: Config, args: argparse.Namespace):
+def _command_check(config: Config, args: argparse.Namespace):
     ok = True
     for problem in config.problems():
         print(f"[warn] config: {problem}")
@@ -227,33 +227,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     arg_parser.add_argument("--version", action="version", version=f"indefinite-articles {__version__}")
     subparsers = arg_parser.add_subparsers(dest="cmd", required=True)
 
-    subparsers.add_parser("run", help="run the service (used by systemd)").set_defaults(handler=command_run)
+    subparsers.add_parser("run", help="run the service (used by systemd)").set_defaults(handler=_command_run)
     parser = subparsers.add_parser("feeds", help="list feeds and their health")
     parser.add_argument("--broken", action="store_true", help="only failing feeds")
     parser.add_argument("--categories", action="store_true", help="count feeds per category")
-    parser.set_defaults(handler=command_feeds)
+    parser.set_defaults(handler=_command_feeds)
     parser = subparsers.add_parser("fetch", help="fetch feeds now and score new articles")
     parser.add_argument("--no-score", action="store_true")
-    parser.set_defaults(handler=command_fetch)
+    parser.set_defaults(handler=_command_fetch)
     parser = subparsers.add_parser("digest", help="build and send a digest now")
     parser.add_argument("-n", "--dry-run", action="store_true", help="print instead of sending")
-    parser.set_defaults(handler=command_digest)
-    subparsers.add_parser("poll", help="read replies from IMAP now").set_defaults(handler=command_poll)
+    parser.set_defaults(handler=_command_digest)
+    subparsers.add_parser("poll", help="read replies from IMAP now").set_defaults(handler=_command_poll)
     parser = subparsers.add_parser("feedback", help="process a reply from an .eml file (- for stdin)")
     parser.add_argument("file")
-    parser.set_defaults(handler=command_feedback)
+    parser.set_defaults(handler=_command_feedback)
     parser = subparsers.add_parser("profile", help="show the learned reader profile")
     parser.add_argument("--history", action="store_true")
     parser.add_argument("--set", metavar="TEXT", help="replace the profile")
-    parser.set_defaults(handler=command_profile)
-    subparsers.add_parser("status", help="show database statistics").set_defaults(handler=command_status)
+    parser.set_defaults(handler=_command_profile)
+    subparsers.add_parser("status", help="show database statistics").set_defaults(handler=_command_status)
     parser = subparsers.add_parser("extract", help="show the article text extracted from a URL")
     parser.add_argument("url")
-    parser.set_defaults(handler=command_extract)
+    parser.set_defaults(handler=_command_extract)
     parser = subparsers.add_parser("check", help="test LLM, feeds, IMAP and (optionally) SMTP")
     parser.add_argument("--send-test", action="store_true", help="also send a test email")
     parser.add_argument("--feeds", type=int, default=3, help="number of feeds to test")
-    parser.set_defaults(handler=command_check)
+    parser.set_defaults(handler=_command_check)
 
     args = arg_parser.parse_args(argv)
     _setup_logging(args.verbose)

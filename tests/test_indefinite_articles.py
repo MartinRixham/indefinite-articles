@@ -4,16 +4,17 @@ import re
 import threading
 import time
 import unittest
+from datetime import date
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from indefinite_articles import daemon, feeds, inbox, mailer, ranker, replies
+from indefinite_articles import daemon, extract, feeds, inbox, mailer, ranker, replies
 from indefinite_articles.config import Config, TimeOfDay, load as load_config
 from indefinite_articles.database import Database
-from indefinite_articles.llm import LLM, LLMError, extract_json
+from indefinite_articles.llm import LLM, LLMError
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -45,10 +46,8 @@ def current_text(database: Database) -> str:
     return row["text"]
 
 
-def stall_limit(llm: LLM) -> float:
-    limit = llm._limit("gap").seconds
-    assert limit is not None
-    return limit
+def row_count(database: Database, table: str) -> int:
+    return database.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 
 def fake_embedding(text: str, dimension: int = 64):
@@ -143,36 +142,31 @@ class FeedTests(unittest.TestCase):
 
 
 class ReplyParsingTests(unittest.TestCase):
+    ITEMS = [{"title": f"Article {number}", "source": "S"} for number in range(1, 11)]
+
     def test_compact(self):
-        parsed = replies.parse_structured("+1 +4 -2, 3-", 5)
-        ratings, general, unresolved = parsed.ratings, parsed.general, parsed.unresolved
-        self.assertEqual(ratings, {1: replies.Rating(1), 4: replies.Rating(1),
-                                   2: replies.Rating(-1), 3: replies.Rating(-1)})
-        self.assertEqual((general, unresolved), ([], 0))
+        interpretation = replies.understand(None, "+1 +4 -2, 3-", self.ITEMS[:5])
+        self.assertEqual(interpretation, replies.Interpretation(
+            {1: replies.Rating(1), 4: replies.Rating(1), 2: replies.Rating(-1), 3: replies.Rating(-1)}, []))
 
     def test_lines(self):
         text = "3 like - more on compilers please\n5: no, not crypto\n2 hmm\nGreat list today"
-        parsed = replies.parse_structured(text, 5)
-        ratings, general, unresolved = parsed.ratings, parsed.general, parsed.unresolved
+        interpretation = replies.understand(None, text, self.ITEMS[:5])
+        ratings, general = interpretation.ratings, interpretation.general
         self.assertEqual(ratings[3], replies.Rating(1, "more on compilers please"))
         self.assertEqual(ratings[5], replies.Rating(-1, "not crypto"))
-        self.assertEqual(ratings[2], replies.Rating(0, "hmm"))
-        self.assertEqual(unresolved, 1)
+        self.assertEqual(ratings[2], replies.Rating(0, "hmm"))  # unresolved: left for the LLM
         self.assertEqual(general, ["Great list today"])
 
     def test_out_of_range_is_general(self):
-        parsed = replies.parse_structured("2026 was a good year", 10)
-        ratings, general = parsed.ratings, parsed.general
-        self.assertEqual(ratings, {})
+        interpretation = replies.understand(None, "2026 was a good year", self.ITEMS)
+        self.assertEqual(interpretation, replies.Interpretation({}, ["2026 was a good year"]))
 
     def test_strip_quoted(self):
         text = ("+1 -2\nthanks\n\nOn Tue, 3 Nov 2026 at 07:00, Indefinite Articles <r@x.com>\nwrote:\n"
                 "> 1. Something\n> digest-id: rec:abcd1234\n")
         self.assertEqual(replies.strip_quoted(text), "+1 -2\nthanks")
         self.assertEqual(replies.strip_quoted("ok\n-- \nMartin"), "ok")
-
-    def test_extract_json(self):
-        self.assertEqual(extract_json('Sure! {"a": 1} hope that helps'), {"a": 1})
 
 
 class DigestTemplateTests(unittest.TestCase):
@@ -193,7 +187,7 @@ class DigestTemplateTests(unittest.TestCase):
                          "Today's 2 recommendations\n\n"
                          "1. Rust & <b>\n   Blog\n   https://ex.com/1?a=1&b=2\n   Why: fits\n   A summary.\n\n"
                          "2. Other\n   News  · something different\n   https://ex.com/2\n")
-        self.assertIn(mailer.instructions(), mailer.part_text(message))
+        self.assertIn((mailer.TEMPLATES / "instructions.txt").read_text().strip(), mailer.part_text(message))
         self.assertTrue(mailer.part_text(message).endswith("digest-id: rec:abcd1234\n"))
 
     def test_html_is_escaped_and_optional_lines_dropped(self):
@@ -267,7 +261,8 @@ class EndToEndTests(unittest.TestCase):
 
         # A digest that we sent ourselves must never be read back as feedback.
         message.replace_header("From", "you@example.com")
-        self.assertEqual(inbox.process_message(self.config, self.database, self.llm, message).status, "ignored:own")
+        self.assertEqual(inbox.handle_message(self.config, self.database, self.llm, message, message["Message-ID"]).status,
+                         "ignored:own")
 
         reply = EmailMessage()
         reply["From"] = "Me <you@example.com>"
@@ -285,7 +280,8 @@ class EndToEndTests(unittest.TestCase):
 
         # Unknown sender is ignored.
         reply.replace_header("From", "stranger@evil.example")
-        self.assertEqual(inbox.process_message(self.config, self.database, self.llm, reply).status, "ignored:sender")
+        self.assertEqual(inbox.handle_message(self.config, self.database, self.llm, reply, "<reply2@example.com>").status,
+                         "ignored:sender")
 
         self.assertTrue(ranker.update_profile(self.config, self.database, self.llm))
         self.assertIn("Rust", current_text(self.database))
@@ -323,8 +319,8 @@ class EndToEndTests(unittest.TestCase):
             database.close()
 
             database = Database(path)  # "reboot"
-            self.assertEqual(database.count("SELECT COUNT(*) FROM feedback"), 0)
-            self.assertEqual(database.count("SELECT COUNT(*) FROM processed_messages"), 0)
+            self.assertEqual(row_count(database, "feedback"), 0)
+            self.assertEqual(row_count(database, "processed_messages"), 0)
             # The reply is still unprocessed, so the next poll handles it, exactly once.
             self.assertEqual(inbox.handle_message(self.config, database, self.llm, reply, reply_id).status, "ok")
             self.assertEqual(inbox.handle_message(self.config, database, self.llm, reply, reply_id).status,
@@ -332,9 +328,9 @@ class EndToEndTests(unittest.TestCase):
             database.close()
 
             database = Database(path)  # "reboot" again: everything persisted
-            self.assertEqual(database.count("SELECT COUNT(*) FROM feedback"), 2)
-            self.assertEqual(database.count("SELECT COUNT(*) FROM general_comments"), 1)
-            self.assertEqual(database.count("SELECT COUNT(*) FROM processed_messages"), 1)
+            self.assertEqual(row_count(database, "feedback"), 2)
+            self.assertEqual(row_count(database, "general_comments"), 1)
+            self.assertEqual(row_count(database, "processed_messages"), 1)
             database.close()
 
     def test_failed_message_does_not_leak_into_next_commit(self):
@@ -380,9 +376,11 @@ class EndToEndTests(unittest.TestCase):
 
     def test_digest_never_calls_llm(self):
         self._load_articles()
-        with mock.patch.object(LLM, "_post", side_effect=AssertionError("LLM called")), \
-             mock.patch.object(LLM, "ping", side_effect=AssertionError("LLM called")):
+        with mock.patch.object(FakeLLM, "do_GET", autospec=True, side_effect=FakeLLM.do_GET) as get, \
+             mock.patch.object(FakeLLM, "do_POST", autospec=True, side_effect=FakeLLM.do_POST) as post:
             message = send_digest(self.config, self.database, dry_run=True)
+        get.assert_not_called()
+        post.assert_not_called()
         self.assertNotIn("simple heuristics", mailer.part_text(message))
 
     def _fake_speed(self, delay: float = 0.0, gap: float = 0.0, hang_after: int | None = None):
@@ -414,13 +412,17 @@ class EndToEndTests(unittest.TestCase):
             self.llm.chat("maintain a concise profile", "x")  # learn: fast
             self._fake_speed(hang_after=3)
             started = time.monotonic()
-            with self.assertRaisesRegex(LLMUnavailable, "stopped responding"):
+            with self.assertRaisesRegex(LLMUnavailable, "stopped responding"), \
+                 self.assertLogs("indefinite_articles.llm", "WARNING") as logs:
                 self.llm.chat("maintain a concise profile", "x")
             self.assertLess(time.monotonic() - started, 2)
-            self.assertAlmostEqual(stall_limit(self.llm), 0.6)  # the 0.3s limit doubled
-            with self.assertRaises(LLMUnavailable):
+            self.assertIn("next time waiting up to 0.6s", logs.output[0])  # the 0.3s limit doubled
+            started = time.monotonic()
+            with self.assertRaises(LLMUnavailable), \
+                 self.assertLogs("indefinite_articles.llm", "WARNING") as logs:
                 self.llm.chat("maintain a concise profile", "x")
-            self.assertAlmostEqual(stall_limit(self.llm), 1.2)
+            self.assertGreaterEqual(time.monotonic() - started, 0.6)  # it did wait the doubled limit
+            self.assertIn("next time waiting up to 1.2s", logs.output[0])
 
     def test_stalled_scoring_stops_the_round(self):
         self._load_articles(score=False)
@@ -449,7 +451,6 @@ class EndToEndTests(unittest.TestCase):
     def _run_service(self):  # the service must be built on the thread that runs it
         service = daemon.Service(self.config)
         service.TICK = 0.05
-        self.services.append(service)
         service.run()
 
     def test_slow_scoring_blocks_nothing_else(self):
@@ -458,40 +459,45 @@ class EndToEndTests(unittest.TestCase):
             self.config.database = f"{directory}/s.db"
             self.config.email.imap.host = ""
             self.config.email.smtp.host = "smtp.invalid"
+            self.config.digest_time = "00:00"  # due as soon as today's isn't marked as sent
             database = Database(self.config.database)
             for data in (RSS, ATOM):
                 parsed = feeds.parse_feed(data)
                 title, entries = parsed.title, parsed.entries
                 for entry in entries:
                     database.add_article(entry, title)
+            database.set_state("last_digest_date", date.today().isoformat())  # held back for now
             database.connection.commit()
             database.close()
 
             self.release, self.scoring, fetched, sent = (threading.Event() for _ in range(4))
             sent_messages = []
-            self.services: list[daemon.Service] = []
 
             with mock.patch.object(ranker, "score_candidates", self._stuck_scoring), \
-                 mock.patch.object(daemon, "gather", lambda *args, **kwargs: fetched.set()), \
+                 mock.patch.object(feeds, "update_all", lambda *args, **kwargs: fetched.set() or 0), \
+                 mock.patch.object(daemon, "prefilter", lambda *args: None), \
+                 mock.patch.object(extract, "enrich_candidates", lambda *args, **kwargs: 0), \
                  mock.patch.object(mailer, "send",
                                    lambda config, sent_message: (sent_messages.append(sent_message), sent.set())), \
-                 mock.patch.object(signal, "signal"), \
-                 mock.patch.object(daemon.Service, "_digest_due",  # due once scoring is stuck
-                                   lambda service: self.scoring.is_set() and fetched.is_set() and not sent_messages):
+                 mock.patch.object(signal, "signal") as register_handler:
                 thread = threading.Thread(target=self._run_service)
                 thread.start()
                 try:
                     self.assertTrue(self.scoring.wait(5))
                     # Scoring is stuck, yet feeds are fetched and the digest goes out.
                     self.assertTrue(fetched.wait(5))
+                    database = Database(self.config.database)
+                    database.set_state("last_digest_date", "")  # now let the digest become due
+                    database.connection.commit()
+                    database.close()
                     self.assertTrue(sent.wait(5))
                     body = mailer.part_text(sent_messages[0])
                     self.assertRegex(body, r"backlog: shortlist 3, 3 never scored")
                     self.assertRegex(body, r"scoring: running for \d+s")
                     self.assertIn("llm stall limits:", body)
                 finally:
-                    if self.services:
-                        self.services[0]._shutdown()
+                    for call in register_handler.call_args_list[:1]:  # as if sent SIGTERM
+                        call.args[1](signal.SIGTERM, None)
                     self.release.set()
                     thread.join(10)
             self.assertFalse(thread.is_alive())

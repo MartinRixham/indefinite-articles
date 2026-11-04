@@ -114,7 +114,7 @@ def _sentiment(rest: str) -> Sentiment:
     return Sentiment(None, rest)
 
 
-def parse_structured(text: str, item_count: int) -> StructuredReply:
+def _parse_structured(text: str, item_count: int) -> StructuredReply:
     """Parse ratings written in the documented formats."""
     ratings: dict[int, Rating] = {}
     general: list[str] = []
@@ -152,7 +152,7 @@ INTERPRET_SYSTEM = (
 )
 
 
-def interpret_with_llm(llm: LLM, text: str, items: Sequence[ArticleRow]) -> Interpretation:
+def _interpret_with_llm(llm: LLM, text: str, items: Sequence[ArticleRow]) -> Interpretation:
     listing = "\n".join(f"{item_number}. {article['title']} ({article['source']})"
                         for item_number, article in enumerate(items, start=1))
     user = (
@@ -183,13 +183,13 @@ def interpret_with_llm(llm: LLM, text: str, items: Sequence[ArticleRow]) -> Inte
 
 def understand(llm: LLM | None, text: str, items: Sequence[ArticleRow]) -> Interpretation:
     """Combine the structured parser with LLM interpretation for free-form replies."""
-    parsed = parse_structured(text, len(items))
+    parsed = _parse_structured(text, len(items))
     structured = Interpretation(parsed.ratings, parsed.general)
     if llm is None or not (parsed.unresolved or parsed.general):
         return structured
     try:
         # Explicit structured ratings win; the LLM fills in the rest.
-        return structured.filled_in_by(interpret_with_llm(llm, text, items))
+        return structured.filled_in_by(_interpret_with_llm(llm, text, items))
     except LLMError as error:
         log.warning("could not interpret free-form reply with LLM: %s", error)
         return structured

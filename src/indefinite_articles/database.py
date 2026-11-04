@@ -153,13 +153,13 @@ class Database:
             if name not in columns:
                 self.connection.execute(f"ALTER TABLE articles ADD COLUMN {name} {column_type}")
 
-    def close(self):
+    def close(self) -> None:
         self.connection.close()
 
     def __enter__(self) -> "Database":
         return self
 
-    def __exit__(self, *_: object):
+    def __exit__(self, *_: object) -> None:
         self.close()
 
     # -- state ---------------------------------------------------------------
@@ -171,7 +171,7 @@ class Database:
         row = self.connection.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
 
-    def set_state(self, key: str, value: str):
+    def set_state(self, key: str, value: str) -> None:
         self.connection.execute(
             "INSERT INTO state(key, value) VALUES(?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -246,7 +246,7 @@ class Database:
             (cutoff, limit),
         ).fetchall()
 
-    def set_embedding(self, article_id: int, vector: bytes):
+    def set_embedding(self, article_id: int, vector: bytes) -> None:
         self.connection.execute(
             "INSERT OR REPLACE INTO embeddings(article_id, vec) VALUES(?, ?)", (article_id, vector)
         )
@@ -263,7 +263,7 @@ class Database:
             "JOIN embeddings e ON e.article_id = f.article_id WHERE f.rating != 0 "
             "ORDER BY f.received_at DESC LIMIT ?", (limit,)).fetchall()
 
-    def prefilter_todo(self, max_age_days: int, version: int):
+    def prefilter_todo(self, max_age_days: int, version: int) -> list[sqlite3.Row]:
         cutoff = time.time() - max_age_days * 86400
         return self.connection.execute(
             "SELECT a.id, e.vec FROM articles a JOIN embeddings e ON e.article_id = a.id "
@@ -272,7 +272,7 @@ class Database:
             (cutoff, version),
         ).fetchall()
 
-    def set_prefilter(self, scores: dict[int, float], version: int):
+    def set_prefilter(self, scores: dict[int, float], version: int) -> None:
         """Store pre-filter scores, keyed by article id, computed under `version`."""
         self.connection.executemany(
             "UPDATE articles SET prefilter=?, prefilter_version=? WHERE id=?",
@@ -288,7 +288,7 @@ class Database:
     def feed_states(self) -> dict[str, sqlite3.Row]:
         return {row["url"]: row for row in self.connection.execute("SELECT * FROM feeds")}
 
-    def feed_ok(self, url: str, title: str, validators: "CacheValidators"):
+    def feed_ok(self, url: str, title: str, validators: "CacheValidators") -> None:
         now = time.time()
         self.connection.execute(
             "INSERT INTO feeds(url, title, etag, last_modified, last_attempt, last_success,"
@@ -300,7 +300,7 @@ class Database:
             (url, title, validators.etag, validators.last_modified, now, now),
         )
 
-    def feed_failed(self, url: str, error: str, base_interval: float):
+    def feed_failed(self, url: str, error: str, base_interval: float) -> None:
         now = time.time()
         row = self.connection.execute("SELECT failures FROM feeds WHERE url=?", (url,)).fetchone()
         failures = (row["failures"] if row else 0) + 1
@@ -320,13 +320,13 @@ class Database:
             "SELECT source, COUNT(*) FROM articles WHERE fetched_at >= ? GROUP BY source",
             (cutoff,))}
 
-    def set_content(self, content: "ArticleContent"):
+    def set_content(self, content: "ArticleContent") -> None:
         self.connection.execute(
             "UPDATE articles SET content=?, content_status=? WHERE id=?",
             (content.text or "", content.status, content.article_id),
         )
 
-    def set_score(self, article_id: int, result: "ArticleScore", profile_id: int):
+    def set_score(self, article_id: int, result: "ArticleScore", profile_id: int) -> None:
         self.connection.execute(
             "UPDATE articles SET score=?, reason=?, score_profile_id=? WHERE id=?",
             (result.score, result.reason, profile_id, article_id),
@@ -347,7 +347,7 @@ class Database:
         ).fetchall()
         return {row["source"]: SourceStatistics(row["likes"] or 0, row["dislikes"] or 0) for row in rows}
 
-    def prune(self, keep_days: int = 30):
+    def prune(self, keep_days: int = 30) -> None:
         """Drop old articles that were never sent (sent/rated ones are training data)."""
         cutoff = time.time() - keep_days * 86400
         # Embeddings first: databases from before 0.3 lack the cascade on older rows.
@@ -403,7 +403,7 @@ class Database:
         ).fetchall()
 
     # -- feedback ------------------------------------------------------------
-    def add_feedback(self, article_id: int, rating: int, comment: str):
+    def add_feedback(self, article_id: int, rating: int, comment: str) -> None:
         self.connection.execute(
             "INSERT INTO feedback(article_id, rating, comment, received_at) VALUES(?, ?, ?, ?) "
             "ON CONFLICT(article_id) DO UPDATE SET rating=excluded.rating, "
@@ -424,7 +424,7 @@ class Database:
         ).fetchall()
         return PendingFeedback(feedback, comments)
 
-    def add_general_comment(self, digest_id: int | None, comment: str):
+    def add_general_comment(self, digest_id: int | None, comment: str) -> None:
         self.connection.execute(
             "INSERT INTO general_comments(digest_id, comment, received_at) VALUES(?, ?, ?)",
             (digest_id, comment, time.time()),
@@ -435,7 +435,7 @@ class Database:
             "SELECT 1 FROM processed_messages WHERE message_id=?", (message_id,)
         ).fetchone())
 
-    def mark_message(self, message_id: str, status: str, commit: bool = True):
+    def mark_message(self, message_id: str, status: str, commit: bool = True) -> None:
         self.connection.execute(
             "INSERT OR REPLACE INTO processed_messages(message_id, processed_at, status)"
             " VALUES(?, ?, ?)",
@@ -444,20 +444,20 @@ class Database:
         if commit:
             self.connection.commit()
 
-    def count(self, sql: str) -> int:
+    def _count(self, sql: str) -> int:
         """The single number a `SELECT COUNT(*)` query returns."""
         return self.connection.execute(sql).fetchone()[0]
 
     def statistics(self) -> dict:
         return {
-            "articles": self.count("SELECT COUNT(*) FROM articles"),
-            "unsent_scored": self.count("SELECT COUNT(*) FROM articles WHERE sent_digest_id IS NULL AND score IS NOT NULL"),
-            "embedded": self.count("SELECT COUNT(*) FROM embeddings"),
-            "feeds_failing": self.count("SELECT COUNT(*) FROM feeds WHERE failures > 0"),
-            "full_text": self.count("SELECT COUNT(*) FROM articles WHERE content_status = 'ok'"),
-            "full_text_failed": self.count("SELECT COUNT(*) FROM articles WHERE content_status NOT IN ('ok', 'empty')"),
-            "digests": self.count("SELECT COUNT(*) FROM digests"),
-            "likes": self.count("SELECT COUNT(*) FROM feedback WHERE rating > 0"),
-            "dislikes": self.count("SELECT COUNT(*) FROM feedback WHERE rating < 0"),
-            "profile_versions": self.count("SELECT COUNT(*) FROM profiles"),
+            "articles": self._count("SELECT COUNT(*) FROM articles"),
+            "unsent_scored": self._count("SELECT COUNT(*) FROM articles WHERE sent_digest_id IS NULL AND score IS NOT NULL"),
+            "embedded": self._count("SELECT COUNT(*) FROM embeddings"),
+            "feeds_failing": self._count("SELECT COUNT(*) FROM feeds WHERE failures > 0"),
+            "full_text": self._count("SELECT COUNT(*) FROM articles WHERE content_status = 'ok'"),
+            "full_text_failed": self._count("SELECT COUNT(*) FROM articles WHERE content_status NOT IN ('ok', 'empty')"),
+            "digests": self._count("SELECT COUNT(*) FROM digests"),
+            "likes": self._count("SELECT COUNT(*) FROM feedback WHERE rating > 0"),
+            "dislikes": self._count("SELECT COUNT(*) FROM feedback WHERE rating < 0"),
+            "profile_versions": self._count("SELECT COUNT(*) FROM profiles"),
         }

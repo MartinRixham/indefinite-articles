@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from .config import LLMConfig
 from .sent_request import SentRequest
@@ -211,10 +212,10 @@ class LLM:
             body["response_format"] = {"type": "json_object"}
         return self._stream("/chat/completions", body)
 
-    def chat_json(self, system: str, user: str):
+    def chat_json(self, system: str, user: str) -> Any:
         text = self.chat(system, user, json_mode=True)
         try:
-            return extract_json(text)
+            return _extract_json(text)
         except ValueError:
             log.debug("bad JSON from LLM: %r", text[:1000])
             raise LLMError("LLM did not return valid JSON") from None
@@ -241,7 +242,7 @@ def _message_text(data: dict) -> str:
         raise LLMError(f"unexpected LLM response: {str(data)[:300]}") from None
 
 
-def extract_json(text: str):
+def _extract_json(text: str):
     """Parse JSON from model output, tolerating code fences and surrounding prose."""
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)

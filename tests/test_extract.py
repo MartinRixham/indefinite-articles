@@ -1,25 +1,19 @@
+import socket
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest import mock
 
-from indefinite_articles import extract, feeds, ranker
+from indefinite_articles import extract, feeds
 from indefinite_articles.config import load as load_config
 from indefinite_articles.database import Database
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-class StubLLM:
-    """Answers every chat_json request with `reply` and records the prompts."""
+META_ONLY = '<html><head><meta property="og:description" content="Only meta here."></head><body><p>x</p></body></html>'
 
-    def __init__(self, reply: dict):
-        self.reply = reply
-        self.prompts: list[str] = []
-
-    def chat_json(self, system: str, user: str):
-        self.prompts.append(user)
-        return self.reply
 
 PAGE = """<!doctype html><html><head><title>T</title>
 <meta name="description" content="Meta description of the page.">
@@ -49,7 +43,10 @@ class Page(BaseHTTPRequestHandler):
             self.send_header("Location", "http://169.254.169.254/latest/meta-data")
             self.end_headers()
             return
-        body, content_type = (b"%PDF-1.4", "application/pdf") if self.path.endswith(".pdf") else (PAGE.encode(), "text/html; charset=utf-8")
+        if self.path.endswith(".pdf"):
+            body, content_type = b"%PDF-1.4", "application/pdf"
+        else:
+            body, content_type = (META_ONLY if self.path == "/meta" else PAGE).encode(), "text/html; charset=utf-8"
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -69,18 +66,17 @@ class ExtractTests(unittest.TestCase):
         cls.server.shutdown()
 
     def test_extract_main_content(self):
-        text = extract.extract_text(PAGE)
+        text = extract.fetch_page(self.base + "/a", 2000, allow_private=True)
         self.assertIn("borrow checker enforces", text)
         self.assertIn("lifetimes with & examples", text)
         for junk in ("Popular", "Share this", "Great post", "Copyright", "junk", "About us"):
             self.assertNotIn(junk, text)
 
     def test_meta_description_fallback(self):
-        html = '<html><head><meta property="og:description" content="Only meta here."></head><body><p>x</p></body></html>'
-        self.assertEqual(extract.extract_text(html), "Only meta here.")
+        self.assertEqual(extract.fetch_page(self.base + "/meta", 2000, allow_private=True), "Only meta here.")
 
     def test_truncation(self):
-        self.assertLessEqual(len(extract.extract_text(PAGE, max_characters=80)), 80)
+        self.assertLessEqual(len(extract.fetch_page(self.base + "/a", 80, allow_private=True)), 80)
 
     def test_private_addresses_blocked_by_default(self):
         with self.assertRaises(extract.BlockedAddress):
@@ -89,20 +85,25 @@ class ExtractTests(unittest.TestCase):
             extract.fetch_page("file:///etc/passwd", 1000, allow_private=True)
 
     def test_redirect_to_private_blocked(self):
-        # Even when the first host is allowed, redirects are re-checked.
-        original = extract._check_host
-        extract._check_host = lambda host, allow: original(host, allow and host == "127.0.0.1")
-        try:
+        # Even when the first host is allowed, redirects are re-checked. The address check
+        # (port None) is told the test server is public; connecting still uses the real lookup.
+        real_getaddrinfo = socket.getaddrinfo
+
+        def getaddrinfo(host: str, port: object, *args: object, **kwargs: object) -> list:
+            if host == "127.0.0.1" and port is None:
+                return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))]
+            return real_getaddrinfo(host, port, *args, **kwargs)  # type: ignore[arg-type]
+
+        with mock.patch.object(socket, "getaddrinfo", getaddrinfo):
+            self.assertIn("Rust", extract.fetch_page(self.base + "/a", 1000))  # the server counts as public
             with self.assertRaises(extract.BlockedAddress):
-                extract.fetch_page(self.base + "/redirect", 1000, allow_private=True)
-        finally:
-            extract._check_host = original
+                extract.fetch_page(self.base + "/redirect", 1000)
 
     def test_non_html_rejected(self):
         with self.assertRaises(ValueError):
             extract.fetch_page(self.base + "/paper.pdf", 1000, allow_private=True)
 
-    def test_enrich_candidates_and_prompt_text(self):
+    def test_enrich_candidates(self):
         config = load_config(ROOT / "dist" / "indefinite-articles.toml")
         config.allow_private_addresses = True
         database = Database(":memory:")
@@ -113,27 +114,10 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(extract.enrich_candidates(config, database), 1)
         rows = {row["title"]: row for row in database.candidates(3, 10)}
         self.assertEqual(rows["Borrow checker"]["content_status"], "ok")
-        self.assertIn("borrow checker enforces", ranker.article_text(rows["Borrow checker"], 1500))
+        self.assertIn("borrow checker enforces", rows["Borrow checker"]["content"])
         self.assertTrue(rows["A paper"]["content_status"].startswith("failed"))
-        self.assertEqual(ranker.article_text(rows["A paper"], 1500), "Abstract text.")
+        self.assertEqual(rows["A paper"]["content"], "")
         self.assertEqual(extract.enrich_candidates(config, database), 0)  # not retried
-
-    def test_score_one_shares_prefix_and_reads_score(self):
-        llm = StubLLM({"reason": "fits", "score": 12})
-        prompts = llm.prompts
-        prefix = ranker.score_prefix("Likes Rust.", "(examples)")
-        rows = [{"title": f"Article {index}", "content": "x" * 3000, "summary": "", "source": "S",
-                 "category": ""} for index in range(3)]
-        results = [ranker.score_one(llm, prefix, article, 500) for article in rows]
-        self.assertEqual(results[0], ranker.ArticleScore(10.0, "fits"))  # clamped to 0-10
-        self.assertTrue(all(prompt.startswith(prefix) for prompt in prompts))
-        self.assertTrue(all(len(prompt) < len(prefix) + 600 for prompt in prompts))
-        self.assertIn("Title: Article 2", prompts[2])
-
-    def test_score_one_rejects_missing_score(self):
-        row = {"title": "t", "content": "", "summary": "s", "source": "S", "category": ""}
-        with self.assertRaises(ranker.LLMError):
-            ranker.score_one(StubLLM({"reason": "no number"}), "p", row)
 
     def test_migration_from_old_schema(self):
         import sqlite3, tempfile, os

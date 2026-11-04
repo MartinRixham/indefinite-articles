@@ -17,7 +17,7 @@ class SentRequest:
         self.response = response
         self.limit = limit
 
-    def close(self):
+    def close(self) -> None:
         # Closing the connection makes Ollama and llama-server abandon the request.
         self.response.close()
         self.connection.close()

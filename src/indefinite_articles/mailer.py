@@ -64,7 +64,7 @@ def _render(lines: list[str], values: dict[str, str]) -> str:
     return "\n".join(out)
 
 
-def instructions() -> str:
+def _instructions() -> str:
     """How to reply with feedback, as shown at the end of every digest."""
     return (TEMPLATES / "instructions.txt").read_text().strip()
 
@@ -88,7 +88,7 @@ def _digest_part(template_name: str, items: list[DigestPick], token: str, note: 
         "count": str(len(items)),
         "note": escape(note),
         "items": item_separator.join(rendered),
-        "instructions": escape(instructions()),
+        "instructions": escape(_instructions()),
         "digest_id": escape(TOKEN_PREFIX + token),
         "debug": _render(sections["debug"], {"lines": escape("\n".join(debug))}) if debug else "",
     })
@@ -134,7 +134,7 @@ def part_text(message: EmailMessage, subtype: str = "plain") -> str:
     return part.get_content()
 
 
-def send(config: Config, message: EmailMessage):
+def send(config: Config, message: EmailMessage) -> None:
     server = config.email.smtp
     context = ssl.create_default_context()
     if server.security == "ssl":

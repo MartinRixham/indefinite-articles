@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from indefinite_articles.config import (Config, ConfigError, EmailConfig, Feed, LLMConfig, ServerConfig, TimeOfDay,
-                                        load, load_feed_dir, parse_feed_list, parse_opml)
+                                        load)
 
 
 class FeedTests(unittest.TestCase):
@@ -188,29 +188,45 @@ class LoadTests(unittest.TestCase):
 
 
 class FeedListTests(unittest.TestCase):
+    """Feed lists in the feeds directory next to the config file."""
+
+    def setUp(self):
+        self.directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.directory)
+        self.feeds_directory = self.directory / "feeds.d"
+        self.feeds_directory.mkdir()
+
+    def _feeds(self) -> list[Feed]:
+        path = self.directory / "config.toml"
+        path.write_text("")
+        return load(path).feeds
+
     def test_opml_without_body(self):
-        self.assertEqual(parse_opml(b"<opml><head/></opml>"), [])
+        (self.feeds_directory / "empty.opml").write_bytes(b"<opml><head/></opml>")
+        self.assertEqual(self._feeds(), [])
 
     def test_opml_bad_max_items_uses_default(self):
-        feed_list = parse_opml(b'<opml><body><outline text=" A " xmlUrl=" https://a/feed " maxItems="many"/>'
-                               b'<other xmlUrl="https://ignored"/></body></opml>')
-        self.assertEqual([(feed.url, feed.name, feed.max_items) for feed in feed_list],
+        (self.feeds_directory / "list.opml").write_bytes(
+            b'<opml><body><outline text=" A " xmlUrl=" https://a/feed " maxItems="many"/>'
+            b'<other xmlUrl="https://ignored"/></body></opml>')
+        self.assertEqual([(feed.url, feed.name, feed.max_items) for feed in self._feeds()],
                          [("https://a/feed", "A", 40)])
 
     def test_feed_list_ignores_blank_lines(self):
-        self.assertEqual([feed.url for feed in parse_feed_list("\n  \nhttps://a/feed\n")], ["https://a/feed"])
+        (self.feeds_directory / "list.txt").write_text("\n  \nhttps://a/feed\n")
+        self.assertEqual([feed.url for feed in self._feeds()], ["https://a/feed"])
 
-    def test_load_feed_dir(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory)
-            self.assertEqual(load_feed_dir(path / "missing"), [])
-            (path / "b.txt").write_text("https://b/feed\n")
-            (path / "a.opml").write_bytes(b'<opml><body><outline xmlUrl="https://a/feed"/></body></opml>')
-            (path / "notes.md").write_text("https://ignored/feed\n")
-            self.assertEqual([feed.url for feed in load_feed_dir(path)], ["https://a/feed", "https://b/feed"])
-            (path / "c.xml").write_text("<opml><body>")
-            with self.assertRaisesRegex(ConfigError, "c.xml"):
-                load_feed_dir(path)
+    def test_feed_directory(self):
+        shutil.rmtree(self.feeds_directory)
+        self.assertEqual(self._feeds(), [])  # no feeds directory
+        self.feeds_directory.mkdir()
+        (self.feeds_directory / "b.txt").write_text("https://b/feed\n")
+        (self.feeds_directory / "a.opml").write_bytes(b'<opml><body><outline xmlUrl="https://a/feed"/></body></opml>')
+        (self.feeds_directory / "notes.md").write_text("https://ignored/feed\n")
+        self.assertEqual([feed.url for feed in self._feeds()], ["https://a/feed", "https://b/feed"])
+        (self.feeds_directory / "c.xml").write_text("<opml><body>")
+        with self.assertRaisesRegex(ConfigError, "c.xml"):
+            self._feeds()
 
 
 if __name__ == "__main__":

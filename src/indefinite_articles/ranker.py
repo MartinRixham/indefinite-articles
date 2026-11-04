@@ -62,7 +62,7 @@ def _examples(database: Database) -> str:
     )
 
 
-def article_text(article: ArticleRow, limit: int) -> str:
+def _article_text(article: ArticleRow, limit: int) -> str:
     """Best available description of an article: page text if fetched, else the feed summary."""
     text = article["content"] or article["summary"] or ""
     if article["content"] and article["summary"] and len(article["content"]) < len(article["summary"]):
@@ -83,7 +83,7 @@ SCALE = (
 )
 
 
-def score_prefix(profile_text: str, examples: str) -> str:
+def _score_prefix(profile_text: str, examples: str) -> str:
     """The part of the scoring prompt that is the same for every article.
 
     It comes first, so Ollama and llama-server can reuse its KV cache and only
@@ -128,12 +128,12 @@ class ScoreBreakdown:
     final: float
 
 
-def score_one(llm: JSONChat, prefix: str, article: ArticleRow, per_article: int = 1500) -> ArticleScore:
+def _score_one(llm: JSONChat, prefix: str, article: ArticleRow, per_article: int = 1500) -> ArticleScore:
     """Score a single article from 0 to 10 for the reader described in `prefix`."""
     source = f"{article['source']} ({article['category']})" if article["category"] else article["source"]
     user = (
         prefix + "Article to rate:\n"
-        f"Title: {article['title']}\nSource: {source}\n{article_text(article, per_article)}"
+        f"Title: {article['title']}\nSource: {source}\n{_article_text(article, per_article)}"
     )
     data = llm.chat_json(SCORE_SYSTEM, user)
     if isinstance(data, dict) and isinstance(data.get("ratings"), list) and data["ratings"]:
@@ -195,7 +195,7 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
         return 0
     # Unscored first, so a profile change never leaves fresh articles without any score.
     todo.sort(key=lambda article: article["score"] is not None)
-    prefix = score_prefix(profile["text"], _examples(database))
+    prefix = _score_prefix(profile["text"], _examples(database))
     # Room left for the article after the shared prefix.
     per_article = min(config.article_chars, max(1000, config.llm.max_prompt_chars - len(prefix) - 300))
     done = 0
@@ -203,7 +203,7 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
         if stop is not None and stop.is_set():
             break
         try:
-            result = score_one(llm, prefix, article, per_article)
+            result = _score_one(llm, prefix, article, per_article)
         except LLMError as error:
             log.warning("scoring article %d failed: %s", article["id"], error)
             if isinstance(error, LLMUnavailable):

@@ -37,7 +37,7 @@ class Entry:
 
     @property
     def title_key(self) -> str:
-        return title_key(self.title)
+        return _title_key(self.title)
 
 
 @dataclass
@@ -76,17 +76,17 @@ class _TextExtractor(HTMLParser):
         self.parts: list[str] = []
         self._skip = 0
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in ("script", "style"):
             self._skip += 1
         elif tag in ("p", "br", "div", "li"):
             self.parts.append(" ")
 
-    def handle_endtag(self, tag: str):
+    def handle_endtag(self, tag: str) -> None:
         if tag in ("script", "style") and self._skip:
             self._skip -= 1
 
-    def handle_data(self, data: str):
+    def handle_data(self, data: str) -> None:
         if not self._skip:
             self.parts.append(data)
 
@@ -104,7 +104,7 @@ def html_to_text(markup: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(text)).strip()
 
 
-def title_key(title: str) -> str:
+def _title_key(title: str) -> str:
     """Normalised title used to de-duplicate the same story from different feeds."""
     return re.sub(r"[^a-z0-9]+", "", title.lower())[:120]
 
@@ -261,7 +261,7 @@ def _decompress(data: bytes, encoding: str) -> bytes:
     return out
 
 
-def fetch_conditional(url: str, validators: CacheValidators | None = None,
+def _fetch_conditional(url: str, validators: CacheValidators | None = None,
                       timeout: int = 30) -> FetchResult:
     """GET a feed. `data` is None when the server says it hasn't changed."""
     headers = {
@@ -290,7 +290,7 @@ def fetch_conditional(url: str, validators: CacheValidators | None = None,
 
 
 def fetch(url: str, timeout: int = 30) -> bytes:
-    data = fetch_conditional(url, timeout=timeout).data
+    data = _fetch_conditional(url, timeout=timeout).data
     if data is None:  # 304 without If-None-Match/If-Modified-Since: a broken server
         raise ValueError(f"unexpected 304 Not Modified from {url}")
     return data
@@ -305,7 +305,7 @@ def _fetch_group(feeds: list[Feed], states: dict[str, sqlite3.Row], stop: thread
         state = states.get(feed.url)
         try:
             validators = CacheValidators(state["etag"], state["last_modified"]) if state else None
-            fetched = fetch_conditional(feed.url, validators)
+            fetched = _fetch_conditional(feed.url, validators)
             if fetched.data is None:
                 results.append(FeedResult(feed, "not-modified", fetched=fetched))
             else:

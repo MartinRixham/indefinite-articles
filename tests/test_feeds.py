@@ -60,16 +60,18 @@ class HTMLToTextTests(unittest.TestCase):
         self.assertEqual(feeds.html_to_text("  a\n\n\tb  "), "a b")
 
 
+def title_key(title: str) -> str:
+    return feeds.Entry("https://example.com/", title, "", None).title_key
+
+
 class TitleKeyTests(unittest.TestCase):
     def test_normalises(self):
-        self.assertEqual(feeds.title_key("Rust 1.90: What's New?"), "rust190whatsnew")
-        self.assertEqual(feeds.title_key("Rust 1.90 — what’s new"), feeds.title_key("RUST 1.90: WHATS NEW"))
+        self.assertEqual(title_key("Rust 1.90: What's New?"), "rust190whatsnew")
+        self.assertEqual(title_key("Rust 1.90 — what’s new"), title_key("RUST 1.90: WHATS NEW"))
+        self.assertEqual(title_key("Hello, World"), "helloworld")
 
     def test_length_capped(self):
-        self.assertEqual(len(feeds.title_key("word " * 100)), 120)
-
-    def test_entry_property(self):
-        self.assertEqual(feeds.Entry("u", "Hello, World", "", None).title_key, "helloworld")
+        self.assertEqual(len(title_key("word " * 100)), 120)
 
 
 class ParseFeedTests(unittest.TestCase):
@@ -135,16 +137,21 @@ class FetchTests(unittest.TestCase):
     def setUp(self):
         Server.requests.clear()
 
-    def test_fetch_conditional_sends_validators(self):
-        fetched = feeds.fetch_conditional(self.base + "/not-modified")
-        self.assertEqual(fetched.data, Server.body)
-        self.assertEqual(fetched.validators.last_modified, "Mon, 02 Nov 2026 10:00:00 GMT")
-        validators = feeds.CacheValidators('"tag"', "yesterday")
-        fetched = feeds.fetch_conditional(self.base + "/not-modified", validators)
-        self.assertEqual(fetched, feeds.FetchResult(None, validators))
+    def test_update_all_sends_stored_validators(self):
+        config = Config()
+        config.feeds = [Feed(url=self.base + "/not-modified")]
+        database = Database(":memory:")
+        self.addCleanup(database.close)
+        self.assertEqual(feeds.update_all(config, database), 1)
+        state = database.feed_states()[self.base + "/not-modified"]
+        self.assertEqual(state["last_modified"], "Mon, 02 Nov 2026 10:00:00 GMT")
+        database.feed_ok(self.base + "/not-modified", "", feeds.CacheValidators('"tag"', "yesterday"))
+        self.assertEqual(feeds.update_all(config, database), 0)  # 304: nothing new
         headers = Server.requests[-1][1]
         self.assertEqual((headers["If-None-Match"], headers["If-Modified-Since"]), ('"tag"', "yesterday"))
         self.assertTrue(headers["User-Agent"].startswith("indefinite-articles/"))
+        state = database.feed_states()[self.base + "/not-modified"]
+        self.assertEqual((state["etag"], state["last_modified"], state["failures"]), ('"tag"', "yesterday", 0))
 
     def test_fetch_decompresses_gzip(self):
         self.assertEqual(feeds.fetch(self.base + "/gzip"), Server.body)

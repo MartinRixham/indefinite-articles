@@ -45,13 +45,13 @@ def connect(config: Config) -> imaplib.IMAP4:
     return connection
 
 
-def find_digest(database: Database, message: EmailMessage, text: str):
+def _find_digest(database: Database, message: EmailMessage, text: str):
     match = TOKEN_RE.search(message.get("Subject", "") or "") or TOKEN_RE.search(text)
     refs = (message.get("In-Reply-To", "") or "").split() + (message.get("References", "") or "").split()
     return database.find_digest(match.group(1) if match else None, refs)
 
 
-def process_message(config: Config, database: Database, llm: LLM | None, message: EmailMessage) -> ReplyResult:
+def _process_message(config: Config, database: Database, llm: LLM | None, message: EmailMessage) -> ReplyResult:
     """Stage feedback from one reply in the open transaction (not committed).
 
     Use handle_message(), which commits it together with the processed-message marker.
@@ -64,7 +64,7 @@ def process_message(config: Config, database: Database, llm: LLM | None, message
     ):
         return ReplyResult("ignored:own")
     full = replies.body_text(message)
-    digest = find_digest(database, message, full)
+    digest = _find_digest(database, message, full)
     if digest is None:
         return ReplyResult("ignored:no-digest")
     items = database.digest_items(digest["id"])
@@ -96,7 +96,7 @@ def handle_message(config: Config, database: Database, llm: LLM | None, message:
     if database.message_processed(reply_id):
         return ReplyResult("already-processed")
     try:
-        result = process_message(config, database, llm, message)
+        result = _process_message(config, database, llm, message)
         database.mark_message(reply_id, result.status, commit=False)
         database.connection.commit()
     except BaseException:

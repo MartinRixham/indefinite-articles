@@ -66,11 +66,11 @@ class _Extractor(HTMLParser):
         self._in_title = False
 
     @property
-    def skipping(self):
+    def _skipping(self):
         return bool(self.stack) and self.stack[-1][1]
 
     @property
-    def noisy(self):
+    def _noisy(self):
         return bool(self.stack) and self.stack[-1][2]
 
     def _flush(self):
@@ -78,9 +78,9 @@ class _Extractor(HTMLParser):
         self.buffer = []
         if text:
             level = 2 if self.in_article else 1 if self.in_main else 0
-            self.blocks.append((text, level, self.noisy))
+            self.blocks.append((text, level, self._noisy))
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
         if tag == "meta":
             key = (attributes.get("property") or attributes.get("name") or "").lower()
@@ -95,10 +95,10 @@ class _Extractor(HTMLParser):
                 self.buffer.append(" ")
             return
         classes = f"{attributes.get('class', '')} {attributes.get('id', '')} {attributes.get('role', '')}"
-        skip = self.skipping or tag in SKIP_TAGS
-        noisy = self.noisy or tag in NOISE_TAGS or (
+        skip = self._skipping or tag in SKIP_TAGS
+        noisy = self._noisy or tag in NOISE_TAGS or (
             tag in ("div", "section", "ul", "ol") and _is_noise(classes))
-        if tag in BLOCK_TAGS or noisy != self.noisy:
+        if tag in BLOCK_TAGS or noisy != self._noisy:
             self._flush()
         self.stack.append((tag, skip, noisy))
         if tag == "article":
@@ -106,7 +106,7 @@ class _Extractor(HTMLParser):
         elif tag == "main" or attributes.get("role") == "main":
             self.in_main += 1
 
-    def handle_endtag(self, tag: str):
+    def handle_endtag(self, tag: str) -> None:
         if tag == "title":
             self._in_title = False
         if tag in VOID_TAGS:
@@ -114,7 +114,7 @@ class _Extractor(HTMLParser):
         # Pop to the matching tag (tolerates unclosed elements).
         for depth in range(len(self.stack) - 1, -1, -1):
             if self.stack[depth][0] == tag:
-                was_noisy = self.noisy
+                was_noisy = self._noisy
                 for open_tag, _, _ in self.stack[depth:]:
                     if open_tag == "article":
                         self.in_article -= 1
@@ -127,18 +127,18 @@ class _Extractor(HTMLParser):
         if tag in BLOCK_TAGS:
             self._flush()
 
-    def handle_data(self, data: str):
+    def handle_data(self, data: str) -> None:
         if self._in_title:
             self.title += data
-        elif not self.skipping:
+        elif not self._skipping:
             self.buffer.append(data)
 
-    def close(self):
+    def close(self) -> None:
         super().close()
         self._flush()
 
 
-def extract_text(html: str, max_characters: int = 2000) -> str:
+def _extract_text(html: str, max_characters: int = 2000) -> str:
     parser = _Extractor()
     try:
         parser.feed(html)
@@ -183,7 +183,7 @@ class _SafeRedirect(urllib.request.HTTPRedirectHandler):
         self.allow_private = allow_private
 
     def redirect_request(self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str,
-                         headers: HTTPMessage, newurl: str):
+                         headers: HTTPMessage, newurl: str) -> urllib.request.Request | None:
         parts = urllib.parse.urlsplit(newurl)
         if parts.scheme not in ("http", "https"):
             raise BlockedAddress(f"redirect to {parts.scheme} URL")
@@ -217,7 +217,7 @@ def fetch_page(url: str, max_characters: int, allow_private: bool = False) -> st
         html = raw.decode(charset, errors="replace")
     except LookupError:
         html = raw.decode("utf-8", errors="replace")
-    return extract_text(html, max_characters)
+    return _extract_text(html, max_characters)
 
 
 @dataclass

@@ -242,7 +242,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     feeds_path = Path(config.feeds_dir)
     if not feeds_path.is_absolute():
         feeds_path = base / feeds_path
-    feeds += load_feed_dir(feeds_path)
+    feeds += _load_feed_dir(feeds_path)
     seen = set()
     for feed in feeds:
         if feed.url in seen or feed.category.lower() in config.exclude_categories:
@@ -254,7 +254,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     return config
 
 
-def parse_opml(data: bytes) -> list[Feed]:
+def _parse_opml(data: bytes) -> list[Feed]:
     """Feeds from an OPML file; the enclosing outline's title becomes the category."""
     body = ElementTree.fromstring(data).find("body")
     return list(_opml_feeds(body, "")) if body is not None else []
@@ -277,7 +277,7 @@ def _opml_feeds(element: ElementTree.Element, category: str) -> Iterator[Feed]:
             yield from _opml_feeds(outline, label.strip() or category)
 
 
-def parse_feed_list(text: str) -> list[Feed]:
+def _parse_feed_list(text: str) -> list[Feed]:
     """Plain list: one feed per line, `URL [name]`; `# Category` lines set the category."""
     out, category = [], ""
     for line in text.splitlines():
@@ -292,16 +292,16 @@ def parse_feed_list(text: str) -> list[Feed]:
     return out
 
 
-def load_feed_dir(path: Path) -> list[Feed]:
+def _load_feed_dir(path: Path) -> list[Feed]:
     if not path.is_dir():
         return []
     feeds: list[Feed] = []
     for file_path in sorted(path.iterdir()):
         try:
             if file_path.suffix.lower() in (".opml", ".xml"):
-                feeds += parse_opml(file_path.read_bytes())
+                feeds += _parse_opml(file_path.read_bytes())
             elif file_path.suffix.lower() == ".txt":
-                feeds += parse_feed_list(file_path.read_text())
+                feeds += _parse_feed_list(file_path.read_text())
         except (OSError, ElementTree.ParseError, UnicodeDecodeError) as error:
             raise ConfigError(f"{file_path}: {error}") from None
     return feeds

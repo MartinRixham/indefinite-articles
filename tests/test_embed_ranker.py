@@ -2,6 +2,7 @@ import random
 import threading
 import time
 import unittest
+from collections.abc import Sequence
 from unittest import mock
 
 import numpy as np
@@ -11,6 +12,7 @@ from indefinite_articles.feeds import Entry
 from indefinite_articles.classifier import Classifier
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database
+from indefinite_articles.extract import ArticleContent
 from indefinite_articles.llm import LLM, LLMError, LLMUnavailable
 
 
@@ -30,59 +32,95 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(vector.tolist(), [0.6000000238418579, 0.800000011920929])
         self.assertEqual(np.frombuffer(embed.pack([0, 0]), dtype=np.float32).tolist(), [0.0, 0.0])
 
-    def test_article_text(self):
-        self.assertEqual(embed.article_text(article(summary=None)), "Title. ")
-        self.assertEqual(len(embed.article_text(article(summary="x" * 1000))), len("Title. ") + 600)
+    def setUp(self):
+        self.config, self.database = Config(), Database(":memory:")
+        self.addCleanup(self.database.close)
+        self.vectors: dict[str, list[float]] = {"wanted": [1.0, 0.0], "unwanted": [0.0, 1.0]}
+        self.llm = mock.Mock(spec=LLM)
+        self.llm.chat_json.return_value = {"likes": ["wanted"], "avoid": ["unwanted"]}
+        self.llm.embed.side_effect = lambda texts: [self.vectors[text] for text in texts]
 
-    def test_score_and_profile_match(self):
-        self.assertEqual(embed.score([], [unit(1, 0)], [], [], []), [])
-        matches = embed.profile_match([unit(1, 0), unit(0, 1), unit(1, 1)], [unit(1, 0)], [unit(0, 1)])
-        self.assertAlmostEqual(matches[0], 1.0, places=5)
-        self.assertAlmostEqual(matches[1], -0.5, places=5)
-        self.assertEqual(sorted(range(3), key=lambda index: -matches[index]), [0, 2, 1])
+    def _article(self, title: str, vector: Sequence[float], rating: int = 0):
+        """Add an embedded article; a rated one has been sent in a digest."""
+        self.database.add_article(Entry(f"https://e/{title}", title, "", None), "S")
+        article_id = self.database.connection.execute("SELECT id FROM articles WHERE title=?", (title,)).fetchone()[0]
+        self.database.set_embedding(article_id, embed.pack(list(vector)))
+        if rating:
+            self.database.connection.execute("UPDATE articles SET sent_digest_id=1 WHERE id=?", (article_id,))
+            self.database.add_feedback(article_id, rating, "")
+        self.database.connection.commit()
 
-    def test_score_uses_likes_and_dislikes(self):
-        vectors = [unit(1, 0, 0), unit(0, 1, 0), unit(0, 0, 1)]
-        scores = embed.score(vectors, [unit(1, 1, 1)], [], likes=[unit(0, 1, 0)], dislikes=[unit(0, 0, 1)])
-        self.assertEqual(max(range(3), key=lambda index: scores[index]), 1)
-        self.assertEqual(min(range(3), key=lambda index: scores[index]), 2)
+    def _prefilter(self) -> dict[str, float]:
+        """Run the pre-filter; returns each unsent article's score by title."""
+        embed.update_prefilter(self.config, self.database, self.llm, ranker.ensure_profile(self.config, self.database))
+        return {row["title"]: row["prefilter"] for row in self.database.pool(3)}
 
-    def test_score_with_classifier(self):
-        classifier = Classifier(np.array([10.0, -10.0]), 0.0)
-        vectors = [unit(1, 0), unit(0, 1)]
-        probabilities = classifier.predict(vectors)
-        scores = embed.score_with_classifier(vectors, [unit(1, 1)], [], classifier)
-        matches = embed.profile_match(vectors, [unit(1, 1)], [])
-        self.assertAlmostEqual(scores[0] - matches[0], embed.CLASSIFIER_WEIGHT * (probabilities[0] - 0.5))
-        self.assertGreater(scores[0], scores[1])
+    def test_embedded_text_is_title_and_start_of_summary(self):
+        self.database.add_article(Entry("https://e/1", "Short", "", None), "S")
+        self.database.add_article(Entry("https://e/2", "Long", "x" * 1000, None), "S")
+        self.llm.embed.side_effect = lambda texts: [[1.0, 0.0] for _ in texts]
+        self.assertEqual(embed.embed_new(self.config, self.database, self.llm), 2)
+        texts = [text for call in self.llm.embed.call_args_list for text in call.args[0]]
+        self.assertEqual(sorted(texts), ["Long. " + "x" * 600, "Short. "])
 
-    def test_fit_from_database(self):
-        database = Database(":memory:")
-        self.addCleanup(database.close)
+    def test_profile_match_without_ratings(self):
+        profile = ranker.ensure_profile(self.config, self.database)
+        self.assertEqual(embed.update_prefilter(self.config, self.database, self.llm, profile), 0)  # nothing embedded
+        self._article("wanted topic", [1, 0])
+        self._article("unwanted topic", [0, 1])
+        self._article("both", [1, 1])
+        scores = self._prefilter()
+        self.assertAlmostEqual(scores["wanted topic"], 1.0, places=5)
+        self.assertAlmostEqual(scores["unwanted topic"], -0.5, places=5)
+        self.assertEqual(sorted(scores, key=lambda title: -scores[title]), ["wanted topic", "both", "unwanted topic"])
 
-        def rate(index: int, vector: bytes, rating: int):
-            database.add_article(Entry(f"https://e/{index}", f"t{index}", "", None), "S")
-            database.set_embedding(index, vector)
-            database.add_feedback(index, rating, "")
+    def test_likes_and_dislikes_move_scores(self):
+        self.vectors["wanted"] = [1.0, 1.0, 1.0]
+        self.llm.chat_json.return_value = {"likes": ["wanted"], "avoid": []}
+        self._article("liked", [0, 1, 0], rating=1)
+        self._article("disliked", [0, 0, 1], rating=-1)
+        for title, vector in (("x", [1, 0, 0]), ("y", [0, 1, 0]), ("z", [0, 0, 1])):
+            self._article(title, vector)
+        scores = self._prefilter()
+        self.assertGreater(scores["y"], scores["x"])  # like the liked article
+        self.assertGreater(scores["x"], scores["z"])  # like the disliked article
 
+    def test_classifier_needs_enough_ratings(self):
         for index in range(1, 6):
-            rate(index, unit(1, 0.1 * index), 1)
+            self._article(f"liked {index}", [1, 0.1 * index], rating=1)
         for index in range(6, 10):
-            rate(index, unit(0.1 * index, 1), -1)
-        rate(10, unit(1, 0, 0), -1)  # another model's vector: ignored
-        fit = embed.fit_from_database(database, len(unit(1, 0)))
-        self.assertIsNone(fit.classifier)
-        self.assertEqual((fit.like_count, fit.dislike_count), (5, 4))
-        rate(11, unit(0, 1), -1)
-        fit = embed.fit_from_database(database, len(unit(1, 0)))
-        assert fit.classifier is not None
-        self.assertEqual(fit.dislike_count, 5)
-        liked, disliked = fit.classifier.predict([unit(1, 0), unit(0, 1)])
+            self._article(f"disliked {index}", [0.1 * index, 1], rating=-1)
+        self._article("other model", [1, 0, 0], rating=-1)  # another model's vector: ignored
+        self._prefilter()
+        self.assertEqual(self.database.get_state("classifier_info"), "5:4")
+        self.assertIsNone(Classifier.load(self.database))
+        self._article("disliked 10", [0, 1], rating=-1)
+        self._prefilter()
+        self.assertEqual(self.database.get_state("classifier_info"), "5:5")
+        classifier = Classifier.load(self.database)
+        assert classifier is not None
+        liked, disliked = classifier.predict([embed.pack([1, 0]), embed.pack([0, 1])])
         self.assertGreater(liked, disliked)
 
+    def test_classifier_blended_with_profile_match(self):
+        self.vectors["wanted"] = [1.0, 1.0]
+        self.llm.chat_json.return_value = {"likes": ["wanted"], "avoid": []}
+        for index in range(1, 6):
+            self._article(f"liked {index}", [1, 0.1 * index], rating=1)
+            self._article(f"disliked {index}", [0.1 * index, 1], rating=-1)
+        self._article("x", [1, 0])
+        self._article("y", [0, 1])
+        scores = self._prefilter()
+        classifier = Classifier.load(self.database)
+        assert classifier is not None
+        probabilities = classifier.predict([embed.pack([1, 0])])
+        match = float(np.dot(np.frombuffer(embed.pack([1, 0]), dtype=np.float32),
+                             np.frombuffer(embed.pack([1, 1]), dtype=np.float32)))
+        self.assertAlmostEqual(scores["x"], match + embed.CLASSIFIER_WEIGHT * (probabilities[0] - 0.5), places=5)
+        self.assertGreater(scores["x"], scores["y"])
+
     def test_embed_new_stops_when_asked(self):
-        config, database = Config(), Database(":memory:")
-        self.addCleanup(database.close)
+        config, database = self.config, self.database
         database.add_article(Entry("https://e/1", "t", "", None), "S")
         llm = mock.Mock(spec=LLM)
         stop = threading.Event()
@@ -97,9 +135,10 @@ class EmbedTests(unittest.TestCase):
         llm = mock.Mock(spec=LLM)
         llm.chat_json.return_value = {"likes": [], "avoid": ["celebrity gossip"]}  # unusable: keyword split
         llm.embed.side_effect = lambda texts: [[1.0, float(index)] for index, _ in enumerate(texts)]
+        phrases = embed._profile_phrases(config, database, llm, ranker.ensure_profile(config, database))
+        self.assertEqual(phrases.wanted, [embed.DEFAULT_WANTED])
+        self.assertEqual(phrases.unwanted, ["Dislikes celebrity gossip"])
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
-        self.assertEqual([call.args[0] for call in llm.embed.call_args_list],
-                         [[embed.DEFAULT_WANTED], ["Dislikes celebrity gossip"]])
         # Nothing changed: no second LLM call.
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
         self.assertEqual(llm.chat_json.call_count, 1)
@@ -131,34 +170,53 @@ class RankerTests(unittest.TestCase):
         profile = ranker.ensure_profile(self.config, other)
         self.assertEqual((profile["text"], profile["note"]), ("Rust", "initial (from config)"))
 
-    def test_article_text(self):
-        self.assertEqual(ranker.article_text(article(content="Full   page\ntext", summary="Sum"), 100),
-                         "Full page text")
-        self.assertEqual(ranker.article_text(article(content="Short", summary="A longer summary"), 100),
-                         "A longer summary")
-        self.assertEqual(ranker.article_text(article(summary=None), 100), "")
-        self.assertEqual(ranker.article_text(article(summary="one two three four"), 10), "one two…")
+    def _add_described(self, title: str, summary: str, content: str | None = None, category: str = ""):
+        self.database.add_article(Entry(f"https://e/{title}", title, summary, time.time()), "S", category)
+        if content is not None:
+            article_id = self.database.connection.execute("SELECT id FROM articles WHERE title=?", (title,)).fetchone()[0]
+            self.database.set_content(ArticleContent(article_id, content, "ok"))
+        self.database.connection.commit()
 
-    def test_score_prefix(self):
-        prefix = ranker.score_prefix("PROFILE", "EXAMPLES")
-        self.assertTrue(prefix.startswith("Reader profile:\nPROFILE\n\nEXAMPLES"))
+    def _score_all(self, *answers: object) -> list[str]:
+        """Score the candidates, the LLM giving `answers` in turn; returns the prompts it was sent."""
+        llm = mock.Mock(spec=LLM)
+        llm.chat_json.side_effect = answers
+        ranker.score_candidates(self.config, self.database, llm)
+        return [call.args[1] for call in llm.chat_json.call_args_list]
+
+    def test_prompts_share_prefix_and_describe_each_article(self):
+        self.config.article_chars = 20
+        self._add_described("Fetched", "Sum", content="Full   page\ntext")
+        self._add_described("Fallback", "A longer summary", content="Short")
+        self._add_described("Long", "one two three four five six", category="Tech")
+        prompts = self._score_all(*[{"reason": "fits", "score": 12}] * 3)
+        prefixes = {prompt.split("Article to rate:")[0] for prompt in prompts}
+        self.assertEqual(len(prefixes), 1)  # the LLM server can reuse its KV cache
+        prefix = prefixes.pop()
+        self.assertTrue(prefix.startswith(f"Reader profile:\n{ranker.DEFAULT_PROFILE}\n\nArticles the reader"))
         self.assertIn('"score"', prefix)
-        self.assertEqual(prefix, ranker.score_prefix("PROFILE", "EXAMPLES"))
+        by_title = {prompt.split("Title: ")[1].split("\n")[0]: prompt for prompt in prompts}
+        self.assertTrue(by_title["Fetched"].endswith("\nSource: S\nFull page text"))
+        self.assertTrue(by_title["Fallback"].endswith("\nA longer summary"))  # summary longer than the page
+        self.assertTrue(by_title["Long"].endswith("\nSource: S (Tech)\none two three four…"))
+        rows = self.database.connection.execute("SELECT score, reason FROM articles").fetchall()
+        self.assertEqual({tuple(row) for row in rows}, {(10.0, "fits")})  # clamped to 0-10
 
-    def test_score_one_answer_shapes(self):
-        llm = mock.Mock()
-        for answer, expected in (({"ratings": [{"score": "6", "reason": "r"}]}, ranker.ArticleScore(6.0, "r")),
-                                 ([{"score": -3}], ranker.ArticleScore(0.0, "")),
-                                 ({"score": 4, "reason": "x" * 300}, ranker.ArticleScore(4.0, "x" * 200))):
-            llm.chat_json.return_value = answer
+    def test_score_answer_shapes(self):
+        self._add("https://e/1")
+        for answer, expected in (({"ratings": [{"score": "6", "reason": "r"}]}, (6.0, "r")),
+                                 ([{"score": -3}], (0.0, "")),
+                                 ({"score": 4, "reason": "x" * 300}, (4.0, "x" * 200))):
+            self.database.add_profile(f"profile for {answer}")  # makes the article due again
             with self.subTest(answer=answer):
-                self.assertEqual(ranker.score_one(llm, "", article()), expected)
-        llm.chat_json.return_value = "seven"
-        with self.assertRaises(LLMError):
-            ranker.score_one(llm, "", article())
-        llm.chat_json.return_value = {"score": 1}
-        ranker.score_one(llm, "", article(category="Tech"))
-        self.assertIn("Source: Source (Tech)", llm.chat_json.call_args[0][1])
+                self._score_all(answer)
+                row = self.database.connection.execute("SELECT score, reason FROM articles").fetchone()
+                self.assertEqual(tuple(row), expected)
+        for answer in ("seven", {"reason": "no number"}):
+            self.database.add_profile(f"profile for {answer}")
+            with self.subTest(answer=answer), self.assertLogs("indefinite_articles.ranker", "WARNING"):
+                self._score_all(answer)
+                self.assertEqual(self.database.connection.execute("SELECT score FROM articles").fetchone()[0], 4.0)
 
     def test_shortlist_without_prefilter_uses_newest(self):
         for index in range(5):

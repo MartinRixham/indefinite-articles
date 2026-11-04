@@ -1,8 +1,12 @@
 import contextlib
 import io
 import shutil
+import signal
 import tempfile
+import threading
+import time
 import unittest
+from collections.abc import Callable
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
@@ -43,16 +47,20 @@ class DaemonFunctionTests(unittest.TestCase):
         with self.assertLogs("indefinite_articles.daemon", "WARNING"):
             daemon.prefilter(self.config, self.database, self.llm)
 
-    def test_gather_and_refresh(self):
+    def test_refresh_runs_the_pipeline_and_tolerates_scoring_failure(self):
         calls = []
+
+        def score(*args: object, **kwargs: object) -> int:
+            calls.append("score")
+            raise LLMError("down")
+
         with mock.patch.object(feeds, "update_all", lambda *args, **kwargs: calls.append("fetch") or 5), \
              mock.patch.object(daemon, "prefilter", lambda *args: calls.append("prefilter")), \
              mock.patch.object(extract, "enrich_candidates", lambda *args, **kwargs: calls.append("extract")), \
-             mock.patch.object(ranker, "score_candidates", side_effect=LLMError("down")):
-            self.assertEqual(daemon.gather(self.config, self.database, self.llm), 5)
-            self.assertEqual(calls, ["fetch", "prefilter", "extract"])
-            with self.assertLogs("indefinite_articles.daemon", "WARNING"):
-                self.assertEqual(daemon.refresh(self.config, self.database, self.llm), 5)
+             mock.patch.object(ranker, "score_candidates", score), \
+             self.assertLogs("indefinite_articles.daemon", "WARNING"):
+            self.assertEqual(daemon.refresh(self.config, self.database, self.llm), 5)
+        self.assertEqual(calls, ["fetch", "prefilter", "extract", "score"])
 
     def test_send_digest_nothing_to_send(self):
         _, empty = config_with_articles(0)
@@ -64,7 +72,7 @@ class DaemonFunctionTests(unittest.TestCase):
         sent = []
         with mock.patch.object(mailer, "send", lambda config, message: sent.append(message)):
             daemon.send_digest(self.config, self.database, dry_run=True)
-            self.assertEqual((sent, self.database.count("SELECT COUNT(*) FROM digests")), ([], 0))
+            self.assertEqual((sent, self.database.statistics()["digests"]), ([], 0))
             message = daemon.send_digest(self.config, self.database)
         assert message is not None
         self.assertEqual(sent, [message])
@@ -75,7 +83,7 @@ class DaemonFunctionTests(unittest.TestCase):
         self.assertEqual(len(self.database.pool(3)), 1)  # sent articles are not offered again
 
     def test_send_digest_survives_broken_debug_report(self):
-        with mock.patch.object(daemon, "debug_report", side_effect=KeyError("oops")), \
+        with mock.patch.object(self.database, "statistics", side_effect=KeyError("oops")), \
              self.assertLogs("indefinite_articles.daemon", "ERROR"):
             message = daemon.send_digest(self.config, self.database, dry_run=True)
         assert message is not None
@@ -85,54 +93,126 @@ class DaemonFunctionTests(unittest.TestCase):
         self.config.feeds = [Feed("https://feed/a"), Feed("https://feed/b")]
         self.database.feed_ok("https://feed/a", "A", feeds.CacheValidators())
         ranker.ensure_profile(self.config, self.database)
-        info: dict = {"select": {}, "timings": {"select": 0.25},
-                      "jobs": {"scoring": {"running_since": 1.0}, "inbox poll": {}},
-                      "llm": LLM(self.config.llm)}
-        items = ranker.select(self.config, self.database, debug=info["select"])
-        lines = daemon.debug_report(self.config, self.database, items, info)
-        text = "\n".join(lines)
+        status = {"jobs": {"scoring": {"running_since": 1.0}, "inbox poll": {}}, "llm": LLM(self.config.llm)}
+        message = daemon.send_digest(self.config, self.database, dry_run=True, status=status)
+        assert message is not None
+        text = mailer.part_text(message).split("-- debug --\n", 1)[1]
+        lines = text.splitlines()
         self.assertIn("feeds: 2 configured, 0 failing, 1 never fetched", text)
         self.assertIn("selection: 3 candidates, 0 scored", text)
-        self.assertIn("timings: select 0.2s", text)
+        self.assertIn("timings: select ", text)
         self.assertIn("  inbox poll: idle, not run yet", text)
         self.assertIn("llm stall limits: none learned yet", text)
         self.assertIn("classifier: not trained yet", text)
-        self.assertEqual(sum(line[:1].isdigit() for line in lines), len(items))  # one row per item
+        self.assertEqual(sum(line[:1].isdigit() for line in lines), self.config.articles_per_digest)  # one row per item
 
 
 class ServiceTests(unittest.TestCase):
+    """Drives the service through run() and stops it the way SIGTERM does."""
+
     def setUp(self):
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory)
         self.config = Config()
-        self.config.database = ":memory:"
-        self.service = daemon.Service(self.config)
-        self.addCleanup(self.service.database.close)
+        self.config.database = str(directory / "service.db")
+        self.first_scoring = threading.Event()
+        self.score = mock.Mock(return_value=0)
+        self.score.side_effect = lambda *args, **kwargs: (self.first_scoring.set(), self.score.return_value)[1]
+        # Quiet defaults: fetching waits until the service stops, the inbox is empty and
+        # today's digest has already gone out.
+        for patch in (mock.patch.object(feeds, "update_all", self._fetch_nothing),
+                      mock.patch.object(daemon, "prefilter", lambda *args: None),
+                      mock.patch.object(extract, "enrich_candidates", lambda *args, **kwargs: 0),
+                      mock.patch.object(ranker, "score_candidates", self.score),
+                      mock.patch.object(inbox, "poll", return_value=0),
+                      mock.patch.object(ranker, "update_profile", return_value=False)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self._set_last_digest_date(datetime.now().date().isoformat())
+
+    @staticmethod
+    def _fetch_nothing(*args: object, stop: threading.Event, **kwargs: object) -> int:
+        stop.wait()
+        return 0
+
+    def _set_last_digest_date(self, value: str):
+        database = Database(self.config.database)
+        database.set_state("last_digest_date", value)
+        database.connection.commit()
+        database.close()
+
+    def _run_service(self, until: Callable[[dict[str, dict]], bool]) -> dict[str, dict]:
+        """Run the service until `until(service.jobs)` holds, then stop it; returns its jobs."""
+        services: list[daemon.Service] = []
+
+        def run():  # the service must be built on the thread that runs it
+            service = daemon.Service(self.config)
+            service.TICK = 0.01
+            services.append(service)
+            service.run()
+
+        with mock.patch.object(signal, "signal") as register_handler:
+            thread = threading.Thread(target=run)
+            thread.start()
+            try:
+                deadline = time.monotonic() + 5
+                while not (services and until(services[0].jobs)):
+                    self.assertLess(time.monotonic(), deadline, f"timed out; jobs: {services and services[0].jobs}")
+                    time.sleep(0.01)
+            finally:
+                for call in register_handler.call_args_list[:1]:  # as if sent SIGTERM
+                    call.args[1](signal.SIGTERM, None)
+                thread.join(10)
+        self.assertFalse(thread.is_alive())
+        return services[0].jobs
 
     def test_fetch_asks_for_scoring(self):
-        with mock.patch.object(daemon, "gather", return_value=4):
-            self.assertEqual(self.service.fetch(self.service.database), "4 new articles")
-        self.assertTrue(self.service.score_wanted.is_set())
+        def fetch_after_first_scoring(*args: object, **kwargs: object) -> int:
+            self.first_scoring.wait(5)
+            return 4
+
+        with mock.patch.object(feeds, "update_all", fetch_after_first_scoring):
+            jobs = self._run_service(lambda jobs: self.score.call_count >= 2)
+        self.assertEqual(jobs["feed fetch"]["last_result"], "4 new articles")
 
     def test_score_reports_skips(self):
-        with mock.patch.object(ranker, "score_candidates", return_value=7):
-            self.assertEqual(self.service.score(self.service.database), "scored 7")
-        with mock.patch.object(ranker, "score_candidates", side_effect=LLMError("down")), \
-             self.assertLogs("indefinite_articles.daemon", "WARNING"):
-            self.assertEqual(self.service.score(self.service.database), "skipped: down")
+        self.score.return_value = 7
+        jobs = self._run_service(lambda jobs: "last_end" in jobs["scoring"])
+        self.assertEqual(jobs["scoring"]["last_result"], "scored 7")
+        self.score.side_effect = LLMError("down")
+        with self.assertLogs("indefinite_articles.daemon", "WARNING"):
+            jobs = self._run_service(lambda jobs: "last_end" in jobs["scoring"])
+        self.assertEqual(jobs["scoring"]["last_result"], "skipped: down")
 
     def test_poll_and_learn(self):
-        with mock.patch.object(inbox, "poll", return_value=2), \
-             mock.patch.object(ranker, "update_profile", return_value=False):
-            self.assertEqual(self.service.poll_and_learn(self.service.database), "2 replies")
-        self.assertFalse(self.service.score_wanted.is_set())
-        with mock.patch.object(inbox, "poll", return_value=0), \
-             mock.patch.object(ranker, "update_profile", return_value=True):
-            self.assertEqual(self.service.poll_and_learn(self.service.database), "0 replies, profile updated")
-        self.assertTrue(self.service.score_wanted.is_set())
+        with mock.patch.object(inbox, "poll", return_value=2):
+            jobs = self._run_service(lambda jobs: "last_end" in jobs["inbox poll"] and "last_end" in jobs["scoring"])
+        self.assertEqual(jobs["inbox poll"]["last_result"], "2 replies")
+        self.assertEqual(self.score.call_count, 1)  # only the run at startup
+
+    def test_profile_update_asks_for_scoring(self):
+        def update_after_first_scoring(*args: object) -> bool:
+            self.first_scoring.wait(5)
+            return True
+
+        with mock.patch.object(ranker, "update_profile", update_after_first_scoring):
+            jobs = self._run_service(lambda jobs: self.score.call_count >= 2)
+        self.assertEqual(jobs["inbox poll"]["last_result"], "0 replies, profile updated")
 
     def test_digest_marks_the_day_even_when_empty(self):
+        self.config.digest_time = "00:00"
+        self._set_last_digest_date("")
+        today = datetime.now().date().isoformat()
+
+        def digest_done(jobs: dict[str, dict]) -> bool:
+            database = Database(self.config.database)
+            try:
+                return database.get_state("last_digest_date") == today
+            finally:
+                database.close()
+
         with self.assertLogs("indefinite_articles.daemon", "WARNING"):
-            self.service.digest()
-        self.assertEqual(self.service.database.get_state("last_digest_date"), datetime.now().date().isoformat())
+            self._run_service(digest_done)
 
 
 class CommandLineTests(unittest.TestCase):
