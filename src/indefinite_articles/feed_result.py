@@ -4,8 +4,9 @@ import logging
 import sqlite3
 from typing import TYPE_CHECKING
 
-from .config import Config, Feed
+from .config import Config
 from .database import Database
+from .feed import Feed
 
 if TYPE_CHECKING:
     from .feeds import FetchResult, ParsedFeed
@@ -64,7 +65,7 @@ class FeedResult:
             return 0
         assert self.parsed is not None
         title, entries = self.parsed.title, self.parsed.entries
-        source = feed.name or title or feed.url
+        source = feed.source(title)
         entries.sort(key=lambda entry: entry.published or 0, reverse=True)
         added = sum(database.add_article(entry, source, feed.category) for entry in entries[: feed.max_items])
         database.feed_ok(feed.url, title, self.fetched.validators)

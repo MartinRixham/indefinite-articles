@@ -76,7 +76,7 @@ def _command_feeds(config: Config, args: argparse.Namespace):
         shown = 0
         for feed in sorted(config.feeds, key=lambda feed: (feed.category, feed.name or feed.url)):
             state = states.get(feed.url)
-            source = feed.name or (state["title"] if state else "") or feed.url
+            source = feed.source(state["title"] if state else "")
             if state is None:
                 health = "never fetched"
             elif state["failures"]:
@@ -187,7 +187,7 @@ def _command_check(config: Config, args: argparse.Namespace):
     for feed in config.feeds[: args.feeds]:
         try:
             parsed = feeds.parse_feed(feeds.fetch(feed.url))
-            print(f"[ok]   feed {feed.name or parsed.title}: {len(parsed.entries)} entries")
+            print(f"[ok]   feed {feed.source(parsed.title)}: {len(parsed.entries)} entries")
         except Exception as error:
             ok = False
             print(f"[FAIL] feed {feed.url}: {error}")

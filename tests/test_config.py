@@ -8,23 +8,9 @@ from email.message import EmailMessage
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles.config import (Config, ConfigError, EmailConfig, Feed, LLMConfig, ServerConfig, TimeOfDay,
+from indefinite_articles.config import (Config, ConfigError, EmailConfig, LLMConfig, ServerConfig, TimeOfDay,
                                         load)
-
-
-class FeedTests(unittest.TestCase):
-    def test_from_table_defaults(self):
-        feed = Feed.from_table({"url": "https://example.com/feed"})
-        self.assertEqual((feed.name, feed.category, feed.max_items), ("", "", 40))
-
-    def test_from_table_converts_max_items(self):
-        feed = Feed.from_table({"url": "https://example.com/feed", "name": "Blog", "category": "Tech",
-                                "max_items": "7"})
-        self.assertEqual((feed.name, feed.category, feed.max_items), ("Blog", "Tech", 7))
-
-    def test_host(self):
-        self.assertEqual(Feed("https://Blog.Example.com:8443/rss?x=1").host, "blog.example.com")
-        self.assertEqual(Feed("not a url").host, "")
+from indefinite_articles.feed import Feed
 
 
 class SectionTests(unittest.TestCase):

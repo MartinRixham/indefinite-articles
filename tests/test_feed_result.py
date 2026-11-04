@@ -2,8 +2,9 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from indefinite_articles.config import Config, Feed
+from indefinite_articles.config import Config
 from indefinite_articles.database import Database
+from indefinite_articles.feed import Feed
 from indefinite_articles.feed_result import FeedResult
 from indefinite_articles.feeds import CacheValidators, Entry, FetchResult, ParsedFeed
 

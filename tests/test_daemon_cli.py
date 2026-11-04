@@ -14,8 +14,9 @@ from unittest import mock
 
 from indefinite_articles import cli, daemon, embed, extract, feeds, inbox, mailer, ranker
 from indefinite_articles.article import Article
-from indefinite_articles.config import Config, Feed
+from indefinite_articles.config import Config
 from indefinite_articles.database import Database
+from indefinite_articles.feed import Feed
 from indefinite_articles.llm import LLM, LLMError
 
 

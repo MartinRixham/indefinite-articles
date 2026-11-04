@@ -8,8 +8,9 @@ from unittest import mock
 
 from indefinite_articles import embed, feeds, ranker
 from indefinite_articles.article import Article
-from indefinite_articles.config import Config, Feed, load as load_config
+from indefinite_articles.config import Config, load as load_config
 from indefinite_articles.database import Database
+from indefinite_articles.feed import Feed
 from indefinite_articles.llm import LLM, LLMError
 
 ROOT = Path(__file__).resolve().parent.parent

@@ -3,7 +3,6 @@
 import os
 import re
 import tomllib
-import urllib.parse
 import xml.etree.ElementTree as ElementTree
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -11,6 +10,8 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formatdate, getaddresses, make_msgid
 from pathlib import Path
+
+from .feed import Feed
 
 DEFAULT_CONFIG_PATH = "/etc/indefinite-articles/indefinite-articles.toml"
 
@@ -32,24 +33,6 @@ class TimeOfDay:
         """The next occurrence of this time of day, strictly after `now`."""
         at = now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
         return at if at > now else at + timedelta(days=1)
-
-
-@dataclass
-class Feed:
-    url: str
-    name: str = ""
-    category: str = ""
-    max_items: int = 40  # newest entries kept per fetch
-
-    @classmethod
-    def from_table(cls, table: dict) -> "Feed":
-        """A `[[feeds]]` entry from the config file."""
-        return cls(url=table["url"], name=table.get("name", ""), category=table.get("category", ""),
-                   max_items=int(table.get("max_items", 40)))
-
-    @property
-    def host(self) -> str:
-        return urllib.parse.urlsplit(self.url).hostname or ""
 
 
 @dataclass
@@ -264,16 +247,10 @@ def _opml_feeds(element: ElementTree.Element, category: str) -> Iterator[Feed]:
     for outline in element:
         if outline.tag != "outline":
             continue
-        label = outline.get("title") or outline.get("text") or ""
-        url = outline.get("xmlUrl")
-        if url:
-            try:
-                max_items = int(outline.get("maxItems", "40"))
-            except ValueError:
-                max_items = 40
-            yield Feed(url=url.strip(), name=label.strip(),
-                       category=category, max_items=max_items)
+        if outline.get("xmlUrl"):
+            yield Feed.from_outline(outline, category)
         else:
+            label = outline.get("title") or outline.get("text") or ""
             yield from _opml_feeds(outline, label.strip() or category)
 
 
@@ -287,8 +264,7 @@ def _parse_feed_list(text: str) -> list[Feed]:
         if line.startswith("#"):
             category = line.lstrip("#").strip()
             continue
-        url, _, name = line.partition(" ")
-        out.append(Feed(url=url, name=name.strip(), category=category))
+        out.append(Feed.from_line(line, category))
     return out
 
 

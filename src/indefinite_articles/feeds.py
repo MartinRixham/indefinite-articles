@@ -20,8 +20,9 @@ from html.parser import HTMLParser
 
 from . import __version__
 from .article import title_key
-from .config import Config, Feed
+from .config import Config
 from .database import Database
+from .feed import Feed
 from .feed_result import FeedResult
 
 log = logging.getLogger(__name__)

@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from indefinite_articles import feeds
-from indefinite_articles.config import Config, Feed
+from indefinite_articles.config import Config
 from indefinite_articles.database import Database
+from indefinite_articles.feed import Feed
 
 
 def rss(*items: str, title: str = "Channel") -> bytes:
