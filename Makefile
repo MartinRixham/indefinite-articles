@@ -1,5 +1,5 @@
 NAME    := indefinite-articles
-VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+VERSION := $(shell sed -n 's/^__version__ = "\(.*\)"/\1/p' src/indefinite_articles/__init__.py)
 TOPDIR  := $(CURDIR)/build/rpmbuild
 TARBALL := $(TOPDIR)/SOURCES/$(NAME)-$(VERSION).tar.gz
 FILES   := pyproject.toml README.md LICENSE Makefile src tests dist packaging

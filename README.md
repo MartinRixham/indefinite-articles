@@ -37,7 +37,7 @@ The packages are written to `build/rpmbuild/RPMS/noarch/` and `build/rpmbuild/SR
 ## Install and set up
 
 ```sh
-sudo dnf install ./indefinite-articles-0.4.0-1.fc44.noarch.rpm
+sudo dnf install ./indefinite-articles-*.noarch.rpm
 
 # 1. A local LLM (Ollama is in the Fedora repos)
 sudo dnf install ollama ollama-rocm     # ollama-rocm: AMD GPUs, including integrated Radeon

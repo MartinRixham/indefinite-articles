@@ -43,7 +43,7 @@ Schema changes: `database.SCHEMA` uses `CREATE TABLE IF NOT EXISTS`. New `articl
 
 - `dist/` holds the files installed to `/etc` and systemd: the config, `feeds.d/default.opml`, the unit file, sysusers and the Ollama iGPU drop-in.
 - `packaging/indefinite-articles.spec` builds the RPM. The `Containerfile` installs that RPM, so container paths match the RPM's.
-- The version lives in `pyproject.toml`. The Makefile reads it from there, and the README's install example mentions it too.
+- The version lives in `src/indefinite_articles/__init__.py` (`__version__`); `pyproject.toml` (via `tool.setuptools.dynamic`) and the Makefile read it from there. The spec file's `Version:` and its newest `%changelog` entry must match it; `tests/test_version.py` checks this, so a release means editing `__init__.py` and the spec (`Version:` plus a new changelog entry).
 - CI (`.github/workflows/build.yml`) runs the tests, then builds the RPM on Fedora 44 and 45, then publishes the container image to ghcr.
 
 ## Code style

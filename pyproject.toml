@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "indefinite-articles"
-version = "0.4.0"
+dynamic = ["version"]
 description = "Daily article recommendations by email, trained on your replies with a local LLM"
 readme = "README.md"
 license = "MIT"
@@ -14,6 +14,9 @@ dependencies = ["numpy"]
 
 [project.scripts]
 indefinite-articles = "indefinite_articles.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "indefinite_articles.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
