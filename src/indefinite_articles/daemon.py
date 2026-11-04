@@ -67,9 +67,9 @@ def _backlog(config: Config, database: Database) -> str:
     profile = database.current_profile()
     profile_id = profile["id"] if profile else None
     short = ranker.shortlist(config, database)
-    unscored = sum(article["score"] is None for article in short)
-    stale = sum(article["score"] is not None and article["score_profile_id"] != profile_id for article in short)
-    no_text = sum(article["content_status"] is None for article in short) if config.fetch_full_articles else 0
+    unscored = sum(article.score is None for article in short)
+    stale = sum(article.has_stale_score(profile_id) for article in short)
+    no_text = sum(article.awaiting_full_text for article in short) if config.fetch_full_articles else 0
     unembedded = len(database.unembedded(config.max_article_age_days, 50000)) if config.llm.embedding_model else 0
     return (f"backlog: shortlist {len(short)}, {unscored} never scored, {stale} scored against"
             f" an older profile, {no_text} awaiting full text; {unembedded} articles not embedded")
@@ -151,13 +151,13 @@ def _debug_report(config: Config, database: Database, items: list[ranker.DigestP
     scores, rank = selection.get("scores", {}), selection.get("rank", {})
     for position, pick in enumerate(items, start=1):
         article = pick.article
-        score = scores.get(article["id"])
+        score = scores.get(article.id)
         if score is None:
             continue
         llm_score = f"{score.llm:5.1f}" if score.llm is not None else "    -"
         lines.append(
-            f"{position:<3} {rank.get(article['id'], 0):>4}  {score.final:5.2f} = {llm_score} {score.base:+5.2f}"
-            f" {score.bonus:+5.2f}   {(article['content_status'] or '-')[:8]:8}  {article['source'][:30]}"
+            f"{position:<3} {rank.get(article.id, 0):>4}  {score.final:5.2f} = {llm_score} {score.base:+5.2f}"
+            f" {score.bonus:+5.2f}   {(article.content_status or '-')[:8]:8}  {article.source[:30]}"
             + ("  [explore]" if pick.exploratory else "")
         )
     lines.append("(adj: embedding agreement, or fallback rank when the LLM did not score;"

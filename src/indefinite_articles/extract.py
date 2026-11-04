@@ -17,7 +17,8 @@ from http.client import HTTPMessage
 from typing import IO
 
 from .config import Config
-from .database import ArticleRow, Database
+from .article import Article
+from .database import Database
 from .feeds import USER_AGENT
 
 log = logging.getLogger(__name__)
@@ -228,16 +229,16 @@ class ArticleContent:
     status: str
 
 
-def _fetch_article(config: Config, stop: threading.Event | None, article: ArticleRow) -> ArticleContent:
+def _fetch_article(config: Config, stop: threading.Event | None, article: Article) -> ArticleContent:
     if stop is not None and stop.is_set():
-        return ArticleContent(article["id"], None, "skipped")
+        return ArticleContent(article.id, None, "skipped")
     try:
-        text = fetch_page(article["url"], config.article_chars, config.allow_private_addresses)
-        return ArticleContent(article["id"], text, "ok" if text else "empty")
+        text = fetch_page(article.url, config.article_chars, config.allow_private_addresses)
+        return ArticleContent(article.id, text, "ok" if text else "empty")
     except BlockedAddress as error:
-        return ArticleContent(article["id"], "", f"blocked: {error}")
+        return ArticleContent(article.id, "", f"blocked: {error}")
     except Exception as error:
-        return ArticleContent(article["id"], "", f"failed: {str(error)[:150]}")
+        return ArticleContent(article.id, "", f"failed: {str(error)[:150]}")
 
 
 def enrich_candidates(config: Config, database: Database, stop: threading.Event | None = None) -> int:
@@ -245,7 +246,7 @@ def enrich_candidates(config: Config, database: Database, stop: threading.Event 
     if not config.fetch_full_articles:
         return 0
     from .ranker import shortlist
-    todo = [article for article in shortlist(config, database) if article["content_status"] is None]
+    todo = [article for article in shortlist(config, database) if article.awaiting_full_text]
     if not todo:
         return 0
     ok = 0

@@ -20,12 +20,6 @@ def unit(*values: float) -> bytes:
     return embed.pack(list(values))
 
 
-def article(**fields: object) -> dict:
-    row = {"id": 1, "title": "Title", "summary": "", "content": None, "source": "Source", "category": ""}
-    row.update(fields)
-    return row
-
-
 class EmbedTests(unittest.TestCase):
     def test_pack_normalises_to_float32(self):
         vector = np.frombuffer(embed.pack([3, 4]), dtype=np.float32)
@@ -51,9 +45,9 @@ class EmbedTests(unittest.TestCase):
         self.database.connection.commit()
 
     def _prefilter(self) -> dict[str, float]:
-        """Run the pre-filter; returns each unsent article's score by title."""
+        """Run the pre-filter; returns each unsent article's score by title (unscored ones are left out)."""
         embed.update_prefilter(self.config, self.database, self.llm, ranker.ensure_profile(self.config, self.database))
-        return {row["title"]: row["prefilter"] for row in self.database.pool(3)}
+        return {row.title: row.prefilter for row in self.database.pool(3) if row.prefilter is not None}
 
     def test_embedded_text_is_title_and_start_of_summary(self):
         self.database.add_article(Entry("https://e/1", "Short", "", None), "S")
@@ -262,14 +256,14 @@ class RankerTests(unittest.TestCase):
         self._add("https://d/1", "D", 0.5, profile_id)
         debug: dict = {}
         chosen = ranker.select(self.config, self.database, random.Random(1), debug)
-        self.assertEqual([(pick.article["url"], pick.exploratory) for pick in chosen[:3]],
+        self.assertEqual([(pick.article.url, pick.exploratory) for pick in chosen[:3]],
                          [("https://a/1", False), ("https://a/2", False), ("https://b/1", False)])
         self.assertEqual(len(chosen), 4)
         self.assertTrue(chosen[3].exploratory)
-        self.assertIn(chosen[3].article["url"], ("https://c/1", "https://d/1"))
+        self.assertIn(chosen[3].article.url, ("https://c/1", "https://d/1"))
         self.assertEqual((debug["candidates"], debug["llm_scored"], debug["stale_scored"]), (6, 6, 0))
-        self.assertEqual(debug["rank"][chosen[0].article["id"]], 1)
-        self.assertIsInstance(debug["scores"][chosen[0].article["id"]], ranker.ScoreBreakdown)
+        self.assertEqual(debug["rank"][chosen[0].article.id], 1)
+        self.assertIsInstance(debug["scores"][chosen[0].article.id], ranker.ScoreBreakdown)
 
     def test_select_fills_past_cap_with_few_sources(self):
         for index in range(5):
@@ -291,7 +285,7 @@ class RankerTests(unittest.TestCase):
         self.database.connection.commit()
         self.config.articles_per_digest, self.config.exploration = 1, 0
         chosen = ranker.select(self.config, self.database, random.Random(1))
-        self.assertEqual(chosen[0].article["url"], "https://liked/new")
+        self.assertEqual(chosen[0].article.url, "https://liked/new")
 
     def test_update_profile(self):
         llm = mock.Mock(spec=LLM)

@@ -2,19 +2,17 @@
 
 import sqlite3
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, overload
+
+from .article import Article
 
 if TYPE_CHECKING:
     from .extract import ArticleContent
     from .feeds import CacheValidators, Entry
     from .ranker import ArticleScore, DigestPick
-
-
-# An article as a database row, or (in tests) as a plain dict with the same keys.
-type ArticleRow = sqlite3.Row | Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -207,7 +205,7 @@ class Database:
         )
         return True
 
-    def candidates(self, max_age_days: int, limit: int) -> list[sqlite3.Row]:
+    def candidates(self, max_age_days: int, limit: int) -> list[Article]:
         """Unsent, recent articles, balanced across sources so a busy feed can't crowd out others."""
         cutoff = time.time() - max_age_days * 86400
         source_count = self.connection.execute(
@@ -215,36 +213,40 @@ class Database:
             "AND COALESCE(published, fetched_at) >= ?", (cutoff,)
         ).fetchone()[0] or 1
         per_source = max(5, -(-limit // source_count))
-        return self.connection.execute(
+        return self._articles(
             "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY source "
             "  ORDER BY COALESCE(published, fetched_at) DESC) AS rn "
             "  FROM articles WHERE sent_digest_id IS NULL AND COALESCE(published, fetched_at) >= ?) "
             "WHERE rn <= ? ORDER BY rn, COALESCE(published, fetched_at) DESC LIMIT ?",
             (cutoff, per_source, limit),
-        ).fetchall()
+        )
 
-    def pool(self, max_age_days: int, limit: int = 50000) -> list[sqlite3.Row]:
+    def pool(self, max_age_days: int, limit: int = 50000) -> list[Article]:
         """All unsent recent articles."""
         cutoff = time.time() - max_age_days * 86400
-        return self.connection.execute(
+        return self._articles(
             "SELECT * FROM articles WHERE sent_digest_id IS NULL "
             "AND COALESCE(published, fetched_at) >= ? "
             "ORDER BY COALESCE(published, fetched_at) DESC LIMIT ?",
             (cutoff, limit),
-        ).fetchall()
+        )
+
+    def _articles(self, sql: str, parameters: Sequence[object]) -> list[Article]:
+        """The articles a query returns; it must select every column of `articles`."""
+        return [Article.from_row(row) for row in self.connection.execute(sql, parameters)]
 
     # -- embeddings ----------------------------------------------------------
-    def unembedded(self, max_age_days: int, limit: int) -> list[sqlite3.Row]:
+    def unembedded(self, max_age_days: int, limit: int) -> list[Article]:
         """Recent unsent articles, and any rated article, that have no embedding yet."""
         cutoff = time.time() - max_age_days * 86400
-        return self.connection.execute(
-            "SELECT a.id, a.title, a.summary FROM articles a "
+        return self._articles(
+            "SELECT a.* FROM articles a "
             "LEFT JOIN embeddings e ON e.article_id = a.id WHERE e.article_id IS NULL AND ("
             " (a.sent_digest_id IS NULL AND COALESCE(a.published, a.fetched_at) >= ?)"
             " OR a.id IN (SELECT article_id FROM feedback WHERE rating != 0)) "
             "ORDER BY a.id DESC LIMIT ?",
             (cutoff, limit),
-        ).fetchall()
+        )
 
     def set_embedding(self, article_id: int, vector: bytes) -> None:
         self.connection.execute(
@@ -372,7 +374,7 @@ class Database:
         digest_id = cursor.lastrowid
         assert digest_id is not None  # set by every INSERT
         for position, pick in enumerate(picks, start=1):
-            article_id = pick.article["id"]
+            article_id = pick.article.id
             self.connection.execute(
                 "INSERT INTO digest_items(digest_id, position, article_id, exploratory)"
                 " VALUES(?, ?, ?, ?)",
@@ -395,12 +397,13 @@ class Database:
                 return row
         return None
 
-    def digest_items(self, digest_id: int) -> list[sqlite3.Row]:
-        return self.connection.execute(
-            "SELECT di.position, di.exploratory, a.* FROM digest_items di "
+    def digest_items(self, digest_id: int) -> list[Article]:
+        """The digest's articles, in the order the email listed them."""
+        return self._articles(
+            "SELECT a.* FROM digest_items di "
             "JOIN articles a ON a.id = di.article_id WHERE di.digest_id=? ORDER BY di.position",
             (digest_id,),
-        ).fetchall()
+        )
 
     # -- feedback ------------------------------------------------------------
     def add_feedback(self, article_id: int, rating: int, comment: str) -> None:

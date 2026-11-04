@@ -18,6 +18,7 @@ from datetime import datetime
 from html.parser import HTMLParser
 
 from . import __version__
+from .article import title_key
 from .config import Config, Feed
 from .database import Database
 
@@ -37,7 +38,7 @@ class Entry:
 
     @property
     def title_key(self) -> str:
-        return _title_key(self.title)
+        return title_key(self.title)
 
 
 @dataclass
@@ -102,11 +103,6 @@ def html_to_text(markup: str) -> str:
     except Exception:
         text = re.sub(r"<[^>]+>", " ", markup)
     return re.sub(r"\s+", " ", html.unescape(text)).strip()
-
-
-def _title_key(title: str) -> str:
-    """Normalised title used to de-duplicate the same story from different feeds."""
-    return re.sub(r"[^a-z0-9]+", "", title.lower())[:120]
 
 
 def _local(tag: str) -> str:

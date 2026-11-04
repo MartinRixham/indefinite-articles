@@ -3,10 +3,11 @@ from email.message import EmailMessage
 from unittest import mock
 
 from indefinite_articles import replies
+from indefinite_articles.article import Article
 from indefinite_articles.llm import LLM, LLMError
 
-ITEMS = [{"title": "Rust", "source": "Blog"}, {"title": "Gossip", "source": "Tabloid"},
-         {"title": "Gardens", "source": "Weekly"}]
+ITEMS = [Article(1, "https://e/1", "Rust", source="Blog"), Article(2, "https://e/2", "Gossip", source="Tabloid"),
+         Article(3, "https://e/3", "Gardens", source="Weekly")]
 
 
 def stub_llm(answer: object = None, error: Exception | None = None):

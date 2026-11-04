@@ -21,7 +21,7 @@ import numpy as np
 
 from .classifier import Classifier
 from .config import Config
-from .database import ArticleRow, Database
+from .database import Database
 from .llm import LLM, LLMError
 from .profile_phrases import ProfilePhrases
 from .vectors import pack
@@ -64,10 +64,6 @@ class ClassifierFit:
     classifier: Classifier | None
     like_count: int
     dislike_count: int
-
-
-def _article_text(article: ArticleRow) -> str:
-    return f"{article['title']}. {(article['summary'] or '')[:600]}"
 
 
 def _split_profile(text: str) -> tuple[list[str], list[str]]:
@@ -129,9 +125,9 @@ def embed_new(
         if stop is not None and stop.is_set():
             break
         batch = rows[start : start + batch_size]
-        vectors = llm.embed([_article_text(article) for article in batch])
+        vectors = llm.embed([article.embedding_text() for article in batch])
         for article, vector in zip(batch, vectors):
-            database.set_embedding(article["id"], pack(vector))
+            database.set_embedding(article.id, pack(vector))
         database.connection.commit()
         done += len(batch)
     if done:

@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
+from .article import Article
 from .config import Config
-from .database import ArticleRow, Database, SourceStatistics
+from .database import Database, SourceStatistics
 from .llm import LLM, LLMError, LLMUnavailable
 
 log = logging.getLogger(__name__)
@@ -62,15 +63,6 @@ def _examples(database: Database) -> str:
     )
 
 
-def _article_text(article: ArticleRow, limit: int) -> str:
-    """Best available description of an article: page text if fetched, else the feed summary."""
-    text = article["content"] or article["summary"] or ""
-    if article["content"] and article["summary"] and len(article["content"]) < len(article["summary"]):
-        text = article["summary"]
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
-
-
 SCALE = (
     "Score on this fixed scale, the same for every article:\n"
     "0-1: the reader would actively avoid it (a topic or style they dislike)\n"
@@ -110,7 +102,7 @@ class ArticleScore:
 @dataclass
 class DigestPick:
     """An article chosen for the digest; exploratory picks are random, to keep learning."""
-    article: Any
+    article: Article
     exploratory: bool
 
 
@@ -128,12 +120,11 @@ class ScoreBreakdown:
     final: float
 
 
-def _score_one(llm: JSONChat, prefix: str, article: ArticleRow, per_article: int = 1500) -> ArticleScore:
+def _score_one(llm: JSONChat, prefix: str, article: Article, per_article: int = 1500) -> ArticleScore:
     """Score a single article from 0 to 10 for the reader described in `prefix`."""
-    source = f"{article['source']} ({article['category']})" if article["category"] else article["source"]
     user = (
         prefix + "Article to rate:\n"
-        f"Title: {article['title']}\nSource: {source}\n{_article_text(article, per_article)}"
+        f"Title: {article.title}\nSource: {article.source_label}\n{article.description(per_article)}"
     )
     data = llm.chat_json(SCORE_SYSTEM, user)
     if isinstance(data, dict) and isinstance(data.get("ratings"), list) and data["ratings"]:
@@ -149,7 +140,7 @@ def _score_one(llm: JSONChat, prefix: str, article: ArticleRow, per_article: int
     return ArticleScore(score, str(data.get("reason", ""))[:200])
 
 
-def shortlist(config: Config, database: Database) -> list:
+def shortlist(config: Config, database: Database) -> list[Article]:
     """The articles worth spending LLM time on today.
 
     Uses the embedding pre-filter when available: the best matches (with a per-source
@@ -157,32 +148,33 @@ def shortlist(config: Config, database: Database) -> list:
     embeddings, falls back to the newest articles balanced across sources.
     """
     pool = database.pool(config.max_article_age_days)
-    scored = [article for article in pool if article["prefilter"] is not None]
+    scored = [article for article in pool if article.prefilter is not None]
     limit = config.max_candidates
     if not scored:
         return database.candidates(config.max_article_age_days, limit)
     random_count = max(1, limit // 10)
     cap = max(3, limit // 15)
-    ranked = sorted(scored, key=lambda article: article["prefilter"], reverse=True)
-    out, per_source = [], {}
+    ranked = sorted(scored, key=lambda article: article.prefilter or 0.0, reverse=True)
+    out: list[Article] = []
+    per_source: dict[str, int] = {}
     for article in ranked:
         if len(out) >= limit - random_count:
             break
-        if per_source.get(article["source"], 0) < cap:
-            per_source[article["source"]] = per_source.get(article["source"], 0) + 1
+        if per_source.get(article.source, 0) < cap:
+            per_source[article.source] = per_source.get(article.source, 0) + 1
             out.append(article)
-    chosen = {article["id"] for article in out}
+    chosen = {article.id for article in out}
     # With only a few feeds the cap can't fill the list: top up ignoring it.
     for article in ranked:
         if len(out) >= limit - random_count:
             break
-        if article["id"] not in chosen:
+        if article.id not in chosen:
             out.append(article)
-            chosen.add(article["id"])
+            chosen.add(article.id)
     # Random picks that stay the same all day, so they aren't re-chosen every hour.
     today = date.today().isoformat()
-    rest = sorted((article for article in pool if article["id"] not in chosen),
-                  key=lambda article: hashlib.sha1(f"{today}:{article['id']}".encode()).digest())
+    rest = sorted((article for article in pool if article.id not in chosen),
+                  key=lambda article: hashlib.sha1(f"{today}:{article.id}".encode()).digest())
     out += rest[:random_count]
     return out
 
@@ -190,11 +182,11 @@ def shortlist(config: Config, database: Database) -> list:
 def score_candidates(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
     """Score shortlisted articles that are unscored or were scored against an older profile."""
     profile = ensure_profile(config, database)
-    todo = [article for article in shortlist(config, database) if article["score_profile_id"] != profile["id"]]
+    todo = [article for article in shortlist(config, database) if not article.scored_against(profile["id"])]
     if not todo:
         return 0
     # Unscored first, so a profile change never leaves fresh articles without any score.
-    todo.sort(key=lambda article: article["score"] is not None)
+    todo.sort(key=lambda article: article.score is not None)
     prefix = _score_prefix(profile["text"], _examples(database))
     # Room left for the article after the shared prefix.
     per_article = min(config.article_chars, max(1000, config.llm.max_prompt_chars - len(prefix) - 300))
@@ -205,11 +197,11 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
         try:
             result = _score_one(llm, prefix, article, per_article)
         except LLMError as error:
-            log.warning("scoring article %d failed: %s", article["id"], error)
+            log.warning("scoring article %d failed: %s", article.id, error)
             if isinstance(error, LLMUnavailable):
                 break  # leave the rest for the next round
             continue
-        database.set_score(article["id"], result, profile["id"])
+        database.set_score(article.id, result, profile["id"])
         database.connection.commit()
         done += 1
     log.info("scored %d/%d candidate articles", done, len(todo))
@@ -221,37 +213,37 @@ def _source_bonus(statistics: dict, source: str) -> float:
     return 3.0 * (statistics.get(source, SourceStatistics()).smoothed_like_rate - 0.5)
 
 
-def _breakdown(article: ArticleRow, statistics: dict, prefilter_ranks: list[float]) -> ScoreBreakdown:
-    bonus = _source_bonus(statistics, article["source"])
+def _breakdown(article: Article, statistics: dict, prefilter_ranks: list[float]) -> ScoreBreakdown:
+    bonus = _source_bonus(statistics, article.source)
     # Where the embedding pre-filter ranks the article among the candidates, 0..1.
     rank = None
-    if article["prefilter"] is not None and prefilter_ranks:
-        rank = bisect.bisect_left(prefilter_ranks, article["prefilter"]) / len(prefilter_ranks)
-    if article["score"] is None:
+    if article.prefilter is not None and prefilter_ranks:
+        rank = bisect.bisect_left(prefilter_ranks, article.prefilter) / len(prefilter_ranks)
+    if article.score is None:
         # Not scored by the LLM (e.g. it was down): use the pre-filter rank, mapped to 2..6.
         base = 4.0 if rank is None else 2.0 + 4.0 * rank
         return ScoreBreakdown(None, base, bonus, base + bonus)
     # The LLM score, nudged (by up to ±2) by the embedding rank, so that a single
     # over-enthusiastic LLM score can't put an unrelated article at the top.
     agree = 0.0 if rank is None else 4.0 * rank - 2.0
-    return ScoreBreakdown(article["score"], agree, bonus, article["score"] + agree + bonus)
+    return ScoreBreakdown(article.score, agree, bonus, article.score + agree + bonus)
 
 
 def _add_capped(
     chosen: list[DigestPick],
-    articles: Iterable[ArticleRow],
+    articles: Iterable[Article],
     limit: int,
     exploratory: bool,
     max_per_source: int,
 ) -> None:
     """Append articles to `chosen` until it has `limit`, at most `max_per_source` per source."""
-    per_source = Counter(pick.article["source"] for pick in chosen)
+    per_source = Counter(pick.article.source for pick in chosen)
     for article in articles:
         if len(chosen) >= limit:
             break
-        if per_source[article["source"]] >= max_per_source:
+        if per_source[article.source] >= max_per_source:
             continue
-        per_source[article["source"]] += 1
+        per_source[article.source] += 1
         chosen.append(DigestPick(article, exploratory))
 
 
@@ -268,20 +260,19 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
         return []
     # Also anything the LLM already scored against the current profile.
     profile = ensure_profile(config, database)
-    ids = {article["id"] for article in candidates}
+    ids = {article.id for article in candidates}
     candidates += [article for article in database.pool(config.max_article_age_days)
-              if article["id"] not in ids and article["score_profile_id"] == profile["id"]]
+                   if article.id not in ids and article.scored_against(profile["id"])]
     statistics = database.source_statistics()
-    prefilter_ranks = sorted(article["prefilter"] for article in candidates if article["prefilter"] is not None)
-    parts = {article["id"]: _breakdown(article, statistics, prefilter_ranks) for article in candidates}
-    ranked = sorted(candidates, key=lambda article: parts[article["id"]].final, reverse=True)
+    prefilter_ranks = sorted(article.prefilter for article in candidates if article.prefilter is not None)
+    parts = {article.id: _breakdown(article, statistics, prefilter_ranks) for article in candidates}
+    ranked = sorted(candidates, key=lambda article: parts[article.id].final, reverse=True)
     if debug is not None:
         debug["candidates"] = len(candidates)
-        debug["llm_scored"] = sum(article["score_profile_id"] == profile["id"] for article in candidates)
-        debug["stale_scored"] = sum(article["score"] is not None and article["score_profile_id"] != profile["id"]
-                                    for article in candidates)
+        debug["llm_scored"] = sum(article.scored_against(profile["id"]) for article in candidates)
+        debug["stale_scored"] = sum(article.has_stale_score(profile["id"]) for article in candidates)
         debug["scores"] = parts
-        debug["rank"] = {article["id"]: rank for rank, article in enumerate(ranked, start=1)}
+        debug["rank"] = {article.id: rank for rank, article in enumerate(ranked, start=1)}
     limit = config.articles_per_digest
     explore_count = min(config.exploration, max(0, limit - 1))
     chosen: list[DigestPick] = []
@@ -289,18 +280,18 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
 
     # Exploration: random picks from the rest, biased towards less-seen sources,
     # so the model keeps learning about things outside its current beliefs.
-    picked = {pick.article["id"] for pick in chosen}
-    rest = [article for article in ranked if article["id"] not in picked]
+    picked = {pick.article.id for pick in chosen}
+    rest = [article for article in ranked if article.id not in picked]
     randomizer.shuffle(rest)
-    rest.sort(key=lambda article: statistics.get(article["source"], SourceStatistics()).total)
+    rest.sort(key=lambda article: statistics.get(article.source, SourceStatistics()).total)
     _add_capped(chosen, rest, limit, True, config.max_per_source)
 
     # Too few sources to honour the cap: fill remaining slots ignoring it.
-    picked = {pick.article["id"] for pick in chosen}
+    picked = {pick.article.id for pick in chosen}
     for article in ranked:
         if len(chosen) >= limit:
             break
-        if article["id"] not in picked:
+        if article.id not in picked:
             chosen.append(DigestPick(article, False))
     return chosen
 

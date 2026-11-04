@@ -12,6 +12,7 @@ from typing import Any
 from unittest import mock
 
 from indefinite_articles import daemon, extract, feeds, inbox, mailer, ranker, replies
+from indefinite_articles.article import Article
 from indefinite_articles.config import Config, TimeOfDay, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
@@ -142,7 +143,7 @@ class FeedTests(unittest.TestCase):
 
 
 class ReplyParsingTests(unittest.TestCase):
-    ITEMS = [{"title": f"Article {number}", "source": "S"} for number in range(1, 11)]
+    ITEMS = [Article(number, f"https://e/{number}", f"Article {number}", source="S") for number in range(1, 11)]
 
     def test_compact(self):
         interpretation = replies.understand(None, "+1 +4 -2, 3-", self.ITEMS[:5])
@@ -224,7 +225,7 @@ class EndToEndTests(unittest.TestCase):
         # Highly scored articles come first.
         items = self.database.digest_items(1)
         self.assertEqual(len(items), 3)
-        self.assertIn(items[0]["title"], ("Rust & the borrow checker", "Linux 7.3 released"))
+        self.assertIn(items[0].title, ("Rust & the borrow checker", "Linux 7.3 released"))
         self.assertIn("1. ", body)
 
         # A digest that we sent ourselves must never be read back as feedback.
@@ -250,8 +251,8 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         feedback = {row["title"]: row["rating"] for row in self.database.connection.execute(
             "SELECT a.title, f.rating FROM feedback f JOIN articles a ON a.id=f.article_id")}
-        self.assertEqual(feedback[items[0]["title"]], 1)
-        self.assertEqual(feedback[items[1]["title"]], -1)   # resolved by the LLM
+        self.assertEqual(feedback[items[0].title], 1)
+        self.assertEqual(feedback[items[1].title], -1)   # resolved by the LLM
         self.assertTrue(any("less gossip" in line for line in result.summary))
 
         # Unknown sender is ignored.

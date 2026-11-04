@@ -112,11 +112,11 @@ class ExtractTests(unittest.TestCase):
         database.add_article(feeds.Entry(self.base + "/b.pdf", "A paper", "Abstract text.", None), "S")
         database.connection.commit()
         self.assertEqual(extract.enrich_candidates(config, database), 1)
-        rows = {row["title"]: row for row in database.candidates(3, 10)}
-        self.assertEqual(rows["Borrow checker"]["content_status"], "ok")
-        self.assertIn("borrow checker enforces", rows["Borrow checker"]["content"])
-        self.assertTrue(rows["A paper"]["content_status"].startswith("failed"))
-        self.assertEqual(rows["A paper"]["content"], "")
+        rows = {row.title: row for row in database.candidates(3, 10)}
+        self.assertEqual(rows["Borrow checker"].content_status, "ok")
+        self.assertIn("borrow checker enforces", rows["Borrow checker"].content or "")
+        self.assertTrue((rows["A paper"].content_status or "").startswith("failed"))
+        self.assertEqual(rows["A paper"].content, "")
         self.assertEqual(extract.enrich_candidates(config, database), 0)  # not retried
 
     def test_migration_from_old_schema(self):

@@ -3,6 +3,7 @@ from email.message import EmailMessage
 from unittest import mock
 
 from indefinite_articles import inbox, mailer
+from indefinite_articles.article import Article
 from indefinite_articles.config import Config
 from indefinite_articles.database import Database, SourceStatistics
 from indefinite_articles.feeds import Entry
@@ -134,7 +135,8 @@ class InboxTests(unittest.TestCase):
         for index in (1, 2):
             self.database.add_article(Entry(f"https://e/{index}", f"Article {index}", "", None), "S")
         self.digest_id = self.database.record_digest("abcd1234", "<digest@example.org>", "2026-11-03",
-                                                     [DigestPick({"id": 1}, False), DigestPick({"id": 2}, True)])
+                                                     [DigestPick(Article(1, "https://e/1", "Article 1"), False),
+                                                      DigestPick(Article(2, "https://e/2", "Article 2"), True)])
 
     def test_message_id(self):
         self.assertEqual(inbox.message_id(reply("x", Message_ID=" <a@x> "), "fallback"), "<a@x>")

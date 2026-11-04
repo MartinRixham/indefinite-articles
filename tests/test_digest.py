@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 
 from indefinite_articles import inbox, mailer
+from indefinite_articles.article import Article
 from indefinite_articles.config import Config
 from indefinite_articles.digest import TEMPLATES, TOKEN_PREFIX, Digest
 from indefinite_articles.ranker import DigestPick
@@ -9,10 +10,9 @@ from indefinite_articles.ranker import DigestPick
 
 def make_items() -> list[DigestPick]:
     return [
-        DigestPick({"title": "Rust & <b>", "source": "Blog", "url": "https://ex.com/1?a=1&b=2",
-                    "reason": "fits", "summary": "A summary.", "content": None}, False),
-        DigestPick({"title": "Other", "source": "News", "url": "https://ex.com/2", "reason": None,
-                    "summary": "", "content": None}, True),
+        DigestPick(Article(1, "https://ex.com/1?a=1&b=2", "Rust & <b>", summary="A summary.", source="Blog",
+                           reason="fits"), False),
+        DigestPick(Article(2, "https://ex.com/2", "Other", source="News"), True),
     ]
 
 
@@ -61,8 +61,7 @@ class DigestTextBodyTests(unittest.TestCase):
         self.assertIn("Heads <up>", Digest(make_items(), note="Heads <up>").text_body())
 
     def test_empty_reason_left_out_and_long_blurb_shortened(self) -> None:
-        items = [DigestPick({"title": "T", "source": "S", "url": "https://e/1", "reason": "", "summary": None,
-                             "content": "word " * 100}, False)]
+        items = [DigestPick(Article(1, "https://e/1", "T", source="S", reason="", content="word " * 100), False)]
         text = Digest(items).text_body()
         self.assertNotIn("Why:", text)
         self.assertIn("…", text)

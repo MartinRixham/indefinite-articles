@@ -12,7 +12,6 @@ from email.message import EmailMessage
 from importlib import resources
 
 from .config import Config
-from .database import ArticleRow
 from .ranker import DigestPick
 
 TOKEN_PREFIX = "rec:"
@@ -23,11 +22,6 @@ SECTION_MARKER = "@@ "
 
 def _new_token() -> str:
     return secrets.token_hex(4)
-
-
-def _blurb(article: ArticleRow, limit: int = 280) -> str:
-    text = " ".join((article["summary"] or article["content"] or "").split())
-    return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
 @functools.cache
@@ -111,12 +105,12 @@ class Digest:
             article = pick.article
             rendered.append(_render(sections["item"], {
                 "position": str(position),
-                "title": escape(article["title"]),
-                "source": escape(article["source"]),
+                "title": escape(article.title),
+                "source": escape(article.source),
                 "exploratory": _render(sections["exploratory"], {}) if pick.exploratory else "",
-                "url": escape(article["url"]),
-                "reason": escape(article["reason"] or ""),
-                "blurb": escape(_blurb(article)),
+                "url": escape(article.url),
+                "reason": escape(article.reason or ""),
+                "blurb": escape(article.blurb()),
             }))
         debug = self.debug
         return _render(sections["page"], {

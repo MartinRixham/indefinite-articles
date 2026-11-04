@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from indefinite_articles import embed, feeds, ranker
+from indefinite_articles.article import Article
 from indefinite_articles.config import Config, Feed, load as load_config
 from indefinite_articles.database import Database
 from indefinite_articles.llm import LLM, LLMError
@@ -139,6 +140,12 @@ class FetchTests(unittest.TestCase):
         self.assertNotIn("/broken", [path for path, _ in FeedServer.hits])
 
 
+def prefilter_score(article: Article) -> float:
+    """The article's pre-filter score, which these tests expect every article to have."""
+    assert article.prefilter is not None, article.title
+    return article.prefilter
+
+
 class PrefilterTests(unittest.TestCase):
     def _config(self):
         config = Config()
@@ -173,12 +180,12 @@ class PrefilterTests(unittest.TestCase):
         self.assertEqual(len(shortlisted), 20)
         by_source = {}
         for article in shortlisted:
-            by_source[article["source"]] = by_source.get(article["source"], 0) + 1
-        top = [article["source"] for article in shortlisted[:3]]
+            by_source[article.source] = by_source.get(article.source, 0) + 1
+        top = [article.source for article in shortlisted[:3]]
         self.assertEqual(top, ["Rust Weekly"] * 3)
         # The cap spreads the first picks across sources; with only 3 sources the list is
         # then topped up from the best remaining matches, i.e. mostly Rust.
-        first9 = [article["source"] for article in shortlisted[:9]]
+        first9 = [article.source for article in shortlisted[:9]]
         self.assertEqual(sorted(set(first9)), ["Celeb News", "Garden", "Rust Weekly"])
         self.assertEqual(first9.count("Rust Weekly"), 3)
         self.assertGreater(by_source["Rust Weekly"], 10)
@@ -194,8 +201,8 @@ class PrefilterTests(unittest.TestCase):
         database.add_feedback(garden, 1, "")
         database.connection.commit()
         self.assertGreater(embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database)), 0)
-        best = max(database.pool(3), key=lambda article: article["prefilter"])
-        self.assertEqual(best["source"], "Garden")
+        best = max(database.pool(3), key=prefilter_score)
+        self.assertEqual(best.source, "Garden")
         self.assertEqual(embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database)), 0)
 
     def test_model_change_resets_embeddings(self):
@@ -224,9 +231,9 @@ class PrefilterTests(unittest.TestCase):
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
         self.assertNotEqual(database.get_state("classifier"), "")
         self.assertEqual(database.get_state("classifier_info"), "6:6")
-        ranked = sorted(database.pool(3), key=lambda article: article["prefilter"], reverse=True)
-        self.assertEqual(ranked[0]["source"], "Garden")
-        self.assertEqual(ranked[-1]["source"], "Celeb News")
+        ranked = sorted(database.pool(3), key=prefilter_score, reverse=True)
+        self.assertEqual(ranked[0].source, "Garden")
+        self.assertEqual(ranked[-1].source, "Celeb News")
 
     def test_profile_dislikes_push_articles_down(self):
         # A profile naming a topic only as a dislike must not rank that topic first.
@@ -235,9 +242,9 @@ class PrefilterTests(unittest.TestCase):
         llm.chat_json.side_effect = LLMError("down")  # keyword split
         embed.embed_new(config, database, llm)
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
-        ranked = sorted(database.pool(3), key=lambda article: article["prefilter"], reverse=True)
-        self.assertEqual(ranked[0]["source"], "Garden")
-        self.assertEqual(ranked[-1]["source"], "Celeb News")
+        ranked = sorted(database.pool(3), key=prefilter_score, reverse=True)
+        self.assertEqual(ranked[0].source, "Garden")
+        self.assertEqual(ranked[-1].source, "Celeb News")
 
     def test_profile_phrases_prefers_llm_split(self):
         config, database, llm = self._config(), self._database(0), self._llm()

@@ -63,17 +63,17 @@ class DatabaseTests(unittest.TestCase):
         self._article("https://old", source="Quiet", published=time.time() - 10 * DAY)
         self._sent(self._article("https://sent", source="Quiet"))
         candidates = self.database.candidates(3, 10)
-        sources = [article["source"] for article in candidates]
+        sources = [article.source for article in candidates]
         self.assertEqual(sources.count("Busy"), 5)
         self.assertEqual(sources.count("Quiet"), 2)
-        self.assertNotIn("https://old", [article["url"] for article in candidates])
+        self.assertNotIn("https://old", [article.url for article in candidates])
 
     def test_pool_is_newest_first(self):
         self._article("https://older", published=time.time() - DAY)
         self._article("https://newer", published=time.time() - 60)
         self._article("https://ancient", published=time.time() - 30 * DAY)
         self._sent(self._article("https://sent"))
-        self.assertEqual([article["url"] for article in self.database.pool(3)], ["https://newer", "https://older"])
+        self.assertEqual([article.url for article in self.database.pool(3)], ["https://newer", "https://older"])
         self.assertEqual(len(self.database.pool(3, limit=1)), 1)
 
     def test_set_content_and_score(self):
@@ -81,8 +81,8 @@ class DatabaseTests(unittest.TestCase):
         self.database.set_content(ArticleContent(article_id, "full text", "ok"))
         self.database.set_score(article_id, ArticleScore(7.5, "fits"), 3)
         row = self.database.pool(3)[0]
-        self.assertEqual((row["content"], row["content_status"]), ("full text", "ok"))
-        self.assertEqual((row["score"], row["reason"], row["score_profile_id"]), (7.5, "fits", 3))
+        self.assertEqual((row.content, row.content_status), ("full text", "ok"))
+        self.assertEqual((row.score, row.reason, row.score_profile_id), (7.5, "fits", 3))
 
     def test_articles_per_source(self):
         self._article("https://a/1", source="A")
@@ -100,7 +100,7 @@ class DatabaseTests(unittest.TestCase):
         rated = self._article("https://rated", published=time.time() - 100 * DAY)
         self._sent(rated)
         self.database.add_feedback(rated, 1, "")
-        ids = [row["id"] for row in self.database.unembedded(3, 100)]
+        ids = [row.id for row in self.database.unembedded(3, 100)]
         self.assertEqual(sorted(ids), sorted([fresh, rated]))
         self.assertEqual(len(self.database.unembedded(3, 1)), 1)
 
@@ -193,11 +193,13 @@ class DatabaseTests(unittest.TestCase):
     # -- digests -------------------------------------------------------------------
     def test_record_and_find_digest(self):
         first, second = self._article("https://1"), self._article("https://2")
+        articles = {article.id: article for article in self.database.pool(3)}
         digest_id = self.database.record_digest("abcd1234", "<digest@x>", "2026-11-03",
-                                                [DigestPick({"id": second}, False), DigestPick({"id": first}, True)])
-        items = self.database.digest_items(digest_id)
-        self.assertEqual([(row["position"], row["id"], row["exploratory"]) for row in items],
-                         [(1, second, 0), (2, first, 1)])
+                                                [DigestPick(articles[second], False), DigestPick(articles[first], True)])
+        self.assertEqual(self.database.digest_items(digest_id), [articles[second], articles[first]])
+        exploratory = self.database.connection.execute(
+            "SELECT exploratory FROM digest_items WHERE digest_id=? ORDER BY position", (digest_id,)).fetchall()
+        self.assertEqual([row["exploratory"] for row in exploratory], [0, 1])
         self.assertEqual(self.database.pool(3), [])  # both now sent
         found = self.database.find_digest("abcd1234")
         assert found is not None

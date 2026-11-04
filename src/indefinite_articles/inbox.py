@@ -78,8 +78,8 @@ def _process_message(config: Config, database: Database, llm: LLM | None, messag
     for item_number in sorted(interpretation.ratings):
         rating = interpretation.ratings[item_number]
         article = items[item_number - 1]
-        database.add_feedback(article["id"], rating.rating, rating.comment)
-        summary.append(f"{rating.label} #{item_number}: {article['title']}"
+        database.add_feedback(article.id, rating.rating, rating.comment)
+        summary.append(f"{rating.label} #{item_number}: {article.title}"
                        + (f' — "{rating.comment}"' if rating.comment else ""))
     for comment in interpretation.general:
         database.add_general_comment(digest["id"], comment)
