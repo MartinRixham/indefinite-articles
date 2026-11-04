@@ -11,7 +11,7 @@ from email.message import EmailMessage
 from email.utils import formatdate, getaddresses, make_msgid
 from pathlib import Path
 
-from .feed import Feed
+from .fetching.feed import Feed
 
 DEFAULT_CONFIG_PATH = "/etc/indefinite-articles/indefinite-articles.toml"
 

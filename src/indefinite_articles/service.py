@@ -7,11 +7,12 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 
-from . import inbox, ranker
 from .config import Config
 from .daemon import gather, send_digest
-from .database import Database
-from .llm import LLM, LLMError
+from .language_model.llm import LLM, LLMError
+from .mail import inbox
+from .ranking import ranker
+from .storage.database import Database
 
 log = logging.getLogger(__name__)
 

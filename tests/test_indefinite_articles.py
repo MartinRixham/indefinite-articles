@@ -9,13 +9,16 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from indefinite_articles import daemon, extract, feeds, inbox, mailer, ranker, replies
-from indefinite_articles.article import Article
+from indefinite_articles import daemon
 from indefinite_articles.config import Config, TimeOfDay, load as load_config
-from indefinite_articles.database import Database
-from indefinite_articles.llm import LLM, LLMError
-from indefinite_articles.parsed_feed import ParsedFeed
+from indefinite_articles.fetching import extract, feeds
+from indefinite_articles.fetching.parsed_feed import ParsedFeed
+from indefinite_articles.language_model.llm import LLM, LLMError
+from indefinite_articles.mail import inbox, mailer, replies
+from indefinite_articles.ranking import ranker
 from indefinite_articles.service import Service
+from indefinite_articles.storage.article import Article
+from indefinite_articles.storage.database import Database
 
 from fake_llm import FakeLLM
 
@@ -268,7 +271,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertLess(body.index("digest-id:"), body.index("-- debug --"))
         self.assertIn("debug</summary>", mailer.part_text(message, "html"))
         # Replies quoting the debug table must not be read as ratings.
-        from indefinite_articles import replies
+        from indefinite_articles.mail import replies
         self.assertNotIn("selection:", replies.strip_quoted("+1\n\n" + body))
 
         self.config.email.debug_info = False
@@ -311,36 +314,36 @@ class EndToEndTests(unittest.TestCase):
 
     def test_no_stall_limit_until_something_succeeded(self):
         self._fake_speed(delay=0.5)
-        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.1):
+        with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.1):
             self.assertEqual(self.llm.ping(), "OK")  # no history: waits as long as it takes
 
     def test_slow_but_progressing_is_not_cut_off(self):
-        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.3):
+        with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.3):
             self.llm.chat("maintain a concise profile", "x")  # learn: fast
             self._fake_speed(gap=0.1)  # 15 tokens: 1.5s in all, but never 0.3s silent
             self.assertIn("Dislikes gossip", self.llm.chat("maintain a concise profile", "x"))
 
     def test_stalled_stream_is_cut_off_and_limit_doubles(self):
-        from indefinite_articles.llm import LLMUnavailable
-        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.3):
+        from indefinite_articles.language_model.llm import LLMUnavailable
+        with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.3):
             self.llm.chat("maintain a concise profile", "x")  # learn: fast
             self._fake_speed(hang_after=3)
             started = time.monotonic()
             with self.assertRaisesRegex(LLMUnavailable, "stopped responding"), \
-                 self.assertLogs("indefinite_articles.llm", "WARNING") as logs:
+                 self.assertLogs("indefinite_articles.language_model.llm", "WARNING") as logs:
                 self.llm.chat("maintain a concise profile", "x")
             self.assertLess(time.monotonic() - started, 2)
             self.assertIn("next time waiting up to 0.6s", logs.output[0])  # the 0.3s limit doubled
             started = time.monotonic()
             with self.assertRaises(LLMUnavailable), \
-                 self.assertLogs("indefinite_articles.llm", "WARNING") as logs:
+                 self.assertLogs("indefinite_articles.language_model.llm", "WARNING") as logs:
                 self.llm.chat("maintain a concise profile", "x")
             self.assertGreaterEqual(time.monotonic() - started, 0.6)  # it did wait the doubled limit
             self.assertIn("next time waiting up to 1.2s", logs.output[0])
 
     def test_stalled_scoring_stops_the_round(self):
         self._load_articles(score=False)
-        with mock.patch("indefinite_articles.llm.MIN_STALL", 0.3):
+        with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.3):
             self.llm.ping()  # learn: fast
             self._fake_speed(delay=3)  # never sends the first token in time
             before = len(FakeLLM.requests)

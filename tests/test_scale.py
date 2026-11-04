@@ -6,14 +6,15 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles import embed, feeds, ranker
-from indefinite_articles.article import Article
 from indefinite_articles.config import Config, load as load_config
-from indefinite_articles.database import Database
-from indefinite_articles.entry import Entry
-from indefinite_articles.feed import Feed
-from indefinite_articles.llm import LLM, LLMError
-from indefinite_articles.parsed_feed import ParsedFeed
+from indefinite_articles.fetching import feeds
+from indefinite_articles.fetching.entry import Entry
+from indefinite_articles.fetching.feed import Feed
+from indefinite_articles.fetching.parsed_feed import ParsedFeed
+from indefinite_articles.language_model.llm import LLM, LLMError
+from indefinite_articles.ranking import embed, ranker
+from indefinite_articles.storage.article import Article
+from indefinite_articles.storage.database import Database
 
 ROOT = Path(__file__).resolve().parent.parent
 

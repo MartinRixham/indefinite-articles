@@ -10,7 +10,7 @@ from unittest import mock
 
 from indefinite_articles.config import (Config, ConfigError, EmailConfig, LLMConfig, ServerConfig, TimeOfDay,
                                         load)
-from indefinite_articles.feed import Feed
+from indefinite_articles.fetching.feed import Feed
 
 
 class SectionTests(unittest.TestCase):

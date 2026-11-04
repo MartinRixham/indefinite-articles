@@ -6,11 +6,14 @@ import time
 from datetime import datetime
 from email.message import EmailMessage
 
-from . import __version__, embed, extract, feeds, mailer, ranker
+from . import __version__
 from .config import Config
-from .database import Database, PendingFeedback
-from .digest import Digest
-from .llm import LLM, LLMError, stall_limit
+from .fetching import extract, feeds
+from .language_model.llm import LLM, LLMError, stall_limit
+from .mail import mailer
+from .mail.digest import Digest
+from .ranking import embed, ranker
+from .storage.database import Database, PendingFeedback
 
 log = logging.getLogger(__name__)
 

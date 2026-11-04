@@ -9,11 +9,14 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles import daemon, extract, feeds, inbox, ranker
+from indefinite_articles import daemon
 from indefinite_articles.config import Config
-from indefinite_articles.database import Database
-from indefinite_articles.llm import LLMError
+from indefinite_articles.fetching import extract, feeds
+from indefinite_articles.language_model.llm import LLMError
+from indefinite_articles.mail import inbox
+from indefinite_articles.ranking import ranker
 from indefinite_articles.service import Service
+from indefinite_articles.storage.database import Database
 
 
 class ServiceTests(unittest.TestCase):

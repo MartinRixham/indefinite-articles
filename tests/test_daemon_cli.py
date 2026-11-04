@@ -7,14 +7,17 @@ from email.message import EmailMessage
 from pathlib import Path
 from unittest import mock
 
-from indefinite_articles import cli, daemon, embed, extract, feeds, mailer, ranker
-from indefinite_articles.article import Article
+from indefinite_articles import cli, daemon
 from indefinite_articles.config import Config
-from indefinite_articles.database import Database
-from indefinite_articles.entry import Entry
-from indefinite_articles.feed import Feed
-from indefinite_articles.llm import LLM, LLMError
+from indefinite_articles.fetching import extract, feeds
+from indefinite_articles.fetching.entry import Entry
+from indefinite_articles.fetching.feed import Feed
+from indefinite_articles.language_model.llm import LLM, LLMError
+from indefinite_articles.mail import mailer
+from indefinite_articles.ranking import embed, ranker
 from indefinite_articles.service import Service
+from indefinite_articles.storage.article import Article
+from indefinite_articles.storage.database import Database
 
 
 def config_with_articles(count: int = 3) -> tuple[Config, Database]:

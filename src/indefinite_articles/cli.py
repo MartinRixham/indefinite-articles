@@ -7,11 +7,14 @@ import logging
 import sys
 from collections.abc import Sequence
 
-from . import __version__, extract, feeds, inbox, mailer, ranker
+from . import __version__
 from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load as load_config
-from .database import Database, SourceStatistics
-from .llm import LLM, LLMError
-from .parsed_feed import ParsedFeed
+from .fetching import extract, feeds
+from .fetching.parsed_feed import ParsedFeed
+from .language_model.llm import LLM, LLMError
+from .mail import inbox, mailer
+from .ranking import ranker
+from .storage.database import Database, SourceStatistics
 
 
 def _setup_logging(verbose: bool):
