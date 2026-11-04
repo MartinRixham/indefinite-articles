@@ -243,6 +243,28 @@ class RankerTests(unittest.TestCase):
         self.assertEqual(ranker.score_candidates(self.config, self.database, llm), 3)
         self.assertEqual(ranker.score_candidates(self.config, self.database, llm), 0)
 
+    def test_profile_change_rescores_only_the_top(self):
+        old_profile = ranker.ensure_profile(self.config, self.database)["id"]
+        for index, score in enumerate((2.0, 9.0, 5.0, 7.0, 1.0)):
+            self._add(f"https://e/{index}", f"S{index}", score, old_profile)
+        self._add("https://e/new")
+        self.database.add_profile("new profile")
+        self.config.rescore_top = 2
+        llm = mock.Mock(spec=LLM)
+        llm.chat_json.return_value = {"score": 4}
+        # The unscored article first, then the two best stale ones, best first.
+        self.assertEqual(ranker.score_candidates(self.config, self.database, llm), 3)
+        titles = [call.args[1].split("Title: ")[1].split("\n")[0] for call in llm.chat_json.call_args_list]
+        self.assertEqual(titles, ["https://e/new", "https://e/1", "https://e/3"])
+        # Rescored to 4, they drop below the stale 5.0, which is now in the top 2.
+        llm.chat_json.reset_mock()
+        self.assertEqual(ranker.score_candidates(self.config, self.database, llm), 1)
+        titles = [call.args[1].split("Title: ")[1].split("\n")[0] for call in llm.chat_json.call_args_list]
+        self.assertEqual(titles, ["https://e/2"])
+        rows = self.database.connection.execute("SELECT url, score FROM articles WHERE score_profile_id=?",
+                                                (old_profile,)).fetchall()
+        self.assertEqual(sorted(tuple(row) for row in rows), [("https://e/0", 2.0), ("https://e/4", 1.0)])
+
     def test_select_empty(self):
         self.assertEqual(ranker.select(self.config, self.database), [])
 

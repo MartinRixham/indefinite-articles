@@ -1,0 +1,11 @@
+articles           17284
+unsent_scored      218
+embedded           8952
+feeds_failing      17
+full_text          237
+full_text_failed   29
+digests            1
+likes              0
+dislikes           0
+profile_versions   2
+last_digest        2026-11-04

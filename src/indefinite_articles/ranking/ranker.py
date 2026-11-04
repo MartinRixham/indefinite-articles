@@ -130,18 +130,26 @@ def shortlist(config: Config, database: Database) -> list[Article]:
 
 
 def score_candidates(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
-    """Score shortlisted articles that are unscored or were scored against an older profile."""
+    """LLM-score the shortlisted articles that have no score yet, then refresh stale scores.
+
+    A score made against an older profile is still a useful estimate, so after a profile
+    change only the stale articles among the top `rescore_top` of the digest ranking are
+    rescored (best first): they are the ones that decide what goes into the digest.
+    Rescoring everything would cost one LLM request per shortlisted article per reply.
+    """
     profile = ensure_profile(config, database)
-    todo = [article for article in shortlist(config, database) if not article.scored_against(profile["id"])]
+    candidates = _digest_candidates(config, database, profile["id"])
+    unscored = [article for article in candidates if article.score is None]
+    ranked, _ = _rank(candidates, database.source_statistics())
+    stale = [article for article in ranked[:config.rescore_top] if article.has_stale_score(profile["id"])]
+    todo = unscored + stale
     if not todo:
         return 0
-    # Unscored first, so a profile change never leaves fresh articles without any score.
-    todo.sort(key=lambda article: article.score is not None)
     assistant = Assistant(llm)
     prefix = assistant.score_prefix(profile["text"], _examples(database))
     # Room left for the article after the shared prefix.
     per_article = min(config.article_chars, max(1000, config.llm.max_prompt_chars - len(prefix) - 300))
-    done = 0
+    done = rescored = 0
     for article in todo:
         if stop is not None and stop.is_set():
             break
@@ -155,8 +163,28 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
         database.set_score(article.id, result, profile["id"])
         database.connection.commit()
         done += 1
-    log.info("scored %d/%d candidate articles", done, len(todo))
+        rescored += article.score is not None
+    log.info("scored %d/%d new candidate articles, rescored %d/%d stale ones in the top %d",
+             done - rescored, len(unscored), rescored, len(stale), config.rescore_top)
     return done
+
+
+def _digest_candidates(config: Config, database: Database, profile_id: int) -> list[Article]:
+    """The shortlist, plus anything the LLM already scored against the current profile."""
+    candidates = shortlist(config, database)
+    if not candidates:
+        return []
+    ids = {article.id for article in candidates}
+    return candidates + [article for article in database.pool(config.max_article_age_days)
+                         if article.id not in ids and article.scored_against(profile_id)]
+
+
+def _rank(candidates: list[Article], statistics: dict[str, SourceStatistics],
+          ) -> tuple[list[Article], dict[int, "ScoreBreakdown"]]:
+    """The candidates best first, and each one's score breakdown by article id."""
+    prefilter_ranks = sorted(article.prefilter for article in candidates if article.prefilter is not None)
+    parts = {article.id: _breakdown(article, statistics, prefilter_ranks) for article in candidates}
+    return sorted(candidates, key=lambda article: parts[article.id].final, reverse=True), parts
 
 
 def _breakdown(article: Article, statistics: dict[str, SourceStatistics],
@@ -202,18 +230,12 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
     filled with candidate counts and each candidate's score breakdown.
     """
     randomizer = randomizer or random.Random()
-    candidates = shortlist(config, database)
+    profile = ensure_profile(config, database)
+    candidates = _digest_candidates(config, database, profile["id"])
     if not candidates:
         return []
-    # Also anything the LLM already scored against the current profile.
-    profile = ensure_profile(config, database)
-    ids = {article.id for article in candidates}
-    candidates += [article for article in database.pool(config.max_article_age_days)
-                   if article.id not in ids and article.scored_against(profile["id"])]
     statistics = database.source_statistics()
-    prefilter_ranks = sorted(article.prefilter for article in candidates if article.prefilter is not None)
-    parts = {article.id: _breakdown(article, statistics, prefilter_ranks) for article in candidates}
-    ranked = sorted(candidates, key=lambda article: parts[article.id].final, reverse=True)
+    ranked, parts = _rank(candidates, statistics)
     if debug is not None:
         debug["candidates"] = len(candidates)
         debug["llm_scored"] = sum(article.scored_against(profile["id"]) for article in candidates)
