@@ -191,7 +191,7 @@ class EmbeddingTextTests(unittest.TestCase):
         self.assertEqual(make_article(title="Title").embedding_text(), "Title. ")
 
     def test_only_start_of_summary(self) -> None:
-        text = make_article(title="Title", summary="x" * 1000).embedding_text()
+        text = make_article(title="Title", summary="x" * (EMBEDDING_SUMMARY_CHARACTERS + 100)).embedding_text()
         self.assertEqual(text, "Title. " + "x" * EMBEDDING_SUMMARY_CHARACTERS)
 
     def test_page_text_not_used(self) -> None:

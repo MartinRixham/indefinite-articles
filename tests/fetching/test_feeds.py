@@ -86,11 +86,28 @@ class ParseFeedTests(unittest.TestCase):
         self.assertEqual([entry.title for entry in ParsedFeed.parse(data).entries], ["Kept"])
 
     def test_long_summary_truncated_at_word(self):
-        summary = "word " * 300
+        summary = "word " * (parsed_feed.SUMMARY_CHARACTERS // 4)
         data = rss(f"<item><title>T</title><link>https://e/1</link><description>{summary}</description></item>")
         result = ParsedFeed.parse(data).entries[0].summary
         self.assertLessEqual(len(result), parsed_feed.SUMMARY_CHARACTERS)
         self.assertTrue(result.endswith("word…"))
+
+    def test_longest_text_field_used(self) -> None:
+        body = "Full article text. " * 20
+        data = rss('<item xmlns:content="http://purl.org/rss/1.0/modules/content/">'
+                   "<title>T</title><link>https://e/1</link><description>Teaser.</description>"
+                   f"<content:encoded><![CDATA[<p>{body}</p>]]></content:encoded></item>",
+                   item("Short", "https://e/2"))
+        first, second = ParsedFeed.parse(data).entries
+        self.assertEqual(first.summary, body.strip())
+        self.assertEqual(second.summary, "")
+
+    def test_longest_text_field_used_leniently(self) -> None:
+        body = "Full article text. " * 20
+        data = ("<rss><channel><item><title>T</title><link>https://e/1</link>"
+                "<description>Teaser &broken;</description>"
+                f"<content:encoded><![CDATA[<p>{body}</p>]]></content:encoded></item>").encode()
+        self.assertEqual(ParsedFeed.parse(data).entries[0].summary, body.strip())
 
     def test_dates(self):
         data = rss(item("A", "https://e/a", "Mon, 02 Nov 2026 10:00:00 GMT"),

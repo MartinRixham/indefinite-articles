@@ -10,7 +10,7 @@ from datetime import datetime
 from .entry import Entry
 from .text_extractor import TextExtractor
 
-SUMMARY_CHARACTERS = 600
+SUMMARY_CHARACTERS = 2000  # enough for the embedding pre-filter to see more than the opening lines
 
 _XML_ENTITIES = {"amp", "lt", "gt", "quot", "apos"}
 
@@ -61,10 +61,10 @@ class ParsedFeed:
                     url = link.get("href", "")
                     break
             title = TextExtractor.extract(_text(entry, "title"))
-            summary = _text(entry, "summary") or _text(entry, "content")
             date = _text(entry, "published") or _text(entry, "updated")
             if url and title:
-                entries.append(Entry(url, title, _summarise(summary), _parse_date(date)))
+                summary = _summarise(_text(entry, "summary"), _text(entry, "content"))
+                entries.append(Entry(url, title, summary, _parse_date(date)))
         return cls(TextExtractor.extract(_text(root, "title")), entries)
 
     @classmethod
@@ -82,10 +82,10 @@ class ParsedFeed:
                 if guid is not None and guid.get("isPermaLink", "true") != "false":
                     url = (guid.text or "").strip()
             title = TextExtractor.extract(_text(item, "title"))
-            summary = _text(item, "description") or _text(item, "encoded", "summary")
             date = _text(item, "pubDate", "date", "published", "updated")
             if url and title:
-                entries.append(Entry(url, title, _summarise(summary), _parse_date(date)))
+                summary = _summarise(_text(item, "description"), _text(item, "encoded"), _text(item, "summary"))
+                entries.append(Entry(url, title, summary, _parse_date(date)))
         return cls(TextExtractor.extract(feed_title), entries)
 
     @classmethod
@@ -100,7 +100,8 @@ class ParsedFeed:
             title = TextExtractor.extract(_tag_text(block, "title"))
             if url and title:
                 entries.append(Entry(url.strip(), title,
-                                     _summarise(_tag_text(block, "description", "summary", "content")),
+                                     _summarise(*(_tag_text(block, name) for name in
+                                                  ("description", "summary", "content", "content:encoded"))),
                                      _parse_date(_tag_text(block, "pubDate", "published", "updated", "dc:date"))))
         channel_title = re.search(r"<title(?:\s[^>]*)?>(.*?)</title>", text, re.S | re.I)
         return cls(TextExtractor.extract(channel_title.group(1)) if channel_title else "", entries)
@@ -142,8 +143,13 @@ def _parse_date(text: str) -> float | None:
         return None
 
 
-def _summarise(markup: str) -> str:
-    text = TextExtractor.extract(markup)
+def _summarise(*markups: str) -> str:
+    """Plain text of the longest of an entry's text fields, cut at a word boundary.
+
+    Many feeds have a one-line description next to the whole article (RSS
+    `content:encoded`, Atom `content`); the longer one tells the pre-filter more.
+    """
+    text = max((TextExtractor.extract(markup) for markup in markups if markup), key=len, default="")
     return text if len(text) <= SUMMARY_CHARACTERS else text[: SUMMARY_CHARACTERS - 1].rsplit(" ", 1)[0] + "…"
 
 

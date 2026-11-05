@@ -13,6 +13,7 @@ from indefinite_articles.fetching.extract import ArticleContent
 from indefinite_articles.language_model.llm import LLM, LLMError, LLMUnavailable
 from indefinite_articles.ranking import embed, ranker
 from indefinite_articles.ranking.classifier import Classifier
+from indefinite_articles.storage.article import EMBEDDING_SUMMARY_CHARACTERS
 from indefinite_articles.storage.database import Database
 
 
@@ -51,11 +52,11 @@ class EmbedTests(unittest.TestCase):
 
     def test_embedded_text_is_title_and_start_of_summary(self):
         self.database.add_article(Entry("https://e/1", "Short", "", None), "S")
-        self.database.add_article(Entry("https://e/2", "Long", "x" * 1000, None), "S")
+        self.database.add_article(Entry("https://e/2", "Long", "x" * (EMBEDDING_SUMMARY_CHARACTERS + 100), None), "S")
         self.llm.embed.side_effect = lambda texts: [[1.0, 0.0] for _ in texts]
         self.assertEqual(embed.embed_new(self.config, self.database, self.llm), 2)
         texts = [text for call in self.llm.embed.call_args_list for text in call.args[0]]
-        self.assertEqual(sorted(texts), ["Long. " + "x" * 600, "Short. "])
+        self.assertEqual(sorted(texts), ["Long. " + "x" * EMBEDDING_SUMMARY_CHARACTERS, "Short. "])
 
     def test_profile_match_without_ratings(self):
         profile = ranker.ensure_profile(self.config, self.database)

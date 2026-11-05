@@ -5,7 +5,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, fields
 
-EMBEDDING_SUMMARY_CHARACTERS = 600  # of the summary, embedded after the title
+EMBEDDING_SUMMARY_CHARACTERS = 2000  # of the summary, embedded after the title
 BLURB_CHARACTERS = 280              # shown under each digest item
 TITLE_KEY_CHARACTERS = 120
 
