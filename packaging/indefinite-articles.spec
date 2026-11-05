@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.0
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -70,26 +70,40 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
-* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.0-1
+* Thu Nov 05 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.1
+- Fetch, scoring and inbox polling run on separate threads; scoring stops when
+  the digest is due, so a slow LLM can't delay it
+- Score each article in its own request with a shared prompt prefix (KV cache reuse)
+- Pre-filter learns from likes and dislikes separately, plus a logistic-regression
+  classifier once there is enough feedback; numpy is now required
+- Refuse to start when Ollama runs the model on the CPU only; recommend
+  ollama-rocm and ship an Ollama drop-in for integrated AMD GPUs
+- Default model is qwen2.5:14b
+- After a profile change, only rescore the top articles (new rescore_top option)
+- Debug information in the daily email
+- Shipped config no longer hard codes reading preferences
+- Build for Fedora 44 and 45; publish a container image
+
+* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.0
 - Rename project from recommend to indefinite-articles: package, command,
   systemd unit, service user, /etc and /var/lib paths and the Python module
   (indefinite_articles)
 
-* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.3.1-1
+* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.3.1
 - Record reply feedback and the processed-message marker in one transaction,
   so a crash can neither lose nor double-count a reply
 
-* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.3.0-1
+* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.3.0
 - Ship ~500 checked feeds in 31 categories (/etc/recommend/feeds.d/default.opml)
 - Load feeds from OPML/text files in feeds.d; exclude_categories option
 - Embedding pre-filter (nomic-embed-text) ranks every article; LLM scores the best 150
 - Parallel per-host fetching, conditional GET, gzip, backoff for failing feeds
 - Tolerate malformed feeds; new `recommend feeds` command
 
-* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.2.0-1
+* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.2.0
 - Fetch each candidate article's page so the LLM ranks on the article text
 - Size scoring batches to fit the model's context window (llm.max_prompt_chars)
 - New `recommend extract URL` command
 
-* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.1.0-1
+* Tue Nov 03 2026 Martin Rixham <martin.rixham@gmail.com> - 0.1.0
 - Initial package

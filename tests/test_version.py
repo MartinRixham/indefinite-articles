@@ -18,7 +18,7 @@ class VersionTests(unittest.TestCase):
 
     def test_newest_changelog_entry_matches_package(self) -> None:
         changelog = self.spec.split("%changelog", 1)[1]
-        match = re.search(r"^\*.* - (\S+)-\d+$", changelog, re.MULTILINE)
+        match = re.search(r"^\*.* - ([^\s-]+)(?:-\d+)?$", changelog, re.MULTILINE)
         assert match is not None
         self.assertEqual(match.group(1), __version__)
 
