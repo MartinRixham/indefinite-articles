@@ -16,10 +16,11 @@ from indefinite_articles.fetching.feed import Feed
 class SectionTests(unittest.TestCase):
     def test_llm_section_converts_types_and_strips_slash(self):
         llm = LLMConfig.from_section({"base_url": "http://host:8080/v1/", "max_prompt_chars": "9000",
-                                      "require_gpu": 0}, Path("."))
+                                      "require_gpu": 0, "pull_models": False}, Path("."))
         self.assertEqual(llm.base_url, "http://host:8080/v1")
         self.assertEqual(llm.max_prompt_chars, 9000)
         self.assertIs(llm.require_gpu, False)
+        self.assertIs(llm.pull_models, False)
 
     def test_api_key_file_relative_to_config(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -27,13 +27,12 @@ allow_private_addresses = false  # allow article links that point at LAN/localho
 [llm]
 # Any OpenAI-compatible endpoint running locally.
 #   Ollama:      sudo dnf install ollama && sudo systemctl enable --now ollama
-#                ollama pull qwen2.5:14b
+#                (the service downloads the models below when it starts; see pull_models)
 #   llama.cpp:   llama-server -m model.gguf --port 8080   -> http://127.0.0.1:8080/v1
 base_url = "http://127.0.0.1:11434/v1"
 model = "qwen2.5:14b"
 # api_key: set it in indefinite-articles.toml, which only the service can read
-embedding_model = "nomic-embed-text"   # first-pass ranking of every article:
-                                       #   ollama pull nomic-embed-text
+embedding_model = "nomic-embed-text"   # first-pass ranking of every article;
                                        # set to "" to disable (newest articles are used)
 embedding_prefix = "clustering: "      # task prefix nomic-embed-text expects
 max_prompt_chars = 24000         # ~7k tokens per scoring request (one article each);
@@ -50,3 +49,6 @@ temperature = 0.2
 # 60s), or at the next digest_time. A slow but working LLM is never cut off.
 require_gpu = true               # don't start if Ollama runs the model on the CPU only
                                  # (no compatible GPU). Can't be checked with llama.cpp.
+pull_models = true               # when the service starts, have Ollama download model and
+                                 # embedding_model if it doesn't have them (several GB;
+                                 # set to false to run `ollama pull` yourself)

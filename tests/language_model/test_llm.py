@@ -5,6 +5,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
+from fake_llm import FakeLLM
+
 from indefinite_articles.config import LLMConfig
 from indefinite_articles.language_model.llm import LLM, LLMError, LLMUnavailable
 
@@ -171,6 +173,12 @@ class LLMTests(unittest.TestCase):
         self._reply(b"not ollama", content_type="text/plain")
         self.assertFalse(self.llm.on_cpu_only())
 
+    def test_pull_skipped_when_not_ollama(self):
+        self._reply(b"not ollama", content_type="text/plain")
+        self.assertIsNone(self.llm.missing_models())
+        self.llm.pull_missing_models()
+        self.assertEqual(Server.requests, [])  # nothing was POSTed
+
     def test_deadline_passed(self):
         llm = LLM(self.config, deadline=lambda: 0)
         with self.assertRaisesRegex(LLMUnavailable, "next digest"):
@@ -201,3 +209,60 @@ class LLMTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PullTests(unittest.TestCase):
+    """Downloading missing models through Ollama's /api/pull."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), FakeLLM)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self) -> None:
+        self.llm = LLM(LLMConfig(base_url=f"http://127.0.0.1:{self.server.server_port}/v1",
+                                 model="qwen2.5:14b", embedding_model="nomic-embed-text"))
+        for name, value in (("installed", ["qwen2.5:14b", "nomic-embed-text:latest"]), ("pulled", []),
+                            ("pull_error", None)):
+            patcher = mock.patch.object(FakeLLM, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_nothing_missing(self) -> None:
+        self.assertEqual(self.llm.missing_models(), [])  # "name" matches "name:latest"
+        self.llm.pull_missing_models()
+        self.assertEqual(FakeLLM.pulled, [])
+
+    def test_pulls_missing_models(self) -> None:
+        FakeLLM.installed = ["llama3.1:8b"]
+        self.assertEqual(self.llm.missing_models(), ["qwen2.5:14b", "nomic-embed-text"])
+        with mock.patch("indefinite_articles.language_model.llm.PULL_PROGRESS_SECONDS", 0.0), \
+             self.assertLogs("indefinite_articles.language_model.llm", "INFO") as logs:
+            self.llm.pull_missing_models()
+        self.assertEqual(FakeLLM.pulled, ["qwen2.5:14b", "nomic-embed-text"])
+        self.assertEqual(self.llm.missing_models(), [])
+        output = "\n".join(logs.output)
+        self.assertIn("Ollama doesn't have qwen2.5:14b; downloading it", output)
+        self.assertIn("downloading nomic-embed-text: 50% of 0.0 GB", output)
+        self.assertIn("downloading nomic-embed-text: verifying sha256 digest", output)
+        self.assertIn("downloaded nomic-embed-text in", output)
+
+    def test_same_model_pulled_once(self) -> None:
+        self.llm.config.embedding_model = "qwen2.5:7b"
+        self.llm.config.model = "qwen2.5:7b"
+        with self.assertLogs("indefinite_articles.language_model.llm", "INFO"):
+            self.llm.pull_missing_models()
+        self.assertEqual(FakeLLM.pulled, ["qwen2.5:7b"])
+
+    def test_pull_error(self) -> None:
+        FakeLLM.installed = []
+        FakeLLM.pull_error = "pull model manifest: file does not exist"
+        with self.assertLogs("indefinite_articles.language_model.llm", "INFO"), \
+             self.assertRaisesRegex(LLMError, "downloading qwen2.5:14b failed: pull model manifest") as raised:
+            self.llm.pull_missing_models()
+        self.assertNotIsInstance(raised.exception, LLMUnavailable)

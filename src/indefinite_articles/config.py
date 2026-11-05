@@ -47,12 +47,14 @@ class LLMConfig:
     max_prompt_chars: int = 24000
     temperature: float = 0.2
     require_gpu: bool = True  # refuse to run if Ollama loads the model on CPU only
+    pull_models: bool = True  # have Ollama download missing models when the service starts
 
     @classmethod
     def from_section(cls, section: dict, base: Path) -> "LLMConfig":
         llm = cls()
         _copy_settings(llm, section, ("base_url", "model", "api_key", "max_prompt_chars", "temperature",
-                                      "embedding_model", "embedding_prefix", "embedding_batch", "require_gpu"))
+                                      "embedding_model", "embedding_prefix", "embedding_batch", "require_gpu",
+                                      "pull_models"))
         if section.get("api_key_file"):
             llm.api_key = _secret(section, "api_key", base)
         llm.base_url = llm.base_url.rstrip("/")

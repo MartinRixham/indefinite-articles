@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 STALL_FACTOR = 4
 MIN_STALL = 60.0
 
+PULL_PROGRESS_SECONDS = 30.0  # how often to log the progress of a model download
+
 
 def stall_limit(slowest: float) -> float:
     """Seconds without data after which a wait is abandoned, given the longest silence seen."""
@@ -99,11 +101,13 @@ class LLM:
         return LLMUnavailable(f"LLM stopped responding ({kind}, {waited:.0f}s without data)")
 
     # -- transport -----------------------------------------------------------------
-    def _send(self, path: str, body: dict, kind: str) -> SentRequest:
-        """POST `body` and wait for the response headers."""
+    def _send(self, path: str, body: dict, kind: str, native: bool = False) -> SentRequest:
+        """POST `body` and wait for the response headers. `native` requests go to
+        Ollama's own API, at the server root rather than under /v1."""
         parts = urllib.parse.urlsplit(self.config.base_url)
         if not parts.hostname:
             raise LLMError(f"base_url has no host: {self.config.base_url!r}")
+        base_path = parts.path.removesuffix("/v1") if native else parts.path
         cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
         limit = self._limit(kind)
         connection = cls(parts.hostname, parts.port, timeout=limit.seconds)
@@ -111,7 +115,7 @@ class LLM:
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         try:
-            connection.request("POST", parts.path + path, body=json.dumps(body).encode(), headers=headers)
+            connection.request("POST", base_path + path, body=json.dumps(body).encode(), headers=headers)
             # Our own reference: http.client drops connection.sock when the server will close.
             stream_socket = connection.sock
             response = connection.getresponse()
@@ -233,16 +237,80 @@ class LLM:
     def ping(self) -> str:
         return self.chat("Reply with the single word OK.", "Are you there?")
 
+    def _ollama_models(self, path: str) -> list[dict]:
+        """The "models" list from one of Ollama's own GET endpoints (/api/ps, /api/tags)."""
+        url = self.config.base_url.removesuffix("/v1") + path
+        with urllib.request.urlopen(url, timeout=self._limit("status").seconds) as response:
+            return json.load(response)["models"]
+
     def on_cpu_only(self) -> bool:
         """True if Ollama has the chat model loaded with nothing in GPU memory."""
         try:
-            url = self.config.base_url.removesuffix("/v1") + "/api/ps"
-            with urllib.request.urlopen(url, timeout=self._limit("status").seconds) as response:
-                models = json.load(response)["models"]
+            models = self._ollama_models("/api/ps")
         except Exception:  # not Ollama (e.g. llama.cpp) or unreachable: can't tell
             return False
         names = {self.config.model, self.config.model + ":latest"}
         return any(model.get("name") in names and not model.get("size_vram") for model in models)
+
+    def missing_models(self) -> list[str] | None:
+        """The configured chat and embedding models that Ollama hasn't downloaded,
+        or None if that can't be told (not Ollama, or unreachable)."""
+        try:
+            installed = {model.get("name") for model in self._ollama_models("/api/tags")}
+        except Exception:
+            return None
+        wanted = dict.fromkeys(name for name in (self.config.model, self.config.embedding_model) if name)
+        return [name for name in wanted if not {name, name + ":latest"} & installed]
+
+    def pull_missing_models(self) -> None:
+        """Have Ollama download any configured model it doesn't have yet. Does nothing
+        when the server isn't Ollama. Raises LLMError if a download fails."""
+        for name in self.missing_models() or []:
+            self.pull(name)
+
+    def pull(self, name: str) -> None:
+        """Have Ollama download the model `name`, logging its progress."""
+        log.info("Ollama doesn't have %s; downloading it", name)
+        kind = "pull"
+        started = time.monotonic()
+        sent = self._send("/api/pull", {"model": name}, kind, native=True)
+        limit = sent.limit
+        last, last_logged, last_status = started, started, ""
+        try:
+            while True:
+                line = sent.response.readline()
+                if not line:
+                    raise LLMUnavailable(f"Ollama closed the connection while downloading {name}")
+                now = time.monotonic()
+                self._observe(kind, now - last)
+                last = now
+                limit = self._limit(kind)
+                sent.stream_socket.settimeout(limit.seconds)
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                if "error" in event:
+                    raise LLMError(f"downloading {name} failed: {str(event['error'])[:300]}")
+                status = str(event.get("status", ""))
+                if status == "success":
+                    log.info("downloaded %s in %.0fs", name, now - started)
+                    return
+                total, completed = event.get("total"), event.get("completed")
+                if total and completed is not None:  # one line per chunk: log now and then
+                    if now - last_logged >= PULL_PROGRESS_SECONDS:
+                        log.info("downloading %s: %d%% of %.1f GB", name, 100 * completed // total, total / 1e9)
+                        last_logged = now
+                elif status != last_status:
+                    log.info("downloading %s: %s", name, status)
+                last_status = status
+        except TimeoutError:
+            raise self._stalled(kind, limit) from None
+        except OSError as error:
+            raise LLMUnavailable(f"connection to Ollama lost while downloading {name}: {error}") from None
+        except ValueError:
+            raise LLMError("Ollama returned invalid JSON") from None
+        finally:
+            sent.close()
 
 
 def _message_text(data: dict) -> str:

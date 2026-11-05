@@ -2,7 +2,7 @@
 
 Serve `FakeLLM` with an `http.server.ThreadingHTTPServer`. It answers chat requests by
 recognizing a marker string in each prompt (see `do_POST`), embedding requests with
-`fake_embedding`, and Ollama's `/api/ps` status request.
+`fake_embedding`, and Ollama's own `/api/ps`, `/api/tags` and `/api/pull` requests.
 """
 
 import json
@@ -29,15 +29,22 @@ class FakeLLM(BaseHTTPRequestHandler):
     gap = 0.0        # seconds between tokens
     hang_after: int | None = None  # stop sending after this many tokens (a hung server)
     answer: str | None = None      # if set, the reply to every chat request
+    installed: list[str] = ["qwen2.5:14b", "nomic-embed-text:latest"]  # models Ollama has
+    pulled: list[str] = []         # models downloaded through /api/pull
+    pull_error: str | None = None  # if set, every download fails with this error
 
     def log_message(self, format: str, *args: Any) -> None:
         pass
 
     def do_GET(self) -> None:
+        if self.path == "/api/tags":
+            return self._json({"models": [{"name": name} for name in FakeLLM.installed]})
         self._json({"models": [{"name": "qwen2.5:14b", "size_vram": FakeLLM.size_vram}]})
 
     def do_POST(self) -> None:
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if self.path == "/api/pull":
+            return self._pull(body["model"])
         FakeLLM.requests.append(body)
         if self.path.endswith("/embeddings"):
             return self._json({"data": [{"index": index, "embedding": fake_embedding(text)}
@@ -80,6 +87,26 @@ class FakeLLM(BaseHTTPRequestHandler):
             self.wfile.write(b"data: [DONE]\n\n")
         except (BrokenPipeError, ConnectionResetError):
             pass  # the client gave up
+
+    def _pull(self, name: str) -> None:
+        """Stream Ollama's newline-delimited JSON download progress."""
+        events: list[dict[str, Any]] = [
+            {"status": "pulling manifest"},
+            {"status": "pulling 0123abcd", "digest": "sha256:0123abcd", "total": 1000, "completed": 500},
+            {"status": "pulling 0123abcd", "digest": "sha256:0123abcd", "total": 1000, "completed": 1000},
+            {"status": "verifying sha256 digest"},
+            {"status": "writing manifest"},
+        ]
+        if FakeLLM.pull_error is None:
+            events.append({"status": "success"})
+            FakeLLM.installed = [*FakeLLM.installed, name]
+            FakeLLM.pulled = [*FakeLLM.pulled, name]
+        else:
+            events.append({"error": FakeLLM.pull_error})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.end_headers()
+        self.wfile.write(b"".join(json.dumps(event).encode() + b"\n" for event in events))
 
     def _json(self, payload: object) -> None:
         out = json.dumps(payload).encode()

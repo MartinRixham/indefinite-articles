@@ -206,6 +206,10 @@ class CommandLineTests(unittest.TestCase):
 
     def test_run_refuses_cpu_only(self):
         self.config_path.write_text(self.config_path.read_text() + '[email.smtp]\nhost = "smtp.example.org"\n')
+        # Never let a test ask a real local Ollama to download a model.
+        patcher = mock.patch.object(LLM, "pull_missing_models")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with mock.patch.object(Service, "run", side_effect=AssertionError("started")), \
              mock.patch.object(LLM, "ping", return_value="OK"), \
              mock.patch.object(LLM, "on_cpu_only", return_value=True), \
@@ -223,6 +227,22 @@ class CommandLineTests(unittest.TestCase):
              self.assertLogs(level="WARNING"):
             self.assertEqual(self._run("run")[0], 0)
         run.assert_called_once()
+
+    def test_run_pulls_missing_models(self):
+        self.config_path.write_text(self.config_path.read_text() + '[email.smtp]\nhost = "smtp.example.org"\n')
+        with mock.patch.object(Service, "run", side_effect=AssertionError("started")), \
+             mock.patch.object(LLM, "pull_missing_models", side_effect=LLMError("no space left")) as pull, \
+             mock.patch.object(LLM, "ping", side_effect=AssertionError("pinged")), \
+             self.assertLogs(level="ERROR") as logs:
+            self.assertEqual(self._run("run")[0], 1)
+        pull.assert_called_once()
+        self.assertIn("cannot start: no space left", "\n".join(logs.output))
+        self.config_path.write_text(self.config_path.read_text() + '[llm]\npull_models = false\n')
+        with mock.patch.object(Service, "run", side_effect=AssertionError("started")), \
+             mock.patch.object(LLM, "pull_missing_models", side_effect=AssertionError("pulled")), \
+             mock.patch.object(LLM, "ping", side_effect=LLMError("down")), \
+             self.assertLogs(level="WARNING"):
+            self.assertEqual(self._run("run")[0], 1)
 
     def test_check(self):
         with mock.patch.object(LLM, "ping", return_value="OK"), \

@@ -44,6 +44,8 @@ sudo dnf install ollama ollama-rocm     # ollama-rocm: AMD GPUs, including integ
 sudo systemctl enable --now ollama
 ollama pull qwen2.5:14b                 # ~9 GB; or qwen2.5:32b, gemma2:27b, llama3.1:8b ...
 ollama pull nomic-embed-text            # small (274 MB) model for the first-pass ranking
+                                        # (the service also downloads missing models
+                                        #  when it starts: pull_models in tuning.toml)
 
 # 2. Configure email and your starting interests
 sudoedit /etc/indefinite-articles/indefinite-articles.toml

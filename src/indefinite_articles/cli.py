@@ -34,8 +34,14 @@ def _command_run(config: Config, args: argparse.Namespace):
     if not config.feeds or not config.email.smtp.host:
         logging.error("cannot start: fix %s", args.config or DEFAULT_CONFIG_PATH)
         return 1
+    llm = LLM(config.llm, deadline=config.next_digest_time)
+    if config.llm.pull_models:
+        try:
+            llm.pull_missing_models()
+        except LLMError as error:
+            logging.error("cannot start: %s", error)
+            return 1  # systemd retries; Ollama resumes the download
     if config.llm.require_gpu:
-        llm = LLM(config.llm, deadline=config.next_digest_time)
         try:
             llm.ping()  # makes Ollama load the model
         except LLMError as error:
