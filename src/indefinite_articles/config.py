@@ -14,6 +14,7 @@ from pathlib import Path
 from .fetching.feed import Feed
 
 DEFAULT_CONFIG_PATH = "/etc/indefinite-articles/indefinite-articles.toml"
+TUNING_FILE_NAME = "tuning.toml"  # optional, next to the config file; the config file overrides it
 
 
 class ConfigError(Exception):
@@ -193,15 +194,38 @@ def _secret(section: dict, key: str, base: Path) -> str:
     return str(section.get(key, ""))
 
 
-def load(path: str | os.PathLike | None = None) -> Config:
-    path = Path(path or os.environ.get("INDEFINITE_ARTICLES_CONFIG", DEFAULT_CONFIG_PATH))
+def _read_toml(path: Path) -> dict:
     try:
-        raw = tomllib.loads(path.read_text())
+        return tomllib.loads(path.read_text())
     except FileNotFoundError:
         raise ConfigError(f"config file not found: {path}") from None
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"{path}: {error}") from None
+
+
+def _merge(defaults: dict, overrides: dict) -> dict:
+    """`overrides` on top of `defaults`; tables are merged key by key, anything else is replaced."""
+    merged = dict(defaults)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load(path: str | os.PathLike | None = None) -> Config:
+    """Load the config file, on top of tuning.toml in the same directory if there is one.
+
+    tuning.toml holds the packaged tuning settings. Users who leave it unedited get the
+    updated values with each upgrade; any setting can be overridden in the config file.
+    """
+    path = Path(path or os.environ.get("INDEFINITE_ARTICLES_CONFIG", DEFAULT_CONFIG_PATH))
+    raw = _read_toml(path)
     base = path.parent
+    tuning_path = base / TUNING_FILE_NAME
+    if tuning_path.is_file():
+        raw = _merge(_read_toml(tuning_path), raw)
 
     general = raw.get("general", {})
     config = Config()

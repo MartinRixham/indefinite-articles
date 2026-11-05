@@ -40,6 +40,7 @@ install -Dpm 0644 dist/indefinite-articles.service %{buildroot}%{_unitdir}/indef
 install -Dpm 0644 dist/ollama-igpu.conf %{buildroot}%{_unitdir}/ollama.service.d/50-indefinite-articles-igpu.conf
 install -Dpm 0644 dist/indefinite-articles.sysusers %{buildroot}%{_sysusersdir}/indefinite-articles.conf
 install -Dpm 0640 dist/indefinite-articles.toml %{buildroot}%{_sysconfdir}/indefinite-articles/indefinite-articles.toml
+install -Dpm 0644 dist/tuning.toml %{buildroot}%{_sysconfdir}/indefinite-articles/tuning.toml
 install -Dpm 0644 dist/feeds.d/default.opml %{buildroot}%{_sysconfdir}/indefinite-articles/feeds.d/default.opml
 install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 
@@ -65,6 +66,7 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %{_sysusersdir}/indefinite-articles.conf
 %dir %attr(0750,root,indefinite-articles) %{_sysconfdir}/indefinite-articles
 %config(noreplace) %attr(0640,root,indefinite-articles) %{_sysconfdir}/indefinite-articles/indefinite-articles.toml
+%config(noreplace) %{_sysconfdir}/indefinite-articles/tuning.toml
 %dir %{_sysconfdir}/indefinite-articles/feeds.d
 %config(noreplace) %{_sysconfdir}/indefinite-articles/feeds.d/default.opml
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles

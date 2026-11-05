@@ -1,0 +1,52 @@
+# Tuning for indefinite-articles(1), read before indefinite-articles.toml.
+#
+# Leave this file unedited and package upgrades keep it up to date. To change a
+# setting, copy it (with its [section] header) into indefinite-articles.toml, which
+# overrides this file. If you edit this file instead, upgrades save the new version
+# as tuning.toml.rpmnew and you merge it by hand.
+
+[general]
+database = "/var/lib/indefinite-articles/indefinite-articles.db"
+exploration = 2                  # picks outside the top-ranked, so it keeps learning
+max_per_source = 3               # avoid one feed dominating a digest
+max_article_age_days = 3
+max_candidates = 150             # articles per day that get full text + LLM scoring;
+                                 # every other article is only ranked by embeddings
+rescore_top = 30                 # after your feedback changes the profile, only the top
+                                 # this many (in digest order) are LLM-scored again;
+                                 # the rest keep their earlier score
+feeds_dir = "feeds.d"            # relative to indefinite-articles.toml
+fetch_concurrency = 16           # hosts fetched in parallel (one request at a time per host)
+fetch_interval_minutes = 60
+poll_interval_minutes = 5
+fetch_full_articles = true       # download each candidate's page so the LLM sees the article text
+article_chars = 4000             # characters of article text given to the LLM per article
+fetch_workers = 4                # parallel page downloads
+allow_private_addresses = false  # allow article links that point at LAN/localhost addresses
+
+[llm]
+# Any OpenAI-compatible endpoint running locally.
+#   Ollama:      sudo dnf install ollama && sudo systemctl enable --now ollama
+#                ollama pull qwen2.5:14b
+#   llama.cpp:   llama-server -m model.gguf --port 8080   -> http://127.0.0.1:8080/v1
+base_url = "http://127.0.0.1:11434/v1"
+model = "qwen2.5:14b"
+# api_key: set it in indefinite-articles.toml, which only the service can read
+embedding_model = "nomic-embed-text"   # first-pass ranking of every article:
+                                       #   ollama pull nomic-embed-text
+                                       # set to "" to disable (newest articles are used)
+embedding_prefix = "clustering: "      # task prefix nomic-embed-text expects
+max_prompt_chars = 24000         # ~7k tokens per scoring request (one article each);
+                                 # keep below the model's context window.
+                                 # (Ollama drops the start of an overlong prompt,
+                                 # which is where the reader profile is.)
+                                 # 24000 fits the OLLAMA_CONTEXT_LENGTH=8192 that the
+                                 # package sets for ollama.service; for bigger prompts
+                                 # raise that to 16384 (sudo systemctl edit ollama) and
+                                 # this to ~50000.
+temperature = 0.2
+# There is no fixed request timeout. Answers are streamed, and a request is only
+# abandoned when the LLM goes silent for 4x longer than it ever has before (at least
+# 60s), or at the next digest_time. A slow but working LLM is never cut off.
+require_gpu = true               # don't start if Ollama runs the model on the CPU only
+                                 # (no compatible GPU). Can't be checked with llama.cpp.

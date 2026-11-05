@@ -16,7 +16,7 @@ npx pyright src tests                                         # type check; keep
 make container-rpm                                            # build the RPM in a Fedora container (podman)
 ```
 
-There is no virtualenv: numpy comes from the system Python. Tests need no network or LLM. `tests/fake_llm.py` holds `FakeLLM`, an in-process HTTP server (started by `test_indefinite_articles.py` and `language_model/test_assistant.py`) that answers chat, embedding and `/api/ps` requests based on the prompt text. `FakeLLM.do_POST` recognizes each request by a marker string in its prompt: `Article to rate:` (scoring), `interpret a reader` (reply parsing), `maintain a concise profile` (profile update) and `short phrases for a search engine` (profile phrases); all four prompts live in `language_model/assistant.py`. If you reword one of those prompts, update the fake too. Setting `FakeLLM.answer` makes it give that reply to every chat request; `tests/language_model/test_assistant.py` uses it to test unusable answers. The tests load the shipped config `dist/indefinite-articles.toml` (with `:memory:` as the database), so that file must stay valid.
+There is no virtualenv: numpy comes from the system Python. Tests need no network or LLM. `tests/fake_llm.py` holds `FakeLLM`, an in-process HTTP server (started by `test_indefinite_articles.py` and `language_model/test_assistant.py`) that answers chat, embedding and `/api/ps` requests based on the prompt text. `FakeLLM.do_POST` recognizes each request by a marker string in its prompt: `Article to rate:` (scoring), `interpret a reader` (reply parsing), `maintain a concise profile` (profile update) and `short phrases for a search engine` (profile phrases); all four prompts live in `language_model/assistant.py`. If you reword one of those prompts, update the fake too. Setting `FakeLLM.answer` makes it give that reply to every chat request; `tests/language_model/test_assistant.py` uses it to test unusable answers. The tests load the shipped config `dist/indefinite-articles.toml` (with `:memory:` as the database) on top of `dist/tuning.toml`, so both files must stay valid.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ Schema changes: `database.SCHEMA` uses `CREATE TABLE IF NOT EXISTS`. New `articl
 
 ## Packaging
 
-- `dist/` holds the files installed to `/etc` and systemd: the config, `feeds.d/default.opml`, the unit file, sysusers and the Ollama iGPU drop-in.
+- `dist/` holds the files installed to `/etc` and systemd: the config (`indefinite-articles.toml` for the user's email and preferences; `tuning.toml` for everything else, loaded first by `config.load` and overridden by the main file, so users who leave it unedited get tuning updates on upgrade), `feeds.d/default.opml`, the unit file, sysusers and the Ollama iGPU drop-in.
 - `packaging/indefinite-articles.spec` builds the RPM. The `Containerfile` installs that RPM, so container paths match the RPM's.
 - The version lives in `src/indefinite_articles/__init__.py` (`__version__`); `pyproject.toml` (via `tool.setuptools.dynamic`) and the Makefile read it from there. The spec file's `Version:` and its newest `%changelog` entry must match it; `tests/test_version.py` checks this, so a release means editing `__init__.py` and the spec (`Version:` plus a new changelog entry).
 - CI (`.github/workflows/build.yml`) runs the tests, then builds the RPM on Fedora 44 and 45, then publishes the container image to ghcr.

@@ -168,6 +168,18 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(config.llm.model, "small")
         self.assertEqual([feed.url for feed in config.feeds], ["https://kept/feed", "https://n/feed"])
 
+    def test_config_file_overrides_tuning_file(self):
+        (self.directory / "tuning.toml").write_text(
+            '[general]\nmax_candidates = 20\nrescore_top = 5\n[llm]\nmodel = "tuned"\ntemperature = 0.5\n')
+        config = load(self._write('[general]\nmax_candidates = 40\n[llm]\nmodel = "mine"\n'))
+        self.assertEqual((config.max_candidates, config.rescore_top), (40, 5))
+        self.assertEqual((config.llm.model, config.llm.temperature), ("mine", 0.5))
+
+    def test_invalid_tuning_file(self):
+        (self.directory / "tuning.toml").write_text("[llm\n")
+        with self.assertRaisesRegex(ConfigError, "tuning.toml"):
+            load(self._write(""))
+
     def test_plain_string_feeds(self):
         config = load(self._write('feeds = ["https://plain/feed"]\n'))
         self.assertEqual([(feed.url, feed.name) for feed in config.feeds], [("https://plain/feed", "")])

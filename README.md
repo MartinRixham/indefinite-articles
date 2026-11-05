@@ -54,6 +54,12 @@ sudo systemctl enable --now indefinite-articles
 journalctl -u indefinite-articles -f
 ```
 
+Tuning settings (ranking, fetching, the LLM model and endpoint) are in
+`/etc/indefinite-articles/tuning.toml`. Leave that file unedited and each upgrade brings the
+latest tuning. To change one of its settings, copy it into `indefinite-articles.toml` under
+the same `[section]` header; settings there override `tuning.toml`. (If you edit
+`tuning.toml` itself, RPM keeps your copy and saves upgrades as `tuning.toml.rpmnew`.)
+
 Use a dedicated mailbox (e.g. `indefinite-articles@yourdomain`) as `from`. It sends the digests and
 receives your replies. For Gmail or Fastmail, use an app password. Only replies **from**
 `email.to` (or `allowed_senders`) are read. Other mail in the mailbox is left alone.
@@ -89,6 +95,9 @@ podman exec indefinite-articles indefinite-articles check --send-test
 podman logs -f indefinite-articles
 ```
 
+* Only `indefinite-articles.toml` is mounted, so `tuning.toml` comes from the image and
+  is updated with it. Put overrides (such as `[llm] base_url`) in your
+  `indefinite-articles.toml`.
 * `--network=host` lets the default `base_url` (`http://127.0.0.1:11434/v1`) reach Ollama
   on the host. Without it, point `base_url` at `http://host.containers.internal:11434/v1`
   and make Ollama listen on more than localhost (`OLLAMA_HOST=0.0.0.0`).
@@ -197,6 +206,7 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
   summary is used instead. Links that point at localhost or private network addresses
   are refused unless `allow_private_addresses = true`. Set `fetch_full_articles = false`
   to judge on feed summaries only.
+* All the settings named here are in `tuning.toml`; override them in `indefinite-articles.toml`.
 * **Context size.** Scoring requests stay under `llm.max_prompt_chars` (about 24,000
   characters, roughly 7,000 tokens), because Ollama silently cuts off a prompt longer than
   its context. Ollama's default context is 4,096 tokens; the package's drop-in for
