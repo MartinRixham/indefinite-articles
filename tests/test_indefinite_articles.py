@@ -2,8 +2,9 @@ import signal
 import threading
 import time
 import unittest
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
+from email.utils import format_datetime
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -24,20 +25,23 @@ from fake_llm import FakeLLM
 
 ROOT = Path(__file__).resolve().parent.parent
 
-RSS = b"""<?xml version="1.0"?>
+# Recent publication times, so the articles fall inside the digest's window whenever the tests run.
+RECENT = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=2)
+
+RSS = f"""<?xml version="1.0"?>
 <rss version="2.0"><channel><title>Example RSS</title>
 <item><title>Rust &amp; the borrow checker</title><link>https://ex.com/rust</link>
 <description>&lt;p&gt;A &lt;b&gt;deep&lt;/b&gt; dive.&lt;/p&gt;</description>
-<pubDate>Mon, 02 Nov 2026 10:00:00 GMT</pubDate></item>
+<pubDate>{format_datetime(RECENT, usegmt=True)}</pubDate></item>
 <item><title>Celebrity gossip</title><guid>https://ex.com/gossip</guid></item>
-</channel></rss>"""
+</channel></rss>""".encode()
 
-ATOM = b"""<?xml version="1.0" encoding="utf-8"?>
+ATOM = f"""<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom"><title>Example Atom</title>
 <entry><title>Linux 7.3 released</title>
 <link rel="alternate" href="https://ex.org/linux"/><link rel="replies" href="https://ex.org/c"/>
-<updated>2026-11-02T08:00:00Z</updated><summary>Kernel news.</summary></entry>
-</feed>"""
+<updated>{(RECENT - timedelta(hours=2)).isoformat()}</updated><summary>Kernel news.</summary></entry>
+</feed>""".encode()
 
 
 def send_digest(config: Config, database: Database, **kwargs: Any) -> EmailMessage:
