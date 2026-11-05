@@ -15,6 +15,8 @@ from ..storage.database import PendingFeedback
 from .llm import LLM, LLMError
 
 MAX_PHRASES = 12  # per side, from the reader profile
+PROFILE_WORDS = 500
+MAX_PROFILE_CHARS = 6000  # room for PROFILE_WORDS of bullets, with some overshoot
 
 SCORE_SYSTEM = (
     "You are a personal reading assistant. You predict how much one specific reader will "
@@ -133,7 +135,7 @@ class Assistant:
             "even if the profile never mentioned them. Keep the rest of the profile as it is. "
             "Treat explicit comments as strong signals and single likes/dislikes as weak ones. "
             "Describe topics, angles, depth and styles the reader likes and dislikes, and any "
-            "sources they favour or avoid. Write at most 250 words as a bullet list. "
+            f"sources they favour or avoid. Write at most {PROFILE_WORDS} words as a bullet list. "
             "Output only the profile."
         )
         text = self._llm.chat(PROFILE_SYSTEM, user).strip()
@@ -173,7 +175,7 @@ class Assistant:
     def profile_phrases(self, profile_text: str) -> tuple[list[str], list[str]]:
         """Short phrases for what the profile says the reader wants and wants to avoid,
         at most `MAX_PHRASES` of each. Raises `LLMError` if there are no wanted phrases."""
-        prompt = PREFERENCES_PROMPT.format(profile=profile_text[:4000], max_phrases=MAX_PHRASES)
+        prompt = PREFERENCES_PROMPT.format(profile=profile_text[:MAX_PROFILE_CHARS], max_phrases=MAX_PHRASES)
         data = self._llm.chat_json(PREFERENCES_SYSTEM, prompt)
         if not isinstance(data, dict):
             raise LLMError(f"no phrases in LLM output: {str(data)[:200]}")

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from ..config import Config
-from ..language_model.assistant import ArticleScore, Assistant
+from ..language_model.assistant import MAX_PROFILE_CHARS, ArticleScore, Assistant
 from ..language_model.llm import LLM, LLMError, LLMUnavailable
 from ..storage.article import Article
 from ..storage.database import Database, SourceStatistics
@@ -285,7 +285,7 @@ def update_profile(config: Config, database: Database, llm: LLM) -> bool:
     dislike_count = sum(1 for row in feedback if row["rating"] < 0)
     comment_count = len(feedback) - like_count - dislike_count + len(comments)
     database.add_profile(
-        text[:4000],
+        text[:MAX_PROFILE_CHARS],
         note=f"{like_count} likes, {dislike_count} dislikes, {comment_count} comments",
     )
     log.info("reader profile updated")
