@@ -30,9 +30,7 @@ allow_private_addresses = false  # allow article links that point at LAN/localho
 # as you reply to digests (see `indefinite-articles profile`); editing it here only affects
 # a fresh database.
 interests = """
-I like in-depth technical articles about software engineering, Linux, programming
-languages and machine learning, plus well-researched science writing. I dislike
-product announcements, celebrity news and listicles.
+I dislike product announcements, celebrity news and listicles.
 """
 
 [llm]
