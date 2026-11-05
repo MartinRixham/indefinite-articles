@@ -10,6 +10,7 @@ Email clients ignore <style> blocks unevenly, so styles are inline.
 <h2 style="font-weight:600">Today's $count recommendations</h2>
 <p style="color:#a60">$note</p>
 $items
+$podcasts
 <hr style="border:none;border-top:1px solid #ddd">
 <pre style="font-size:13px;color:#555;white-space:pre-wrap">$instructions</pre>
 <p style="font-size:11px;color:#aaa">digest-id: $digest_id</p>
@@ -19,10 +20,18 @@ $debug
 @@ item
 <div style="margin:0 0 22px">
   <div style="font-size:17px"><b>$position.</b> <a href="$url" style="color:#1a56c8;text-decoration:none">$title</a></div>
-  <div style="font-size:13px;color:#666">$source$exploratory</div>
+  <div style="font-size:13px;color:#666">$source$length$exploratory</div>
+  <div style="font-size:13px"><a href="$audio_url" style="color:#1a56c8">Listen (audio file)</a></div>
   <div style="font-size:13px;color:#2a7a2a">Why: $reason</div>
   <div style="font-size:14px;color:#444;margin-top:4px">$blurb</div>
 </div>
+
+@@ podcasts
+<h3 style="font-weight:600;margin-top:28px">Podcast episodes</h3>
+$items
+
+@@ length
+ · $length
 
 @@ exploratory
  <span style="font-size:12px;background:#eef;padding:1px 6px;border-radius:8px">something different</span>

@@ -125,7 +125,8 @@ def _debug_report(config: Config, database: Database, items: list[ranker.DigestP
         f"embeddings: {config.llm.embedding_model or 'disabled'}, {statistics['embedded']} stored",
         f"feeds: {len(config.feeds)} configured, {statistics['feeds_failing']} failing, {never} never fetched,"
         f" last success {_ago(last_ok)}",
-        f"articles: {new_24h} new in 24h, {statistics['articles']} in db,"
+        f"articles: {new_24h} new in 24h, {statistics['articles']} in db"
+        f" ({statistics['podcast_episodes']} podcast episodes),"
         f" full text {statistics['full_text']} ok / {statistics['full_text_failed']} failed",
         f"selection: {selection.get('candidates', 0)} candidates, {selection.get('llm_scored', 0)} scored"
         f" against current profile, {selection.get('stale_scored', 0)} with stale scores",

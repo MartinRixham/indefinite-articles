@@ -20,7 +20,8 @@ MAX_PROFILE_CHARS = 6000  # room for PROFILE_WORDS of bullets, with some oversho
 
 SCORE_SYSTEM = (
     "You are a personal reading assistant. You predict how much one specific reader will "
-    "want to read an article, based on what you know about their tastes. Be discerning: "
+    "want to read an article (or listen to a podcast episode), based on what you know about "
+    "their tastes. Be discerning: "
     "use the full 0-10 range, and reserve 8+ for articles that clearly match their interests."
 )
 
@@ -71,6 +72,14 @@ def _format_feedback(rows: Iterable[sqlite3.Row]) -> str:
     ) or "(none)"
 
 
+def _format_line(article: Article) -> str:
+    """For a podcast episode, a line saying so (and how long it is); '' for an article."""
+    if not article.is_podcast:
+        return ""
+    length = f", {article.length_label}" if article.length_label else ""
+    return f"Format: podcast episode{length}; the reader would listen to it, judge it by its topic and guests\n"
+
+
 def _phrase_list(data: dict, key: str) -> list[str]:
     items = data.get(key)
     if not isinstance(items, list):
@@ -102,7 +111,8 @@ class Assistant:
         (made by `score_prefix`), showing the LLM at most `per_article` characters of it."""
         user = (
             prefix + "Article to rate:\n"
-            f"Title: {article.title}\nSource: {article.source_label}\n{article.description(per_article)}"
+            f"Title: {article.title}\nSource: {article.source_label}\n{_format_line(article)}"
+            f"{article.description(per_article)}"
         )
         data = self._llm.chat_json(SCORE_SYSTEM, user)
         if isinstance(data, dict) and isinstance(data.get("ratings"), list) and data["ratings"]:

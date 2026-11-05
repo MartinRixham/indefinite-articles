@@ -61,7 +61,9 @@ CREATE TABLE IF NOT EXISTS articles (
     content_status TEXT,
     category TEXT NOT NULL DEFAULT '',
     prefilter REAL,
-    prefilter_version INTEGER
+    prefilter_version INTEGER,
+    audio_url TEXT,
+    duration REAL
 );
 CREATE INDEX IF NOT EXISTS articles_title_key ON articles(title_key);
 CREATE INDEX IF NOT EXISTS articles_fetched ON articles(fetched_at);
@@ -154,7 +156,7 @@ class Database:
             return  # new database
         for name, column_type in (("content", "TEXT"), ("content_status", "TEXT"),
                            ("category", "TEXT NOT NULL DEFAULT ''"), ("prefilter", "REAL"),
-                           ("prefilter_version", "INTEGER")):
+                           ("prefilter_version", "INTEGER"), ("audio_url", "TEXT"), ("duration", "REAL")):
             if name not in columns:
                 self.connection.execute(f"ALTER TABLE articles ADD COLUMN {name} {column_type}")
 
@@ -206,26 +208,28 @@ class Database:
             return False
         self.connection.execute(
             "INSERT INTO articles(url, title, title_key, summary, source, published, fetched_at,"
-            " category) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+            " category, audio_url, duration) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (entry.url, entry.title, entry.title_key, entry.summary, source, entry.published,
-             time.time(), category),
+             time.time(), category, entry.audio_url or None, entry.duration),
         )
         return True
 
-    def candidates(self, max_age_days: int, limit: int) -> list[Article]:
-        """Unsent, recent articles, balanced across sources so a busy feed can't crowd out others."""
+    def candidates(self, max_age_days: int, limit: int, podcasts: bool = False) -> list[Article]:
+        """Unsent, recent articles (or podcast episodes, if `podcasts`), balanced across
+        sources so a busy feed can't crowd out others."""
         cutoff = time.time() - max_age_days * 86400
         source_count = self.connection.execute(
             "SELECT COUNT(DISTINCT source) FROM articles WHERE sent_digest_id IS NULL "
-            "AND COALESCE(published, fetched_at) >= ?", (cutoff,)
+            "AND COALESCE(published, fetched_at) >= ? AND (audio_url IS NOT NULL) = ?", (cutoff, podcasts)
         ).fetchone()[0] or 1
         per_source = max(5, -(-limit // source_count))
         return self._articles(
             "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY source "
             "  ORDER BY COALESCE(published, fetched_at) DESC) AS rn "
-            "  FROM articles WHERE sent_digest_id IS NULL AND COALESCE(published, fetched_at) >= ?) "
+            "  FROM articles WHERE sent_digest_id IS NULL AND COALESCE(published, fetched_at) >= ?"
+            "  AND (audio_url IS NOT NULL) = ?) "
             "WHERE rn <= ? ORDER BY rn, COALESCE(published, fetched_at) DESC LIMIT ?",
-            (cutoff, per_source, limit),
+            (cutoff, podcasts, per_source, limit),
         )
 
     def pool(self, max_age_days: int, limit: int = 50000) -> list[Article]:
@@ -461,6 +465,7 @@ class Database:
     def statistics(self) -> dict:
         return {
             "articles": self._count("SELECT COUNT(*) FROM articles"),
+            "podcast_episodes": self._count("SELECT COUNT(*) FROM articles WHERE audio_url IS NOT NULL"),
             "unsent_scored": self._count(
                 "SELECT COUNT(*) FROM articles WHERE sent_digest_id IS NULL AND score IS NOT NULL"
             ),

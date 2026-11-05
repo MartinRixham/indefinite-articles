@@ -1,7 +1,7 @@
 # Indefinite Articles
 
-A small Fedora service that emails you a daily list of articles. It picks them with a
-**local LLM** and learns what you like from **your replies to the email**.
+A small Fedora service that emails you a daily list of articles and podcast episodes. It
+picks them with a **local LLM** and learns what you like from **your replies to the email**.
 
 How it works:
 
@@ -16,7 +16,9 @@ How it works:
    (Ollama or llama.cpp) then reads each one and scores it from 0 to 10, using your
    *reader profile* plus your latest likes and dislikes.
 4. At `digest_time` it emails you the top articles. Two "something different" picks are
-   added so it keeps finding out what else you might like.
+   added so it keeps finding out what else you might like. Below them come the top
+   podcast episodes (`podcasts_per_digest`, default 3), numbered on from the articles so
+   you rate them the same way.
 5. Every 5 minutes it checks the mailbox over IMAP for your replies. It records your likes,
    dislikes and comments, and the LLM rewrites your reader profile. It can reply
    to confirm what it understood.
@@ -147,6 +149,14 @@ All feeds come from files in `/etc/indefinite-articles/feeds.d/`:
   science, space, medicine, climate, economics, business, world news, politics, long-form
   essays, history, philosophy, books, design, cities, food, sports, gaming and more.
   It is a config file, so your edits survive upgrades.
+* The `Podcasts` category has about 50 podcasts (science, history, economics, tech,
+  programming, security, interviews). Any feed works as a podcast: an entry is treated
+  as an episode if it has an audio enclosure and either an `itunes:duration` or a feed
+  where most entries have audio. So read-aloud versions of articles stay articles, and an
+  OPML export from your podcast app works too. Episodes have their own shortlist
+  (`max_podcast_candidates`), so the far more numerous articles can't crowd them out. The
+  LLM judges an episode by its show notes (from the feed, or the episode's web page).
+  Set `podcasts_per_digest = 0` for no podcasts.
 * To add your own, put any OPML export from another feed reader in that directory, or a
   `.txt` file with one feed URL per line (`# Category` lines set the category).
 * To skip whole categories, set

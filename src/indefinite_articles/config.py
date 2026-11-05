@@ -132,10 +132,13 @@ class Config:
     database: str = "/var/lib/indefinite-articles/indefinite-articles.db"
     digest_time: str = "07:00"
     articles_per_digest: int = 10
+    podcasts_per_digest: int = 3   # podcast episodes, listed after the articles
     exploration: int = 2
+    podcast_exploration: int = 1
     max_per_source: int = 3
     max_article_age_days: int = 3
     max_candidates: int = 150      # articles per day that get full-text + LLM scoring
+    max_podcast_candidates: int = 30  # podcast episodes per day that get LLM scoring
     rescore_top: int = 30          # after a profile change, rescore only this many top-ranked articles
     feeds_dir: str = "feeds.d"     # relative to the config file
     exclude_categories: list[str] = field(default_factory=list)
@@ -232,8 +235,9 @@ def load(path: str | os.PathLike | None = None) -> Config:
     general = raw.get("general", {})
     config = Config()
     _copy_settings(config, general, (
-        "database", "digest_time", "articles_per_digest", "exploration", "max_per_source",
-        "max_article_age_days", "max_candidates", "rescore_top", "fetch_interval_minutes",
+        "database", "digest_time", "articles_per_digest", "podcasts_per_digest", "exploration",
+        "podcast_exploration", "max_per_source", "max_article_age_days", "max_candidates",
+        "max_podcast_candidates", "rescore_top", "fetch_interval_minutes",
         "poll_interval_minutes", "fetch_full_articles", "article_chars", "fetch_workers",
         "allow_private_addresses", "feeds_dir", "fetch_concurrency",
     ))

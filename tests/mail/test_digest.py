@@ -16,6 +16,13 @@ def make_items() -> list[DigestPick]:
     ]
 
 
+def make_items_with_podcast() -> list[DigestPick]:
+    return make_items() + [
+        DigestPick(Article(3, "https://pod.example.com/3", "Episode", source="Pod",
+                           audio_url="https://cdn.example.com/3.mp3", duration=3000.0), False),
+    ]
+
+
 class DigestDefaultsTests(unittest.TestCase):
     def test_token_is_random_hex_that_replies_can_find(self) -> None:
         tokens = {Digest([]).token for _ in range(20)}
@@ -75,6 +82,17 @@ class DigestTextBodyTests(unittest.TestCase):
         self.assertNotIn("-- debug --", Digest(make_items(), debug=[]).text_body())
 
 
+    def test_podcast_section_after_articles(self) -> None:
+        text = Digest(make_items_with_podcast(), token="abcd1234").text_body()
+        self.assertIn("   https://ex.com/2\n\nPodcast episodes\n\n"
+                      "3. Episode\n   Pod  · 50 min\n   https://pod.example.com/3\n"
+                      "   Listen: https://cdn.example.com/3.mp3\n\n--\n", text)
+
+    def test_no_podcast_section_without_episodes(self) -> None:
+        self.assertNotIn("Podcast episodes", Digest(make_items()).text_body())
+        self.assertNotIn("Listen", Digest(make_items()).text_body())
+
+
 class DigestHtmlBodyTests(unittest.TestCase):
     def test_escaped_and_optional_lines_dropped(self) -> None:
         body = Digest(make_items(), note="Heads <up>", token="abcd1234").html_body()
@@ -85,6 +103,15 @@ class DigestHtmlBodyTests(unittest.TestCase):
         self.assertEqual(body.count("Why:"), 1)
         self.assertEqual(body.count("something different"), 1)
         self.assertNotIn("$", body)
+
+    def test_podcast_section(self) -> None:
+        body = Digest(make_items_with_podcast()).html_body()
+        self.assertEqual(body.count("Podcast episodes</h3>"), 1)
+        self.assertLess(body.index("https://ex.com/2"), body.index("Podcast episodes"))
+        self.assertIn('<a href="https://cdn.example.com/3.mp3"', body)
+        self.assertIn("Pod · 50 min", body)
+        self.assertEqual(body.count("Listen"), 1)
+        self.assertNotIn("Podcast episodes", Digest(make_items()).html_body())
 
     def test_debug_escaped(self) -> None:
         body = Digest(make_items(), debug=["line <two>"]).html_body()

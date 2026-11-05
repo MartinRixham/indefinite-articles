@@ -66,7 +66,8 @@ class Digest:
 
     items: the `ranker.DigestPick`s to send. note: a remark shown above them.
     debug: lines appended after the footer. token: identifies the digest in replies.
-    The layout comes from templates/digest.txt and templates/digest.html.
+    Podcast episodes are listed in a section of their own after the articles, numbered on
+    from them. The layout comes from templates/digest.txt and templates/digest.html.
     """
     items: list[DigestPick]
     note: str = ""
@@ -101,13 +102,20 @@ class Digest:
     def _render(self, template_name: str, escape: Callable[[str], str], item_separator: str) -> str:
         sections = _sections(template_name)
         exploratory_marker = _render(sections["exploratory"], {})
-        rendered = [_render(sections["item"], pick.template_values(position, escape, exploratory_marker))
-                    for position, pick in enumerate(self.items, start=1)]
+        articles: list[str] = []
+        episodes: list[str] = []
+        for position, pick in enumerate(self.items, start=1):
+            values = pick.template_values(position, escape, exploratory_marker)
+            if values["length"]:
+                values["length"] = _render(sections["length"], {"length": values["length"]})
+            (episodes if pick.article.is_podcast else articles).append(_render(sections["item"], values))
+        podcasts = _render(sections["podcasts"], {"items": item_separator.join(episodes)}) if episodes else ""
         debug = self.debug
         return _render(sections["page"], {
             "count": str(len(self.items)),
             "note": escape(self.note),
-            "items": item_separator.join(rendered),
+            "items": item_separator.join(articles),
+            "podcasts": podcasts,
             "instructions": escape(_instructions()),
             "digest_id": escape(self.digest_id),
             "debug": _render(sections["debug"], {"lines": escape("\n".join(debug))}) if debug else "",

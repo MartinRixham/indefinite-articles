@@ -13,6 +13,8 @@
 [general]
 digest_time = "07:00"            # local time, HH:MM
 articles_per_digest = 10
+podcasts_per_digest = 3          # episodes from podcast feeds, listed after the articles;
+                                 # 0 for none (or exclude_categories = ["Podcasts"])
 # exclude_categories = ["Sports", "Gaming", "Food & Cooking"]   # skip whole categories
 
 [profile]
@@ -51,7 +53,8 @@ folder = "INBOX"
 
 # Feeds live in feeds.d/ next to this file (/etc/indefinite-articles/feeds.d/): any *.opml file
 # (export one from another feed reader and drop it in) or *.txt file with one URL per
-# line. default.opml ships with ~500 checked feeds in ~30 categories; edit it freely.
+# line. default.opml ships with ~500 checked feeds in ~30 categories, including ~50
+# podcasts; edit it freely.
 # Feeds can also be listed here:
 #
 # [[feeds]]

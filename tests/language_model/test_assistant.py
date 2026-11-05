@@ -59,6 +59,15 @@ class AssistantTests(unittest.TestCase):
         self.assertTrue(prompt.endswith("Title: Rust lifetimes\nSource: Blog (Tech)\none two three four…"))
         self.assertEqual(self.assistant.score_article(prefix, ITEMS[1]), ArticleScore(2.0, "test"))
 
+    def test_score_podcast_episode(self) -> None:
+        prefix = Assistant.score_prefix("Likes Rust", "(none yet)")
+        episode = Article(1, "https://e/rust", "Rust lifetimes", summary="Show notes", source="Pod",
+                          audio_url="https://cdn.e/1.mp3", duration=2700.0)
+        self.assistant.score_article(prefix, episode)
+        self.assertTrue(self._last_prompt().endswith(
+            "Source: Pod\nFormat: podcast episode, 45 min; the reader would listen to it, judge it by its topic"
+            " and guests\nShow notes"))
+
     def test_score_article_answer_shapes(self) -> None:
         for answer, expected in (('{"ratings": [{"score": "6", "reason": "r"}]}', ArticleScore(6.0, "r")),
                                  ('[{"score": -3}]', ArticleScore(0.0, "")),

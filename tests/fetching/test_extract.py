@@ -120,6 +120,18 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(rows["A paper"].content, "")
         self.assertEqual(extract.enrich_candidates(config, database), 0)  # not retried
 
+    def test_audio_only_episode_not_downloaded(self) -> None:
+        config = load_config(ROOT / "dist" / "indefinite-articles.toml")
+        config.allow_private_addresses = True
+        database = Database(":memory:")
+        self.addCleanup(database.close)
+        audio = self.base + "/a"  # would extract fine as a page, so a fetch would show
+        database.add_article(Entry(audio, "Episode", "Show notes.", None, audio_url=audio), "Pod")
+        database.connection.commit()
+        self.assertEqual(extract.enrich_candidates(config, database), 0)
+        episode = database.candidates(3, 10, podcasts=True)[0]
+        self.assertEqual((episode.content_status, episode.content), ("empty", ""))
+
     def test_migration_from_old_schema(self):
         import sqlite3, tempfile, os
         with tempfile.TemporaryDirectory() as directory:
@@ -134,7 +146,7 @@ class ExtractTests(unittest.TestCase):
             connection.commit(); connection.close()
             with Database(path) as database:
                 columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(articles)")}
-            self.assertTrue({"content", "content_status"} <= columns)
+            self.assertTrue({"content", "content_status", "audio_url", "duration"} <= columns)
 
 
 if __name__ == "__main__":

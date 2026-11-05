@@ -90,18 +90,40 @@ class ScoreBreakdown:
     final: float
 
 
+def _split(articles: Iterable[Article]) -> tuple[list[Article], list[Article]]:
+    """The articles that aren't podcast episodes, and those that are, each in their original order."""
+    articles = list(articles)
+    return ([article for article in articles if not article.is_podcast],
+            [article for article in articles if article.is_podcast])
+
+
 def shortlist(config: Config, database: Database) -> list[Article]:
-    """The articles worth spending LLM time on today.
+    """The articles worth spending LLM time on today: up to `max_candidates` articles,
+    then (if the digest has room for any) up to `max_podcast_candidates` podcast episodes.
+
+    Podcast episodes get their own shortlist so that the far more numerous articles
+    can't crowd them out of LLM scoring.
+    """
+    articles, episodes = _split(database.pool(config.max_article_age_days))
+    out = _shortlist_of(config, database, articles, config.max_candidates, podcasts=False)
+    if config.podcasts_per_digest > 0:
+        out += _shortlist_of(config, database, episodes, config.max_podcast_candidates, podcasts=True)
+    return out
+
+
+def _shortlist_of(config: Config, database: Database, pool: list[Article], limit: int,
+                  podcasts: bool) -> list[Article]:
+    """At most `limit` of `pool` (which holds only articles, or only podcast episodes).
 
     Uses the embedding pre-filter when available: the best matches (with a per-source
     cap so no single feed dominates) plus ~10% random picks for exploration. Without
     embeddings, falls back to the newest articles balanced across sources.
     """
-    pool = database.pool(config.max_article_age_days)
+    if limit <= 0:
+        return []
     scored = [article for article in pool if article.prefilter is not None]
-    limit = config.max_candidates
     if not scored:
-        return database.candidates(config.max_article_age_days, limit)
+        return database.candidates(config.max_article_age_days, limit, podcasts)
     random_count = max(1, limit // 10)
     cap = max(3, limit // 15)
     ranked = sorted(scored, key=lambda article: article.prefilter or 0.0, reverse=True)
@@ -133,15 +155,17 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
     """LLM-score the shortlisted articles that have no score yet, then refresh stale scores.
 
     A score made against an older profile is still a useful estimate, so after a profile
-    change only the stale articles among the top `rescore_top` of the digest ranking are
-    rescored (best first): they are the ones that decide what goes into the digest.
+    change only the stale articles among the top `rescore_top` of the digest ranking (and
+    likewise among the top podcast episodes) are rescored, best first: they are the ones
+    that decide what goes into the digest.
     Rescoring everything would cost one LLM request per shortlisted article per reply.
     """
     profile = ensure_profile(config, database)
     candidates = _digest_candidates(config, database, profile["id"])
     unscored = [article for article in candidates if article.score is None]
     ranked, _ = _rank(candidates, database.source_statistics())
-    stale = [article for article in ranked[:config.rescore_top] if article.has_stale_score(profile["id"])]
+    stale = [article for group in _split(ranked) for article in group[:config.rescore_top]
+             if article.has_stale_score(profile["id"])]
     todo = unscored + stale
     if not todo:
         return 0
@@ -224,7 +248,8 @@ def _add_capped(
 
 def select(config: Config, database: Database, randomizer: random.Random | None = None,
            debug: dict | None = None) -> list[DigestPick]:
-    """Choose the digest: top-ranked articles plus a few exploratory picks.
+    """Choose the digest: top-ranked articles plus a few exploratory picks, then the
+    podcast episodes, chosen the same way.
 
     If `debug` is a dict it is
     filled with candidate counts and each candidate's score breakdown.
@@ -242,10 +267,22 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
         debug["stale_scored"] = sum(article.has_stale_score(profile["id"]) for article in candidates)
         debug["scores"] = parts
         debug["rank"] = {article.id: rank for rank, article in enumerate(ranked, start=1)}
-    limit = config.articles_per_digest
-    explore_count = min(config.exploration, max(0, limit - 1))
+    articles, episodes = _split(ranked)
+    chosen = _choose(articles, config.articles_per_digest, config.exploration, config.max_per_source,
+                     statistics, randomizer)
+    if config.podcasts_per_digest > 0:
+        chosen += _choose(episodes, config.podcasts_per_digest, config.podcast_exploration,
+                          config.max_per_source, statistics, randomizer)
+    return chosen
+
+
+def _choose(ranked: list[Article], limit: int, exploration: int, max_per_source: int,
+            statistics: dict[str, SourceStatistics], randomizer: random.Random) -> list[DigestPick]:
+    """`limit` picks from `ranked` (best first): the top ones, at most `max_per_source` from
+    each source, then `exploration` random ones from the rest."""
+    explore_count = min(exploration, max(0, limit - 1))
     chosen: list[DigestPick] = []
-    _add_capped(chosen, ranked, limit - explore_count, False, config.max_per_source)
+    _add_capped(chosen, ranked, limit - explore_count, False, max_per_source)
 
     # Exploration: random picks from the rest, biased towards less-seen sources,
     # so the model keeps learning about things outside its current beliefs.
@@ -253,7 +290,7 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
     rest = [article for article in ranked if article.id not in picked]
     randomizer.shuffle(rest)
     rest.sort(key=lambda article: statistics.get(article.source, SourceStatistics()).total)
-    _add_capped(chosen, rest, limit, True, config.max_per_source)
+    _add_capped(chosen, rest, limit, True, max_per_source)
 
     # Too few sources to honour the cap: fill remaining slots ignoring it.
     picked = {pick.article.id for pick in chosen}

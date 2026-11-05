@@ -125,6 +125,58 @@ class ParseFeedTests(unittest.TestCase):
         title, entries = parsed.title, parsed.entries
         self.assertEqual((title, entries[0].title, entries[0].summary), ("A", "Bold", "Body"))
 
+    def test_rss_podcast_episodes(self) -> None:
+        data = rss(
+            '<item xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><title>With page</title>'
+            "<link>https://pod.example.com/1</link><itunes:duration>1:02:03</itunes:duration>"
+            '<enclosure url="https://cdn.example.com/1.mp3" type="audio/mpeg" length="1"/></item>',
+            '<item xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><title>Audio only</title>'
+            "<guid>opaque-id-2</guid><itunes:duration>2700</itunes:duration>"
+            '<enclosure url="https://cdn.example.com/2.m4a?x=1"/></item>',
+            '<item><title>Picture</title><link>https://e/3</link>'
+            '<enclosure url="https://cdn.example.com/3.jpg" type="image/jpeg"/></item>')
+        entries = ParsedFeed.parse(data).entries
+        self.assertEqual([(entry.url, entry.audio_url, entry.duration) for entry in entries], [
+            ("https://pod.example.com/1", "https://cdn.example.com/1.mp3", 3723.0),
+            ("https://cdn.example.com/2.m4a?x=1", "https://cdn.example.com/2.m4a?x=1", 2700.0),
+            ("https://e/3", "", None),
+        ])
+
+    def test_read_aloud_audio_in_article_feed_is_not_an_episode(self) -> None:
+        data = rss('<item><title>Narrated</title><link>https://e/1</link>'
+                   '<enclosure url="https://cdn.example.com/voiceover.mp3" type="audio/mpeg"/></item>',
+                   item("Plain", "https://e/2"))
+        self.assertEqual([entry.audio_url for entry in ParsedFeed.parse(data).entries], ["", ""])
+
+    def test_podcast_feed_without_durations(self) -> None:
+        episodes = [f'<item><title>Episode {index}</title><link>https://pod/{index}</link>'
+                    f'<enclosure url="https://cdn.example.com/{index}.mp3" type="audio/mpeg"/></item>'
+                    for index in range(4)]
+        entries = ParsedFeed.parse(rss(*episodes, item("Announcement", "https://pod/news"))).entries
+        self.assertEqual(sum(bool(entry.audio_url) for entry in entries), 4)  # 4 of 5 have audio
+
+    def test_atom_podcast_episode(self) -> None:
+        data = (b'<feed xmlns="http://www.w3.org/2005/Atom"><title>A</title><entry><title>Episode</title>'
+                b'<link href="https://pod.example.com/1"/>'
+                b'<link rel="enclosure" type="audio/mpeg" href="https://cdn.example.com/1.mp3"/></entry></feed>')
+        entry = ParsedFeed.parse(data).entries[0]
+        self.assertEqual((entry.url, entry.audio_url, entry.duration),
+                         ("https://pod.example.com/1", "https://cdn.example.com/1.mp3", None))
+
+    def test_podcast_episode_parsed_leniently(self) -> None:
+        data = ("<rss><channel><item><title>Episode &broken;</title><itunes:duration>12:30</itunes:duration>"
+                '<enclosure length="1" type="audio/mpeg" url="https://cdn.example.com/1.mp3?a=1&amp;b=2" />'
+                "</item>").encode()
+        entry = ParsedFeed.parse(data).entries[0]
+        self.assertEqual((entry.url, entry.audio_url, entry.duration),
+                         ("https://cdn.example.com/1.mp3?a=1&b=2", "https://cdn.example.com/1.mp3?a=1&b=2", 750.0))
+
+    def test_durations(self) -> None:
+        for text, expected in (("90", 90.0), ("01:30", 90.0), ("1:00:00", 3600.0), ("", None), ("0", None),
+                               ("about an hour", None), ("1:2:3:4", None)):
+            with self.subTest(text=text):
+                self.assertEqual(parsed_feed._parse_duration(text), expected)
+
     def test_unparseable(self):
         with self.assertRaises(Exception):
             ParsedFeed.parse(b"this is not xml at all")

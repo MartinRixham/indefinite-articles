@@ -11,6 +11,8 @@ class Entry:
     title: str
     summary: str
     published: float | None
+    audio_url: str = ""          # set for podcast episodes: the audio enclosure
+    duration: float | None = None  # podcast episode length in seconds, when the feed gives it
 
     @property
     def title_key(self) -> str:

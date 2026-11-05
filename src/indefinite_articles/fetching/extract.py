@@ -239,6 +239,9 @@ class ArticleContent:
 def _fetch_article(config: Config, stop: threading.Event | None, article: Article) -> ArticleContent:
     if stop is not None and stop.is_set():
         return ArticleContent(article.id, None, "skipped")
+    if article.url == article.audio_url:
+        # A podcast episode with no web page of its own: the feed's show notes are all there is.
+        return ArticleContent(article.id, "", "empty")
     try:
         text = fetch_page(article.url, config.article_chars, config.allow_private_addresses)
         return ArticleContent(article.id, text, "ok" if text else "empty")

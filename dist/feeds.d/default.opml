@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Default feeds for indefinite-articles. Every URL was checked to be working and active on 2026-11-03.
+<!-- Default feeds for indefinite-articles. Every URL was checked to be working and active on 2026-11-03
+     (the Podcasts category on 2026-11-05).
      Delete lines (or whole categories) you never want; add your own feeds here or in another
      .opml/.txt file in this directory. You can also exclude categories in indefinite-articles.toml:
        exclude_categories = ["Sports", "Gaming"]
@@ -1187,6 +1188,56 @@
     <outline text="Communities" title="Communities">
       <outline type="rss" text="Product Hunt" title="Product Hunt" xmlUrl="https://www.producthunt.com/feed"/>
       <outline type="rss" text="Tildes" title="Tildes" xmlUrl="https://tildes.net/topics.rss"/>
+    </outline>
+    <outline text="Podcasts" title="Podcasts">
+      <outline type="rss" text="99% Invisible" title="99% Invisible" xmlUrl="https://feeds.simplecast.com/BqbsxVfO"/>
+      <outline type="rss" text="Acquired" title="Acquired" xmlUrl="https://feeds.transistor.fm/acquired"/>
+      <outline type="rss" text="BBC Desert Island Discs" title="BBC Desert Island Discs" xmlUrl="https://podcasts.files.bbci.co.uk/b006qnmr.rss"/>
+      <outline type="rss" text="BBC Global News Podcast" title="BBC Global News Podcast" xmlUrl="https://podcasts.files.bbci.co.uk/p02nq0gn.rss"/>
+      <outline type="rss" text="BBC In Our Time" title="BBC In Our Time" xmlUrl="https://podcasts.files.bbci.co.uk/b006qykl.rss"/>
+      <outline type="rss" text="BBC More or Less" title="BBC More or Less" xmlUrl="https://podcasts.files.bbci.co.uk/p02nrss1.rss"/>
+      <outline type="rss" text="BBC Start the Week" title="BBC Start the Week" xmlUrl="https://podcasts.files.bbci.co.uk/b006r9xr.rss"/>
+      <outline type="rss" text="BBC The Documentary" title="BBC The Documentary" xmlUrl="https://podcasts.files.bbci.co.uk/p02nq0lx.rss"/>
+      <outline type="rss" text="BBC The Food Programme" title="BBC The Food Programme" xmlUrl="https://podcasts.files.bbci.co.uk/b006qnx3.rss"/>
+      <outline type="rss" text="BBC The History Hour" title="BBC The History Hour" xmlUrl="https://podcasts.files.bbci.co.uk/p016tmg1.rss"/>
+      <outline type="rss" text="BBC The Infinite Monkey Cage" title="BBC The Infinite Monkey Cage" xmlUrl="https://podcasts.files.bbci.co.uk/b00snr0w.rss"/>
+      <outline type="rss" text="BBC Witness History" title="BBC Witness History" xmlUrl="https://podcasts.files.bbci.co.uk/p004t1hd.rss"/>
+      <outline type="rss" text="Conversations with Tyler" title="Conversations with Tyler" xmlUrl="https://cowenconvos.libsyn.com/rss"/>
+      <outline type="rss" text="CoRecursive" title="CoRecursive" xmlUrl="https://corecursive.com/feed"/>
+      <outline type="rss" text="Darknet Diaries" title="Darknet Diaries" xmlUrl="https://feeds.megaphone.fm/darknetdiaries"/>
+      <outline type="rss" text="Decoder with Nilay Patel" title="Decoder with Nilay Patel" xmlUrl="https://feeds.megaphone.fm/recodedecode"/>
+      <outline type="rss" text="Dwarkesh Podcast" title="Dwarkesh Podcast" xmlUrl="https://api.substack.com/feed/podcast/69345.rss"/>
+      <outline type="rss" text="EconTalk" title="EconTalk" xmlUrl="https://feeds.simplecast.com/wgl4xEgL"/>
+      <outline type="rss" text="Embedded" title="Embedded" xmlUrl="https://embedded.fm/episodes?format=rss"/>
+      <outline type="rss" text="Freakonomics Radio" title="Freakonomics Radio" xmlUrl="https://feeds.simplecast.com/Y8lFbOT4"/>
+      <outline type="rss" text="Guardian Science Weekly" title="Guardian Science Weekly" xmlUrl="https://www.theguardian.com/science/series/science/podcast.xml"/>
+      <outline type="rss" text="Hard Fork" title="Hard Fork" xmlUrl="https://feeds.simplecast.com/l2i9YnTd"/>
+      <outline type="rss" text="Huberman Lab" title="Huberman Lab" xmlUrl="https://feeds.megaphone.fm/hubermanlab"/>
+      <outline type="rss" text="Late Night Linux" title="Late Night Linux" xmlUrl="https://latenightlinux.com/feed/mp3"/>
+      <outline type="rss" text="Lex Fridman Podcast" title="Lex Fridman Podcast" xmlUrl="https://lexfridman.com/feed/podcast/"/>
+      <outline type="rss" text="LINUX Unplugged" title="LINUX Unplugged" xmlUrl="https://feeds.jupiterbroadcasting.com/lup"/>
+      <outline type="rss" text="NPR Fresh Air" title="NPR Fresh Air" xmlUrl="https://feeds.npr.org/381444908/podcast.xml"/>
+      <outline type="rss" text="NPR Planet Money" title="NPR Planet Money" xmlUrl="https://feeds.npr.org/510289/podcast.xml"/>
+      <outline type="rss" text="NPR Short Wave" title="NPR Short Wave" xmlUrl="https://feeds.npr.org/510351/podcast.xml"/>
+      <outline type="rss" text="NPR TED Radio Hour" title="NPR TED Radio Hour" xmlUrl="https://feeds.npr.org/510298/podcast.xml"/>
+      <outline type="rss" text="NPR The Indicator" title="NPR The Indicator" xmlUrl="https://feeds.npr.org/510325/podcast.xml"/>
+      <outline type="rss" text="NPR Throughline" title="NPR Throughline" xmlUrl="https://feeds.npr.org/510333/podcast.xml"/>
+      <outline type="rss" text="Odd Lots" title="Odd Lots" xmlUrl="https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/8a94442e-5a74-4fa2-8b8d-ae27003a8d6b/982f5071-765c-403d-969d-ae27003a8d83/podcast.rss"/>
+      <outline type="rss" text="Ologies" title="Ologies" xmlUrl="https://feeds.simplecast.com/FO6kxYGj"/>
+      <outline type="rss" text="Oxide and Friends" title="Oxide and Friends" xmlUrl="https://feeds.transistor.fm/oxide-and-friends"/>
+      <outline type="rss" text="Philosophy Bites" title="Philosophy Bites" xmlUrl="https://philosophybites.libsyn.com/rss"/>
+      <outline type="rss" text="Python Bytes" title="Python Bytes" xmlUrl="https://pythonbytes.fm/episodes/rss"/>
+      <outline type="rss" text="Radiolab" title="Radiolab" xmlUrl="https://feeds.simplecast.com/EmVW7VGp"/>
+      <outline type="rss" text="Risky Business" title="Risky Business" xmlUrl="https://risky.biz/feeds/risky-business/"/>
+      <outline type="rss" text="Sean Carroll's Mindscape" title="Sean Carroll's Mindscape" xmlUrl="https://rss.art19.com/sean-carrolls-mindscape"/>
+      <outline type="rss" text="Search Engine" title="Search Engine" xmlUrl="https://feeds.megaphone.fm/search-engine"/>
+      <outline type="rss" text="Security Now" title="Security Now" xmlUrl="https://feeds.twit.tv/sn.xml"/>
+      <outline type="rss" text="Software Engineering Daily" title="Software Engineering Daily" xmlUrl="https://softwareengineeringdaily.com/feed/podcast/"/>
+      <outline type="rss" text="Stuff You Should Know" title="Stuff You Should Know" xmlUrl="https://omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/A91018A4-EA4F-4130-BF55-AE270180C327/44710ECC-10BB-48D1-93C7-AE270180C33E/podcast.rss"/>
+      <outline type="rss" text="Talk Python To Me" title="Talk Python To Me" xmlUrl="https://talkpython.fm/episodes/rss"/>
+      <outline type="rss" text="The Amp Hour" title="The Amp Hour" xmlUrl="https://theamphour.com/feed/podcast/"/>
+      <outline type="rss" text="The Ezra Klein Show" title="The Ezra Klein Show" xmlUrl="https://feeds.simplecast.com/82FI35Px"/>
+      <outline type="rss" text="The Rest Is History" title="The Rest Is History" xmlUrl="https://feeds.megaphone.fm/GLT4787413333"/>
     </outline>
   </body>
 </opml>

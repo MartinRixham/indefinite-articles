@@ -172,12 +172,34 @@ class TemplateValuesTests(unittest.TestCase):
         article = make_article(title="A & B", source="<Blog>", reason="Why", summary="Short summary.")
         self.assertEqual(article.template_values(str.upper), {
             "title": "A & B", "source": "<BLOG>", "url": "HTTPS://EXAMPLE.COM/1",
-            "reason": "WHY", "blurb": "SHORT SUMMARY.",
+            "reason": "WHY", "blurb": "SHORT SUMMARY.", "length": "", "audio_url": "",
         })
 
     def test_missing_reason_and_blurb_are_empty(self) -> None:
         self.assertEqual(make_article().template_values(str),
-                         {"title": "Title", "source": "", "url": "https://example.com/1", "reason": "", "blurb": ""})
+                         {"title": "Title", "source": "", "url": "https://example.com/1", "reason": "", "blurb": "",
+                          "length": "", "audio_url": ""})
+
+    def test_podcast_episode_length_and_audio(self) -> None:
+        values = make_article(audio_url="https://cdn.example.com/1.mp3", duration=2700.0).template_values(str)
+        self.assertEqual((values["length"], values["audio_url"]), ("45 min", "https://cdn.example.com/1.mp3"))
+
+    def test_audio_left_out_when_it_is_the_link(self) -> None:
+        values = make_article(url="https://cdn.example.com/1.mp3", audio_url="https://cdn.example.com/1.mp3",
+                              ).template_values(str)
+        self.assertEqual(values["audio_url"], "")
+
+
+class PodcastTests(unittest.TestCase):
+    def test_is_podcast(self) -> None:
+        self.assertFalse(make_article().is_podcast)
+        self.assertTrue(make_article(audio_url="https://cdn.example.com/1.mp3").is_podcast)
+
+    def test_length_label(self) -> None:
+        for seconds, expected in ((None, ""), (20.0, "1 min"), (2700.0, "45 min"), (3600.0, "1 h"),
+                                  (4830.0, "1 h 20 min")):
+            with self.subTest(seconds=seconds):
+                self.assertEqual(make_article(duration=seconds).length_label, expected)
 
     def test_given_limit(self) -> None:
         self.assertEqual(make_article(summary="alpha beta gamma").blurb(12), "alpha beta…")

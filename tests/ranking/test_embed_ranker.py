@@ -222,6 +222,63 @@ class RankerTests(unittest.TestCase):
         self.config.max_candidates = 3
         self.assertEqual(len(ranker.shortlist(self.config, self.database)), 3)
 
+    def _add_episode(self, url: str, source: str = "Pod", score: float | None = None,
+                     profile_id: int | None = None, prefilter: float | None = None) -> None:
+        self.database.add_article(Entry(url, url, "show notes", time.time(), audio_url=url + ".mp3"), source)
+        self.database.connection.execute(
+            "UPDATE articles SET score=?, score_profile_id=?, prefilter=? WHERE url=?",
+            (score, profile_id, prefilter, url))
+        self.database.connection.commit()
+
+    def test_podcast_episodes_have_their_own_shortlist(self) -> None:
+        for index in range(5):
+            self._add(f"https://e/{index}", prefilter=0.9)
+            self._add_episode(f"https://pod/{index}", prefilter=0.1)
+        self.config.max_candidates, self.config.max_podcast_candidates = 3, 2
+        short = ranker.shortlist(self.config, self.database)
+        self.assertEqual([article.is_podcast for article in short], [False] * 3 + [True] * 2)
+        self.config.podcasts_per_digest = 0  # no room in the digest: no LLM time spent on them
+        self.assertFalse(any(article.is_podcast for article in ranker.shortlist(self.config, self.database)))
+
+    def test_podcast_shortlist_without_prefilter_uses_newest(self) -> None:
+        for index in range(3):
+            self._add(f"https://e/{index}")
+            self._add_episode(f"https://pod/{index}")
+        self.config.max_candidates, self.config.max_podcast_candidates = 2, 1
+        short = ranker.shortlist(self.config, self.database)
+        self.assertEqual([article.is_podcast for article in short], [False, False, True])
+
+    def test_select_lists_podcast_episodes_after_articles(self) -> None:
+        profile_id = ranker.ensure_profile(self.config, self.database)["id"]
+        for index, score in enumerate((9.0, 8.0, 7.0, 6.0, 5.0)):
+            self._add(f"https://a/{index}", f"A{index}", score, profile_id)
+        for index, score in enumerate((9.5, 3.0, 2.0)):
+            self._add_episode(f"https://pod/{index}", f"P{index}", score, profile_id)
+        self.config.podcasts_per_digest, self.config.podcast_exploration = 2, 1
+        chosen = ranker.select(self.config, self.database, random.Random(1))
+        self.assertEqual([pick.article.is_podcast for pick in chosen], [False] * 4 + [True] * 2)
+        self.assertEqual([pick.article.url for pick in chosen[:3]], ["https://a/0", "https://a/1", "https://a/2"])
+        self.assertEqual((chosen[4].article.url, chosen[4].exploratory), ("https://pod/0", False))
+        self.assertTrue(chosen[5].exploratory)
+        self.config.podcasts_per_digest = 0
+        chosen = ranker.select(self.config, self.database, random.Random(1))
+        self.assertEqual(len(chosen), 4)
+        self.assertFalse(any(pick.article.is_podcast for pick in chosen))
+
+    def test_profile_change_rescores_top_podcast_episodes_too(self) -> None:
+        old_profile = ranker.ensure_profile(self.config, self.database)["id"]
+        for index in range(3):
+            self._add(f"https://e/{index}", f"S{index}", 9.0, old_profile)
+        self._add_episode("https://pod/0", "Pod", 2.0, old_profile)
+        self.database.add_profile("new profile")
+        self.config.rescore_top = 1
+        llm = mock.Mock(spec=LLM)
+        llm.chat_json.return_value = {"score": 5}
+        self.assertEqual(ranker.score_candidates(self.config, self.database, llm), 2)
+        titles = sorted(call.args[1].split("Title: ")[1].split("\n")[0] for call in llm.chat_json.call_args_list)
+        self.assertEqual(len(titles), 2)
+        self.assertIn("https://pod/0", titles)
+
     def test_score_candidates(self):
         for index in range(3):
             self._add(f"https://e/{index}")

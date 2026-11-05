@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Fedora service (Python 3.14 on Fedora 44, 3.15 on Fedora 45; stdlib + numpy only) that fetches ~500 RSS/Atom feeds, ranks the articles with a local LLM (Ollama or llama.cpp, via the OpenAI-compatible `/v1` API), emails a daily digest, and learns from the user's email replies. See README.md for the user-facing description and config.
+A Fedora service (Python 3.14 on Fedora 44, 3.15 on Fedora 45; stdlib + numpy only) that fetches ~500 RSS/Atom feeds (podcasts included), ranks the articles and podcast episodes with a local LLM (Ollama or llama.cpp, via the OpenAI-compatible `/v1` API), emails a daily digest, and learns from the user's email replies. See README.md for the user-facing description and config.
 
 ## Commands
 
@@ -24,11 +24,11 @@ Layout of `src/indefinite_articles/`: `cli`, `config`, `daemon` (the pipeline st
 
 Pipeline:
 
-1. **Fetch.** `feeds.update_all` fetches feeds with conditional GET (ETag/Last-Modified) and exponential backoff for failing feeds, then stores new articles. Articles are deduplicated by `title_key`.
+1. **Fetch.** `feeds.update_all` fetches feeds with conditional GET (ETag/Last-Modified) and exponential backoff for failing feeds, then stores new articles. Articles are deduplicated by `title_key`. Podcast episodes are articles with an `audio_url` (`Article.is_podcast`); `parsed_feed._mark_podcast_episodes` decides which audio enclosures count, so read-aloud audio on article feeds doesn't.
 2. **Pre-filter.** `ranking/embed.py` embeds every new article and scores it by cosine similarity against phrases from the reader profile and against recent likes and dislikes. Once there are `MIN_PER_CLASS` likes and dislikes, a numpy logistic-regression classifier (`classifier.Classifier`, trained in `embed.py`) is blended in. The result is stored in `articles.prefilter`.
 3. **Extract.** `extract.enrich_candidates` downloads the full text for the shortlist only. It refuses private addresses unless the config allows them.
 4. **Score.** `ranker.score_candidates` LLM-scores each shortlisted article in its own request (`Assistant.score_article`). The prompt starts with an identical prefix (`Assistant.score_prefix`: profile + examples) so the LLM server can reuse its KV cache. Scores are tied to `score_profile_id`, so a profile change triggers rescoring.
-5. **Digest.** `ranker.select`, then `digest.Digest`, which fills in `mail/templates/digest.txt`, `mail/templates/digest.html` and `mail/templates/instructions.txt` (package data, listed in `pyproject.toml`). Template files are made of `@@ name` sections with `string.Template` `$placeholders`; a line whose placeholders are all empty is left out. The digest **never calls the LLM**. If nothing has been scored, it falls back to heuristics (source ratings and recency) and the email says so.
+5. **Digest.** `ranker.select` (articles and podcast episodes have separate shortlists and digest quotas: `max_podcast_candidates`, `podcasts_per_digest`; episodes come last, numbered on from the articles), then `digest.Digest`, which fills in `mail/templates/digest.txt`, `mail/templates/digest.html` and `mail/templates/instructions.txt` (package data, listed in `pyproject.toml`). Template files are made of `@@ name` sections with `string.Template` `$placeholders`; a line whose placeholders are all empty is left out. The digest **never calls the LLM**. If nothing has been scored, it falls back to heuristics (source ratings and recency) and the email says so.
 6. **Replies.** `inbox.poll` reads replies over IMAP. `replies._parse_structured` handles `+1 -2` style ratings; lines it can't parse go to the LLM (`Assistant.interpret_reply`). `ranker.update_profile` rewrites the reader profile (`Assistant.rewrite_profile`). Each reply is processed exactly once: its feedback and the "processed" marker are committed in the same transaction.
 
 `service.Service` runs fetch, score and inbox polling on separate daemon threads, so a slow LLM can't delay the digest. The main thread sends the digest and prunes old data. **Each thread has its own `Database` connection** (SQLite in WAL mode), so never share a `Database` across threads. `score_wanted` (a `threading.Event`) wakes the scoring thread after a fetch or a profile update.

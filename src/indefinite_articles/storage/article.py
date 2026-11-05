@@ -25,7 +25,8 @@ def _shorten(text: str, limit: int) -> str:
 class Article:
     """One row of the `articles` table.
 
-    `content` and `content_status` are set once the full page text has been fetched
+    `audio_url` (and `duration`, in seconds, when the feed gives it) are set for podcast
+    episodes. `content` and `content_status` are set once the full page text has been fetched
     (or has failed); `score`, `reason` and `score_profile_id` once the LLM has scored
     it against a reader profile; `prefilter` once the embedding pre-filter has run.
     """
@@ -43,6 +44,8 @@ class Article:
     reason: str | None = None
     score_profile_id: int | None = None
     prefilter: float | None = None
+    audio_url: str | None = None
+    duration: float | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Article":
@@ -53,6 +56,22 @@ class Article:
     def source_label(self) -> str:
         """The source, followed by its category in brackets when it has one."""
         return f"{self.source} ({self.category})" if self.category else self.source
+
+    @property
+    def is_podcast(self) -> bool:
+        """Whether this is a podcast episode (its feed entry had an audio enclosure)."""
+        return bool(self.audio_url)
+
+    @property
+    def length_label(self) -> str:
+        """A podcast episode's length, e.g. "45 min" or "1 h 20 min"; '' when unknown."""
+        if not self.duration:
+            return ""
+        minutes = max(1, round(self.duration / 60))
+        hours, minutes = divmod(minutes, 60)
+        if not hours:
+            return f"{minutes} min"
+        return f"{hours} h {minutes} min" if minutes else f"{hours} h"
 
     @property
     def awaiting_full_text(self) -> bool:
@@ -86,6 +105,9 @@ class Article:
             "url": escape(self.url),
             "reason": escape(self.reason or ""),
             "blurb": escape(self.blurb()),
+            "length": escape(self.length_label),
+            # Left out when the episode has no page of its own, so `url` already is the audio.
+            "audio_url": escape(self.audio_url) if self.audio_url and self.audio_url != self.url else "",
         }
 
     def embedding_text(self) -> str:
