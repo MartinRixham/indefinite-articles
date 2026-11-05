@@ -143,10 +143,13 @@ class ExtractTests(unittest.TestCase):
                 "published REAL, fetched_at REAL NOT NULL, score REAL, reason TEXT, "
                 "score_profile_id INTEGER, sent_digest_id INTEGER)"
             )
+            connection.execute("CREATE TABLE feeds (url TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '')")
             connection.commit(); connection.close()
             with Database(path) as database:
                 columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(articles)")}
-            self.assertTrue({"content", "content_status", "audio_url", "duration"} <= columns)
+                feed_columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(feeds)")}
+            self.assertTrue({"content", "content_status", "audio_url", "duration", "feed_url", "apple_url"} <= columns)
+            self.assertTrue({"apple_id", "apple_checked_at"} <= feed_columns)
 
 
 if __name__ == "__main__":

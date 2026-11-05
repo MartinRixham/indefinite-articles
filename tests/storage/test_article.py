@@ -172,13 +172,13 @@ class TemplateValuesTests(unittest.TestCase):
         article = make_article(title="A & B", source="<Blog>", reason="Why", summary="Short summary.")
         self.assertEqual(article.template_values(str.upper), {
             "title": "A & B", "source": "<BLOG>", "url": "HTTPS://EXAMPLE.COM/1",
-            "reason": "WHY", "blurb": "SHORT SUMMARY.", "length": "", "audio_url": "",
+            "reason": "WHY", "blurb": "SHORT SUMMARY.", "length": "", "audio_url": "", "apple_url": "",
         })
 
     def test_missing_reason_and_blurb_are_empty(self) -> None:
         self.assertEqual(make_article().template_values(str),
                          {"title": "Title", "source": "", "url": "https://example.com/1", "reason": "", "blurb": "",
-                          "length": "", "audio_url": ""})
+                          "length": "", "audio_url": "", "apple_url": ""})
 
     def test_podcast_episode_length_and_audio(self) -> None:
         values = make_article(audio_url="https://cdn.example.com/1.mp3", duration=2700.0).template_values(str)

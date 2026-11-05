@@ -15,6 +15,9 @@ max_candidates = 150             # articles per day that get full text + LLM sco
                                  # every other article is only ranked by embeddings
 max_podcast_candidates = 30      # the same for podcast episodes, which have their own
                                  # shortlist so articles can't crowd them out
+apple_podcasts_links = true      # add an Apple Podcasts link to each episode in the digest.
+                                 # Looks up shortlisted episodes in Apple's public iTunes
+                                 # Search API, which sends Apple the names of those podcasts
 rescore_top = 30                 # after your feedback changes the profile, only the top
                                  # this many (in digest order) are LLM-scored again;
                                  # the rest keep their earlier score

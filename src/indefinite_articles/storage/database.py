@@ -63,7 +63,9 @@ CREATE TABLE IF NOT EXISTS articles (
     prefilter REAL,
     prefilter_version INTEGER,
     audio_url TEXT,
-    duration REAL
+    duration REAL,
+    feed_url TEXT NOT NULL DEFAULT '',
+    apple_url TEXT
 );
 CREATE INDEX IF NOT EXISTS articles_title_key ON articles(title_key);
 CREATE INDEX IF NOT EXISTS articles_fetched ON articles(fetched_at);
@@ -82,7 +84,9 @@ CREATE TABLE IF NOT EXISTS feeds (
     last_success REAL,
     failures INTEGER NOT NULL DEFAULT 0,
     last_error TEXT NOT NULL DEFAULT '',
-    next_attempt REAL NOT NULL DEFAULT 0
+    next_attempt REAL NOT NULL DEFAULT 0,
+    apple_id TEXT,              -- Apple Podcasts collection id; '' when Apple doesn't have the feed
+    apple_checked_at REAL
 );
 
 CREATE TABLE IF NOT EXISTS digests (
@@ -137,6 +141,15 @@ CREATE TABLE IF NOT EXISTS state (
 """
 
 
+# Columns added to tables after they first shipped, for `Database._migrate`.
+_ADDED_COLUMNS = {
+    "articles": (("content", "TEXT"), ("content_status", "TEXT"), ("category", "TEXT NOT NULL DEFAULT ''"),
+                 ("prefilter", "REAL"), ("prefilter_version", "INTEGER"), ("audio_url", "TEXT"),
+                 ("duration", "REAL"), ("feed_url", "TEXT NOT NULL DEFAULT ''"), ("apple_url", "TEXT")),
+    "feeds": (("apple_id", "TEXT"), ("apple_checked_at", "REAL")),
+}
+
+
 class Database:
     def __init__(self, path: str):
         if path != ":memory:":
@@ -151,14 +164,13 @@ class Database:
 
     def _migrate(self):
         """Add columns introduced after 0.1.0 to existing databases."""
-        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(articles)")}
-        if not columns:
-            return  # new database
-        for name, column_type in (("content", "TEXT"), ("content_status", "TEXT"),
-                           ("category", "TEXT NOT NULL DEFAULT ''"), ("prefilter", "REAL"),
-                           ("prefilter_version", "INTEGER"), ("audio_url", "TEXT"), ("duration", "REAL")):
-            if name not in columns:
-                self.connection.execute(f"ALTER TABLE articles ADD COLUMN {name} {column_type}")
+        for table, added in _ADDED_COLUMNS.items():
+            columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+            if not columns:
+                continue  # new table: SCHEMA creates it with every column
+            for name, column_type in added:
+                if name not in columns:
+                    self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_type}")
 
     def close(self) -> None:
         self.connection.close()
@@ -200,7 +212,7 @@ class Database:
         return cursor.lastrowid
 
     # -- articles ------------------------------------------------------------
-    def add_article(self, entry: "Entry", source: str, category: str = "") -> bool:
+    def add_article(self, entry: "Entry", source: str, category: str = "", feed_url: str = "") -> bool:
         if self.connection.execute(
             "SELECT 1 FROM articles WHERE url=? OR (title_key=? AND title_key != '')",
             (entry.url, entry.title_key),
@@ -208,9 +220,9 @@ class Database:
             return False
         self.connection.execute(
             "INSERT INTO articles(url, title, title_key, summary, source, published, fetched_at,"
-            " category, audio_url, duration) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " category, audio_url, duration, feed_url) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (entry.url, entry.title, entry.title_key, entry.summary, source, entry.published,
-             time.time(), category, entry.audio_url or None, entry.duration),
+             time.time(), category, entry.audio_url or None, entry.duration, feed_url),
         )
         return True
 
@@ -326,6 +338,20 @@ class Database:
             " last_error=excluded.last_error, next_attempt=excluded.next_attempt",
             (url, now, failures, error[:300], now + delay),
         )
+
+    def set_feed_apple_id(self, url: str, apple_id: str) -> None:
+        """Record the feed's Apple Podcasts collection id ('' for not found) and when it was looked up."""
+        self.connection.execute("UPDATE feeds SET apple_id=?, apple_checked_at=? WHERE url=?",
+                                (apple_id, time.time(), url))
+
+    def feed_episodes(self, feed_url: str, limit: int) -> list[Article]:
+        """The feed's newest stored podcast episodes, sent or not."""
+        return self._articles(
+            "SELECT * FROM articles WHERE feed_url=? AND audio_url IS NOT NULL "
+            "ORDER BY COALESCE(published, fetched_at) DESC LIMIT ?", (feed_url, limit))
+
+    def set_apple_url(self, article_id: int, url: str) -> None:
+        self.connection.execute("UPDATE articles SET apple_url=? WHERE id=?", (url, article_id))
 
     def articles_per_source(self, days: int) -> dict[str, int]:
         cutoff = time.time() - days * 86400

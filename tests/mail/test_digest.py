@@ -19,7 +19,8 @@ def make_items() -> list[DigestPick]:
 def make_items_with_podcast() -> list[DigestPick]:
     return make_items() + [
         DigestPick(Article(3, "https://pod.example.com/3", "Episode", source="Pod",
-                           audio_url="https://cdn.example.com/3.mp3", duration=3000.0), False),
+                           audio_url="https://cdn.example.com/3.mp3", duration=3000.0,
+                           apple_url="https://podcasts.apple.com/us/podcast/episode/id1?i=3"), False),
     ]
 
 
@@ -86,11 +87,13 @@ class DigestTextBodyTests(unittest.TestCase):
         text = Digest(make_items_with_podcast(), token="abcd1234").text_body()
         self.assertIn("   https://ex.com/2\n\nPodcast episodes\n\n"
                       "3. Episode\n   Pod  · 50 min\n   https://pod.example.com/3\n"
-                      "   Listen: https://cdn.example.com/3.mp3\n\n--\n", text)
+                      "   Listen: https://cdn.example.com/3.mp3\n"
+                      "   Apple Podcasts: https://podcasts.apple.com/us/podcast/episode/id1?i=3\n\n--\n", text)
 
     def test_no_podcast_section_without_episodes(self) -> None:
         self.assertNotIn("Podcast episodes", Digest(make_items()).text_body())
         self.assertNotIn("Listen", Digest(make_items()).text_body())
+        self.assertNotIn("Apple Podcasts", Digest(make_items()).text_body())
 
 
 class DigestHtmlBodyTests(unittest.TestCase):
@@ -111,6 +114,8 @@ class DigestHtmlBodyTests(unittest.TestCase):
         self.assertIn('<a href="https://cdn.example.com/3.mp3"', body)
         self.assertIn("Pod · 50 min", body)
         self.assertEqual(body.count("Listen"), 1)
+        self.assertIn('<a href="https://podcasts.apple.com/us/podcast/episode/id1?i=3"', body)
+        self.assertEqual(body.count("Apple Podcasts"), 1)
         self.assertNotIn("Podcast episodes", Digest(make_items()).html_body())
 
     def test_debug_escaped(self) -> None:

@@ -69,6 +69,7 @@ class FeedResult:
         title, entries = self.parsed.title, self.parsed.entries
         source = feed.source(title)
         entries.sort(key=lambda entry: entry.published or 0, reverse=True)
-        added = sum(database.add_article(entry, source, feed.category) for entry in entries[: feed.max_items])
+        added = sum(database.add_article(entry, source, feed.category, feed.url)
+                    for entry in entries[: feed.max_items])
         database.feed_ok(feed.url, title, self.fetched.validators)
         return added

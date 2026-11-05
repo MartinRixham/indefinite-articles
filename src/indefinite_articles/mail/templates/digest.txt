@@ -29,6 +29,7 @@ $position. $title
    $source$length$exploratory
    $url
    Listen: $audio_url
+   Apple Podcasts: $apple_url
    Why: $reason
    $blurb
 

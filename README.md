@@ -157,6 +157,11 @@ All feeds come from files in `/etc/indefinite-articles/feeds.d/`:
   (`max_podcast_candidates`), so the far more numerous articles can't crowd them out. The
   LLM judges an episode by its show notes (from the feed, or the episode's web page).
   Set `podcasts_per_digest = 0` for no podcasts.
+* Each episode in the digest gets an **Apple Podcasts link** when Apple lists it. The
+  shortlisted episodes are looked up in Apple's public iTunes Search API, which tells
+  Apple which podcasts are on your shortlist (nothing else is sent). Apple lists new
+  episodes a few hours after they come out, so a very fresh episode may not have a link
+  yet. Set `apple_podcasts_links = false` to turn this off.
 * To add your own, put any OPML export from another feed reader in that directory, or a
   `.txt` file with one feed URL per line (`# Category` lines set the category).
 * To skip whole categories, set

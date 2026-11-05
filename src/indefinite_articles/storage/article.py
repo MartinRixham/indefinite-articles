@@ -26,7 +26,8 @@ class Article:
     """One row of the `articles` table.
 
     `audio_url` (and `duration`, in seconds, when the feed gives it) are set for podcast
-    episodes. `content` and `content_status` are set once the full page text has been fetched
+    episodes, and `apple_url` once the episode has been found on Apple Podcasts. `feed_url`
+    is the feed the article came from ('' for articles stored before it was recorded). `content` and `content_status` are set once the full page text has been fetched
     (or has failed); `score`, `reason` and `score_profile_id` once the LLM has scored
     it against a reader profile; `prefilter` once the embedding pre-filter has run.
     """
@@ -46,6 +47,8 @@ class Article:
     prefilter: float | None = None
     audio_url: str | None = None
     duration: float | None = None
+    feed_url: str = ""
+    apple_url: str | None = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Article":
@@ -108,6 +111,7 @@ class Article:
             "length": escape(self.length_label),
             # Left out when the episode has no page of its own, so `url` already is the audio.
             "audio_url": escape(self.audio_url) if self.audio_url and self.audio_url != self.url else "",
+            "apple_url": escape(self.apple_url or ""),
         }
 
     def embedding_text(self) -> str:

@@ -139,6 +139,7 @@ class Config:
     max_article_age_days: int = 3
     max_candidates: int = 150      # articles per day that get full-text + LLM scoring
     max_podcast_candidates: int = 30  # podcast episodes per day that get LLM scoring
+    apple_podcasts_links: bool = True  # look up shortlisted episodes on Apple Podcasts
     rescore_top: int = 30          # after a profile change, rescore only this many top-ranked articles
     feeds_dir: str = "feeds.d"     # relative to the config file
     exclude_categories: list[str] = field(default_factory=list)
@@ -237,7 +238,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     _copy_settings(config, general, (
         "database", "digest_time", "articles_per_digest", "podcasts_per_digest", "exploration",
         "podcast_exploration", "max_per_source", "max_article_age_days", "max_candidates",
-        "max_podcast_candidates", "rescore_top", "fetch_interval_minutes",
+        "max_podcast_candidates", "apple_podcasts_links", "rescore_top", "fetch_interval_minutes",
         "poll_interval_minutes", "fetch_full_articles", "article_chars", "fetch_workers",
         "allow_private_addresses", "feeds_dir", "fetch_concurrency",
     ))

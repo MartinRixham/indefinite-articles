@@ -8,7 +8,7 @@ from email.message import EmailMessage
 
 from . import __version__
 from .config import Config
-from .fetching import extract, feeds
+from .fetching import apple_podcasts, extract, feeds
 from .language_model.llm import LLM, LLMError, stall_limit
 from .mail import mailer
 from .mail.digest import Digest
@@ -30,10 +30,11 @@ def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Even
 
 
 def gather(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
-    """Fetch feeds, pre-filter, and fetch full text for the shortlist."""
+    """Fetch feeds, pre-filter, and fetch full text (and Apple Podcasts links) for the shortlist."""
     new = feeds.update_all(config, database, stop=stop)
     prefilter(config, database, llm, stop)
     extract.enrich_candidates(config, database, stop=stop)
+    apple_podcasts.add_links(config, database, stop=stop)
     return new
 
 
