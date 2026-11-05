@@ -83,6 +83,8 @@ class LLMTests(unittest.TestCase):
         self.assertTrue(body["stream"])
         self.assertNotIn("response_format", body)
         self.assertNotIn("Authorization", headers)
+        self.assertEqual(body["reasoning_effort"], "none")
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
 
     def test_api_key_sent(self):
         self.config.api_key = "secret"
@@ -145,7 +147,7 @@ class LLMTests(unittest.TestCase):
         self.assertEqual(self.llm.embed(["first", "second"]), [[1.0, 0.0], [0.0, 1.0]])
         path, _, body = Server.requests[-1]
         self.assertEqual(path, "/v1/embeddings")
-        self.assertEqual(body, {"model": "nomic-embed-text", "input": ["search: first", "search: second"]})
+        self.assertEqual(body, {"model": "qwen3-embedding:0.6b", "input": ["search: first", "search: second"]})
 
     def test_embed_bad_responses(self):
         for answer in ({"data": [{"embedding": [1.0]}]}, {"nothing": []}, {"data": [{"index": 0}]}):
@@ -226,8 +228,8 @@ class PullTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.llm = LLM(LLMConfig(base_url=f"http://127.0.0.1:{self.server.server_port}/v1",
-                                 model="qwen2.5:14b", embedding_model="nomic-embed-text"))
-        for name, value in (("installed", ["qwen2.5:14b", "nomic-embed-text:latest"]), ("pulled", []),
+                                 model="qwen3:14b", embedding_model="qwen3-embedding:0.6b"))
+        for name, value in (("installed", ["qwen3:14b", "qwen3-embedding:0.6b"]), ("pulled", []),
                             ("pull_error", None)):
             patcher = mock.patch.object(FakeLLM, name, value)
             patcher.start()
@@ -240,29 +242,29 @@ class PullTests(unittest.TestCase):
 
     def test_pulls_missing_models(self) -> None:
         FakeLLM.installed = ["llama3.1:8b"]
-        self.assertEqual(self.llm.missing_models(), ["qwen2.5:14b", "nomic-embed-text"])
+        self.assertEqual(self.llm.missing_models(), ["qwen3:14b", "qwen3-embedding:0.6b"])
         with mock.patch("indefinite_articles.language_model.llm.PULL_PROGRESS_SECONDS", 0.0), \
              self.assertLogs("indefinite_articles.language_model.llm", "INFO") as logs:
             self.llm.pull_missing_models()
-        self.assertEqual(FakeLLM.pulled, ["qwen2.5:14b", "nomic-embed-text"])
+        self.assertEqual(FakeLLM.pulled, ["qwen3:14b", "qwen3-embedding:0.6b"])
         self.assertEqual(self.llm.missing_models(), [])
         output = "\n".join(logs.output)
-        self.assertIn("Ollama doesn't have qwen2.5:14b; downloading it", output)
-        self.assertIn("downloading nomic-embed-text: 50% of 0.0 GB", output)
-        self.assertIn("downloading nomic-embed-text: verifying sha256 digest", output)
-        self.assertIn("downloaded nomic-embed-text in", output)
+        self.assertIn("Ollama doesn't have qwen3:14b; downloading it", output)
+        self.assertIn("downloading qwen3-embedding:0.6b: 50% of 0.0 GB", output)
+        self.assertIn("downloading qwen3-embedding:0.6b: verifying sha256 digest", output)
+        self.assertIn("downloaded qwen3-embedding:0.6b in", output)
 
     def test_same_model_pulled_once(self) -> None:
-        self.llm.config.embedding_model = "qwen2.5:7b"
-        self.llm.config.model = "qwen2.5:7b"
+        self.llm.config.embedding_model = "qwen3:8b"
+        self.llm.config.model = "qwen3:8b"
         with self.assertLogs("indefinite_articles.language_model.llm", "INFO"):
             self.llm.pull_missing_models()
-        self.assertEqual(FakeLLM.pulled, ["qwen2.5:7b"])
+        self.assertEqual(FakeLLM.pulled, ["qwen3:8b"])
 
     def test_pull_error(self) -> None:
         FakeLLM.installed = []
         FakeLLM.pull_error = "pull model manifest: file does not exist"
         with self.assertLogs("indefinite_articles.language_model.llm", "INFO"), \
-             self.assertRaisesRegex(LLMError, "downloading qwen2.5:14b failed: pull model manifest") as raised:
+             self.assertRaisesRegex(LLMError, "downloading qwen3:14b failed: pull model manifest") as raised:
             self.llm.pull_missing_models()
         self.assertNotIsInstance(raised.exception, LLMUnavailable)

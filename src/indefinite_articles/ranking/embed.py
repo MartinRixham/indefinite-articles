@@ -82,6 +82,11 @@ def _split_phrases(llm: LLM, text: str) -> tuple[list[str], list[str]]:
     return wanted, unwanted
 
 
+def _embedding_setup(config: Config) -> str:
+    """What the stored vectors depend on: the embedding model and the prefix it is given."""
+    return f"{config.llm.embedding_model}:{config.llm.embedding_prefix!r}"
+
+
 def embed_new(
     config: Config,
     database: Database,
@@ -89,11 +94,12 @@ def embed_new(
     stop: threading.Event | None = None,
     limit: int = 20000,
 ) -> int:
-    if database.get_state("embedding_model") != config.llm.embedding_model:
-        # Vectors from different models aren't comparable: start again.
+    if database.get_state("embedding_setup") != _embedding_setup(config):
+        # Vectors from different models or prefixes aren't comparable: start again.
+        # unembedded() then embeds the rated articles again too, whatever their age.
         database.connection.execute("DELETE FROM embeddings")
         database.connection.execute("UPDATE articles SET prefilter=NULL, prefilter_version=NULL")
-        database.set_state("embedding_model", config.llm.embedding_model)
+        database.set_state("embedding_setup", _embedding_setup(config))
     rows = database.unembedded(config.max_article_age_days, limit)
     done = 0
     batch_size = max(1, config.llm.embedding_batch)
@@ -215,7 +221,7 @@ def update_prefilter(config: Config, database: Database, llm: LLM, profile: sqli
     newly embedded articles are scored.
     """
     phrases = _profile_phrases(config, database, llm, profile)
-    signature = f"{profile['id']}:{database.feedback_signature()}:{config.llm.embedding_model}"
+    signature = f"{profile['id']}:{database.feedback_signature()}:{_embedding_setup(config)}"
     version = int(database.get_state("prefilter_version", "0"))
     changed = database.get_state("prefilter_sig") != signature
     if not changed and not database.prefilter_todo(config.max_article_age_days, version):

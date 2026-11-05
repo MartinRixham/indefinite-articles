@@ -44,10 +44,10 @@ sudo dnf install ./indefinite-articles-*.noarch.rpm
 # 1. A local LLM (Ollama is in the Fedora repos)
 sudo dnf install ollama ollama-rocm     # ollama-rocm: AMD GPUs, including integrated Radeon
 sudo systemctl enable --now ollama
-ollama pull qwen2.5:14b                 # ~9 GB; or qwen2.5:32b, gemma2:27b, llama3.1:8b ...
-ollama pull nomic-embed-text            # small (274 MB) model for the first-pass ranking
+ollama pull qwen3:14b                   # ~9 GB; or qwen3:30b-a3b-instruct-2507, gemma3:27b, qwen3:8b ...
+ollama pull qwen3-embedding:0.6b        # small (639 MB) model for the first-pass ranking
                                         # (the service also downloads missing models
-                                        #  when it starts: pull_models in tuning.toml)
+                                        #  when it starts: pull_models in defaults.toml)
 
 # 2. Configure email and your starting interests
 sudoedit /etc/indefinite-articles/indefinite-articles.toml
@@ -58,11 +58,11 @@ sudo systemctl enable --now indefinite-articles
 journalctl -u indefinite-articles -f
 ```
 
-Tuning settings (ranking, fetching, the LLM model and endpoint) are in
-`/etc/indefinite-articles/tuning.toml`. Leave that file unedited and each upgrade brings the
-latest tuning. To change one of its settings, copy it into `indefinite-articles.toml` under
-the same `[section]` header; settings there override `tuning.toml`. (If you edit
-`tuning.toml` itself, RPM keeps your copy and saves upgrades as `tuning.toml.rpmnew`.)
+Default settings (ranking, fetching, the LLM model and endpoint) are in
+`/etc/indefinite-articles/defaults.toml`. Leave that file unedited and each upgrade brings the
+latest defaults. To change one of its settings, copy it into `indefinite-articles.toml` under
+the same `[section]` header; settings there override `defaults.toml`. (If you edit
+`defaults.toml` itself, RPM keeps your copy and saves upgrades as `defaults.toml.rpmnew`.)
 
 Use a dedicated mailbox (e.g. `indefinite-articles@yourdomain`) as `from`. It sends the digests and
 receives your replies. For Gmail or Fastmail, use an app password. Only replies **from**
@@ -99,7 +99,7 @@ podman exec indefinite-articles indefinite-articles check --send-test
 podman logs -f indefinite-articles
 ```
 
-* Only `indefinite-articles.toml` is mounted, so `tuning.toml` comes from the image and
+* Only `indefinite-articles.toml` is mounted, so `defaults.toml` comes from the image and
   is updated with it. Put overrides (such as `[llm] base_url`) in your
   `indefinite-articles.toml`.
 * `--network=host` lets the default `base_url` (`http://127.0.0.1:11434/v1`) reach Ollama
@@ -214,7 +214,7 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
   a 14B model on CPU takes roughly 10–30 s per article. With about 150 articles a day that
   runs in the background after each hourly fetch, so the digest goes out quickly. When a
   reply changes your profile, only the `rescore_top` (default 30) best-ranked articles are
-  scored again; the rest keep their earlier score. With no GPU, lower `max_candidates` or use a smaller model (`llama3.1:8b` or `qwen2.5:3b`).
+  scored again; the rest keep their earlier score. With no GPU, lower `max_candidates` or use a smaller model (`qwen3:8b` or `qwen3:4b`).
 * **No embedding model?** Set `embedding_model = ""` and it falls back to the newest
   articles, balanced across sources. With hundreds of feeds, that misses most of the
   good articles.
@@ -223,7 +223,7 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
   summary is used instead. Links that point at localhost or private network addresses
   are refused unless `allow_private_addresses = true`. Set `fetch_full_articles = false`
   to judge on feed summaries only.
-* All the settings named here are in `tuning.toml`; override them in `indefinite-articles.toml`.
+* All the settings named here are in `defaults.toml`; override them in `indefinite-articles.toml`.
 * **Context size.** Scoring requests stay under `llm.max_prompt_chars` (about 24,000
   characters, roughly 7,000 tokens), because Ollama silently cuts off a prompt longer than
   its context. Ollama's default context is 4,096 tokens; the package's drop-in for

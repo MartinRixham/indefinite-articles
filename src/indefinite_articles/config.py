@@ -14,7 +14,7 @@ from pathlib import Path
 from .fetching.feed import Feed
 
 DEFAULT_CONFIG_PATH = "/etc/indefinite-articles/indefinite-articles.toml"
-TUNING_FILE_NAME = "tuning.toml"  # optional, next to the config file; the config file overrides it
+DEFAULTS_FILE_NAME = "defaults.toml"  # optional, next to the config file; the config file overrides it
 
 
 class ConfigError(Exception):
@@ -39,10 +39,10 @@ class TimeOfDay:
 @dataclass
 class LLMConfig:
     base_url: str = "http://127.0.0.1:11434/v1"
-    model: str = "qwen2.5:14b"
+    model: str = "qwen3:14b"
     api_key: str = ""
-    embedding_model: str = "nomic-embed-text"
-    embedding_prefix: str = "clustering: "
+    embedding_model: str = "qwen3-embedding:0.6b"
+    embedding_prefix: str = "Instruct: Identify the topic of the given news article\nQuery: "
     embedding_batch: int = 64
     max_prompt_chars: int = 24000
     temperature: float = 0.2
@@ -221,17 +221,17 @@ def _merge(defaults: dict, overrides: dict) -> dict:
 
 
 def load(path: str | os.PathLike | None = None) -> Config:
-    """Load the config file, on top of tuning.toml in the same directory if there is one.
+    """Load the config file, on top of defaults.toml in the same directory if there is one.
 
-    tuning.toml holds the packaged tuning settings. Users who leave it unedited get the
+    defaults.toml holds the packaged default settings. Users who leave it unedited get the
     updated values with each upgrade; any setting can be overridden in the config file.
     """
     path = Path(path or os.environ.get("INDEFINITE_ARTICLES_CONFIG", DEFAULT_CONFIG_PATH))
     raw = _read_toml(path)
     base = path.parent
-    tuning_path = base / TUNING_FILE_NAME
-    if tuning_path.is_file():
-        raw = _merge(_read_toml(tuning_path), raw)
+    defaults_path = base / DEFAULTS_FILE_NAME
+    if defaults_path.is_file():
+        raw = _merge(_read_toml(defaults_path), raw)
 
     general = raw.get("general", {})
     config = Config()

@@ -122,7 +122,19 @@ class EmbedTests(unittest.TestCase):
         stop.set()
         self.assertEqual(embed.embed_new(config, database, llm, stop=stop), 0)
         llm.embed.assert_not_called()
-        self.assertEqual(database.get_state("embedding_model"), config.llm.embedding_model)
+        self.assertEqual(database.get_state("embedding_setup"), embed._embedding_setup(config))
+
+    def test_new_embedding_setup_embeds_again(self) -> None:
+        self.llm.embed.side_effect = lambda texts: [[1.0, 0.0] for _ in texts]
+        self._article("old rated", [1, 0], rating=1)
+        self.database.connection.execute("UPDATE articles SET published=0, fetched_at=0")  # too old to embed now
+        self._article("recent", [1, 0])
+        embed.embed_new(self.config, self.database, self.llm)  # first run: no setup recorded yet
+        self.llm.embed.reset_mock()
+        self.assertEqual(embed.embed_new(self.config, self.database, self.llm), 0)  # same setup: nothing to do
+        self.config.llm.embedding_prefix = "something else: "
+        self.assertEqual(embed.embed_new(self.config, self.database, self.llm), 2)
+        self.assertEqual(sorted(self.llm.embed.call_args.args[0]), ["old rated. ", "recent. "])
 
     def test_dislike_only_profile_still_wants_something(self):
         config, database = Config(interests="Dislikes celebrity gossip"), Database(":memory:")

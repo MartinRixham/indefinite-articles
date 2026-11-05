@@ -252,7 +252,7 @@ class CommandLineTests(unittest.TestCase):
             code, out, _ = self._run("check", "--feeds", "1")
         self.assertEqual(code, 0)
         self.assertIn("[warn] config: email.smtp.host is not set", out)
-        self.assertIn("embeddings nomic-embed-text: 768 dimensions", out)
+        self.assertIn("embeddings qwen3-embedding:0.6b: 768 dimensions", out)
         self.assertIn("[ok]   feed Feed A: 1 entries", out)
         with mock.patch.object(LLM, "ping", side_effect=LLMError("down")), \
              mock.patch.object(LLM, "embed", side_effect=LLMError("down")), \

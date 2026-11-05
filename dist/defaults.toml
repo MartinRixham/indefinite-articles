@@ -1,9 +1,9 @@
-# Tuning for indefinite-articles(1), read before indefinite-articles.toml.
+# Default settings for indefinite-articles(1), read before indefinite-articles.toml.
 #
 # Leave this file unedited and package upgrades keep it up to date. To change a
 # setting, copy it (with its [section] header) into indefinite-articles.toml, which
 # overrides this file. If you edit this file instead, upgrades save the new version
-# as tuning.toml.rpmnew and you merge it by hand.
+# as defaults.toml.rpmnew and you merge it by hand.
 
 [general]
 database = "/var/lib/indefinite-articles/indefinite-articles.db"
@@ -36,11 +36,14 @@ allow_private_addresses = false  # allow article links that point at LAN/localho
 #                (the service downloads the models below when it starts; see pull_models)
 #   llama.cpp:   llama-server -m model.gguf --port 8080   -> http://127.0.0.1:8080/v1
 base_url = "http://127.0.0.1:11434/v1"
-model = "qwen2.5:14b"
+model = "qwen3:14b"
 # api_key: set it in indefinite-articles.toml, which only the service can read
-embedding_model = "nomic-embed-text"   # first-pass ranking of every article;
+embedding_model = "qwen3-embedding:0.6b"  # first-pass ranking of every article;
                                        # set to "" to disable (newest articles are used)
-embedding_prefix = "clustering: "      # task prefix nomic-embed-text expects
+# Put before every text embedded (articles and profile phrases alike); this is the
+# instruction Qwen3-Embedding expects. For nomic-embed-text use "clustering: ".
+# Changing the model or the prefix embeds everything again.
+embedding_prefix = "Instruct: Identify the topic of the given news article\nQuery: "
 max_prompt_chars = 24000         # ~7k tokens per scoring request (one article each);
                                  # keep below the model's context window.
                                  # (Ollama drops the start of an overlong prompt,

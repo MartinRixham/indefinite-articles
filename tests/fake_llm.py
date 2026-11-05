@@ -29,7 +29,7 @@ class FakeLLM(BaseHTTPRequestHandler):
     gap = 0.0        # seconds between tokens
     hang_after: int | None = None  # stop sending after this many tokens (a hung server)
     answer: str | None = None      # if set, the reply to every chat request
-    installed: list[str] = ["qwen2.5:14b", "nomic-embed-text:latest"]  # models Ollama has
+    installed: list[str] = ["qwen3:14b", "qwen3-embedding:0.6b"]  # models Ollama has
     pulled: list[str] = []         # models downloaded through /api/pull
     pull_error: str | None = None  # if set, every download fails with this error
 
@@ -39,7 +39,7 @@ class FakeLLM(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/api/tags":
             return self._json({"models": [{"name": name} for name in FakeLLM.installed]})
-        self._json({"models": [{"name": "qwen2.5:14b", "size_vram": FakeLLM.size_vram}]})
+        self._json({"models": [{"name": "qwen3:14b", "size_vram": FakeLLM.size_vram}]})
 
     def do_POST(self) -> None:
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))

@@ -221,6 +221,11 @@ class LLM:
                 {"role": "user", "content": user},
             ],
             "temperature": self.config.temperature,
+            # No thinking (qwen3 and other reasoning models): it makes every request many
+            # times slower and uses up context, for little gain at rating articles. The
+            # first field is for Ollama, the second for llama.cpp; other models ignore both.
+            "reasoning_effort": "none",
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}

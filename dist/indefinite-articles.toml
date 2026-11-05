@@ -3,9 +3,9 @@
 # Test with:
 #   sudo -u indefinite-articles indefinite-articles check --send-test
 #
-# Tuning settings (ranking, fetching, the LLM model and endpoint) are in tuning.toml
+# Default settings (ranking, fetching, the LLM model and endpoint) are in defaults.toml
 # next to this file. Leave that file alone so upgrades can update it; to change one
-# of its settings, add it here under the same [section] and it overrides tuning.toml:
+# of its settings, add it here under the same [section] and it overrides defaults.toml:
 #
 # [llm]
 # base_url = "http://host.containers.internal:11434/v1"
