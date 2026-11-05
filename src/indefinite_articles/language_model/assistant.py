@@ -121,17 +121,20 @@ class Assistant:
         disliked = [row for row in pending.feedback if row["rating"] < 0]
         neutral = [row for row in pending.feedback if row["rating"] == 0]
         user = (
-            f"Current reader profile:\n{profile_text}\n\n"
             f"New feedback from the reader.\nLiked:\n{_format_feedback(liked)}\n\n"
             f"Disliked:\n{_format_feedback(disliked)}\n\n"
             f"Comments on specific articles (no explicit like/dislike):\n{_format_feedback(neutral)}\n\n"
             "General comments from the reader:\n"
             + ("\n".join(f'- "{comment["comment"]}"' for comment in pending.comments) or "(none)")
-            + "\n\nRewrite the profile to incorporate this feedback. Keep established preferences "
-            "unless the new feedback contradicts them; treat explicit comments as strong signals "
-            "and single likes/dislikes as weak signals. Describe topics, angles, depth and styles "
-            "the reader likes and dislikes, and any sources they favour or avoid. "
-            "Write at most 250 words as a bullet list. Output only the profile."
+            + f"\n\nThe reader's profile before this feedback:\n{profile_text}\n\n"
+            "Where the feedback conflicts with the profile, the feedback wins: drop, narrow or "
+            "qualify the old preference (a disliked article on a topic the profile says they like "
+            "means that interest is narrower than stated). Add interests the feedback reveals "
+            "even if the profile never mentioned them. Keep the rest of the profile as it is. "
+            "Treat explicit comments as strong signals and single likes/dislikes as weak ones. "
+            "Describe topics, angles, depth and styles the reader likes and dislikes, and any "
+            "sources they favour or avoid. Write at most 250 words as a bullet list. "
+            "Output only the profile."
         )
         text = self._llm.chat(PROFILE_SYSTEM, user).strip()
         if len(text) < 20:
