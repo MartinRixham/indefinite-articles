@@ -43,7 +43,7 @@ class LLMConfig:
     embedding_model: str = "nomic-embed-text"
     embedding_prefix: str = "clustering: "
     embedding_batch: int = 64
-    max_prompt_chars: int = 12000
+    max_prompt_chars: int = 24000
     temperature: float = 0.2
     require_gpu: bool = True  # refuse to run if Ollama loads the model on CPU only
 
@@ -140,7 +140,7 @@ class Config:
     fetch_interval_minutes: int = 60
     poll_interval_minutes: int = 5
     fetch_full_articles: bool = True
-    article_chars: int = 1500
+    article_chars: int = 4000
     fetch_workers: int = 4
     allow_private_addresses: bool = False
     interests: str = ""

@@ -96,7 +96,8 @@ podman logs -f indefinite-articles
 * The container doesn't need the GPU, but the host's Ollama must be using it, or the
   service exits at startup (`require_gpu`). For integrated Radeon GPUs, install
   `ollama-rocm` on the host and add `Environment=OLLAMA_IGPU_ENABLE=1` with
-  `sudo systemctl edit ollama`. The RPM does this for you; the image can't.
+  `sudo systemctl edit ollama`. Add `Environment=OLLAMA_CONTEXT_LENGTH=8192` there too, so
+  scoring prompts fit (see "Context size" below). The RPM does both for you; the image can't.
 * The other commands work the same way: `podman exec indefinite-articles indefinite-articles status`.
 
 To run it under systemd, save this as
@@ -196,9 +197,10 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
   summary is used instead. Links that point at localhost or private network addresses
   are refused unless `allow_private_addresses = true`. Set `fetch_full_articles = false`
   to judge on feed summaries only.
-* **Context size.** Scoring requests stay under `llm.max_prompt_chars` (about 12,000
-  characters, roughly 3,000 tokens), because Ollama's default context is 4,096 tokens and
-  it silently cuts off anything longer. With more RAM, run
+* **Context size.** Scoring requests stay under `llm.max_prompt_chars` (about 24,000
+  characters, roughly 7,000 tokens), because Ollama silently cuts off a prompt longer than
+  its context. Ollama's default context is 4,096 tokens; the package's drop-in for
+  `ollama.service` raises it to 8,192 so these prompts fit. With more RAM, run
   `sudo systemctl edit ollama`, add `Environment=OLLAMA_CONTEXT_LENGTH=16384`, then raise
   `max_prompt_chars` to about 50000.
 * **If the LLM is down,** the digest still goes out. It is ranked by your past ratings of

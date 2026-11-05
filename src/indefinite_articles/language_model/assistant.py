@@ -97,7 +97,7 @@ class Assistant:
             '"score": 7}. Write the reason first, then the score.\n\n'
         )
 
-    def score_article(self, prefix: str, article: Article, per_article: int = 1500) -> ArticleScore:
+    def score_article(self, prefix: str, article: Article, per_article: int = 4000) -> ArticleScore:
         """Score a single article from 0 to 10 for the reader described in `prefix`
         (made by `score_prefix`), showing the LLM at most `per_article` characters of it."""
         user = (
