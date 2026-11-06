@@ -414,7 +414,7 @@ class EndToEndTests(unittest.TestCase):
                     self.assertTrue(sent.wait(5))
                     body = mailer.part_text(sent_messages[0])
                     self.assertRegex(body, r"backlog: shortlist 3, 3 never scored")
-                    self.assertRegex(body, r"scoring: running for \d+s")
+                    self.assertRegex(body, r"ranking: running for \d+s")
                     self.assertIn("llm stall limits:", body)
                 finally:
                     for call in register_handler.call_args_list[:1]:  # as if sent SIGTERM

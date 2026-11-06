@@ -87,18 +87,32 @@ class ServiceTests(unittest.TestCase):
             jobs = self._run_service(lambda jobs: self.score.call_count >= 2)
         self.assertEqual(jobs["feed fetch"]["last_result"], "4 new articles")
 
+    def test_ranking_embeds_before_scoring(self) -> None:
+        steps: list[tuple[str, str]] = []
+
+        def record(step: str) -> Callable[..., int]:
+            def run(*args: object, **kwargs: object) -> int:
+                steps.append((step, threading.current_thread().name))
+                return 0
+            return run
+
+        with mock.patch.object(daemon, "prefilter", record("prefilter")), \
+             mock.patch.object(ranker, "score_candidates", record("score")):
+            self._run_service(lambda jobs: "last_end" in jobs["ranking"])
+        self.assertEqual(steps, [("prefilter", "rank"), ("score", "rank")])
+
     def test_score_reports_skips(self) -> None:
         self.score.return_value = 7
-        jobs = self._run_service(lambda jobs: "last_end" in jobs["scoring"])
-        self.assertEqual(jobs["scoring"]["last_result"], "scored 7")
+        jobs = self._run_service(lambda jobs: "last_end" in jobs["ranking"])
+        self.assertEqual(jobs["ranking"]["last_result"], "scored 7")
         self.score.side_effect = LLMError("down")
         with self.assertLogs("indefinite_articles.service", "WARNING"):
-            jobs = self._run_service(lambda jobs: "last_end" in jobs["scoring"])
-        self.assertEqual(jobs["scoring"]["last_result"], "skipped: down")
+            jobs = self._run_service(lambda jobs: "last_end" in jobs["ranking"])
+        self.assertEqual(jobs["ranking"]["last_result"], "skipped: down")
 
     def test_poll_and_learn(self) -> None:
         with mock.patch.object(inbox, "poll", return_value=2):
-            jobs = self._run_service(lambda jobs: "last_end" in jobs["inbox poll"] and "last_end" in jobs["scoring"])
+            jobs = self._run_service(lambda jobs: "last_end" in jobs["inbox poll"] and "last_end" in jobs["ranking"])
         self.assertEqual(jobs["inbox poll"]["last_result"], "2 replies")
         self.assertEqual(self.score.call_count, 1)  # only the run at startup
 

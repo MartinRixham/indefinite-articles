@@ -95,7 +95,7 @@ class DaemonFunctionTests(unittest.TestCase):
         self.config.feeds = [Feed("https://feed/a"), Feed("https://feed/b")]
         self.database.feed_ok("https://feed/a", "A", feeds.CacheValidators())
         ranker.ensure_profile(self.config, self.database)
-        status = {"jobs": {"scoring": {"running_since": 1.0}, "inbox poll": {}}, "llm": LLM(self.config.llm)}
+        status = {"jobs": {"ranking": {"running_since": 1.0}, "inbox poll": {}}, "llm": LLM(self.config.llm)}
         message = daemon.send_digest(self.config, self.database, dry_run=True, status=status)
         assert message is not None
         text = mailer.part_text(message).split("-- debug --\n", 1)[1]

@@ -1,4 +1,4 @@
-"""Pipeline steps the service and the CLI run: refresh feeds and send the daily digest."""
+"""Pipeline steps the service and the CLI run: rank the articles and send the daily digest."""
 
 import logging
 import threading
@@ -29,20 +29,25 @@ def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Even
         log.warning("embedding pre-filter unavailable, using newest articles instead: %s", error)
 
 
-def gather(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
-    """Fetch feeds, pre-filter, and fetch full text (and Apple Podcasts links) for the shortlist."""
-    new = feeds.update_all(config, database, stop=stop)
+def rank(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
+    """Embed and pre-filter, fetch full text (and Apple Podcasts links) for the shortlist,
+    then LLM-score it; returns the number of articles scored.
+
+    The steps run in this order so that scoring always works from a finished pre-filter
+    (after a change of embedding model, that means every article embedded again).
+    Raises LLMError if scoring can't run.
+    """
     prefilter(config, database, llm, stop)
     extract.enrich_candidates(config, database, stop=stop)
     apple_podcasts.add_links(config, database, stop=stop)
-    return new
+    return ranker.score_candidates(config, database, llm, stop=stop)
 
 
 def refresh(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
-    """gather(), then LLM-score the shortlist."""
-    new = gather(config, database, llm, stop)
+    """Fetch feeds, then rank(); returns the number of new articles."""
+    new = feeds.update_all(config, database, stop=stop)
     try:
-        ranker.score_candidates(config, database, llm, stop=stop)
+        rank(config, database, llm, stop)
     except LLMError as error:
         log.warning("scoring skipped: %s", error)
     return new
