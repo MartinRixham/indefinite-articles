@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.1
+Version:        0.4.2
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,12 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Fri Nov 06 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.2
+- Pull missing models from Ollama on start-up (pull_models)
+- Podcast episode recommendations, with their own shortlist and digest quota
+- Apple Podcasts links for recommended episodes
+- Newer default LLM models
+
 * Thu Nov 05 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.1
 - Fetch, scoring and inbox polling run on separate threads; scoring stops when
   the digest is due, so a slow LLM can't delay it
