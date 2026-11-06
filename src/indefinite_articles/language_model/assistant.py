@@ -43,7 +43,7 @@ PROFILE_SYSTEM = (
 
 INTERPRET_SYSTEM = (
     "You interpret a reader's email reply to a numbered list of recommended articles. "
-    "Work out which articles they liked or disliked and what general preferences they expressed."
+    "Record articles they liked or disliked and what general preferences they expressed."
 )
 
 PREFERENCES_SYSTEM = "You turn a reader's profile into short phrases for a search engine."
