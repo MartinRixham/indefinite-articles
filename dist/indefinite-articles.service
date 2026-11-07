@@ -1,7 +1,7 @@
 [Unit]
 Description=Article recommender (daily email digest, learns from replies)
 Documentation=file:///usr/share/doc/indefinite-articles/README.md
-Wants=network-online.target
+Wants=network-online.target ollama.service
 After=network-online.target ollama.service llama-server.service
 
 [Service]
