@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.3
+Version:        0.4.4
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,11 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Sat Nov 07 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.4
+- LLM timeouts are learned per kind of request, so long scoring prompts and
+  large embedding batches are no longer cut off early
+- Ranking waits for the first fetch and doesn't score if embedding fails
+
 * Sat Nov 07 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.3
 - Embedding and scoring run in order on one ranking thread
 - Reply interpretation is less inclined to overinterpret
