@@ -1,8 +1,10 @@
 """Apple Podcasts links for shortlisted podcast episodes, from Apple's public iTunes Search API.
 
 A feed is matched to an Apple Podcasts show by searching for its title. A result with the
-same feed URL is taken; otherwise a result with the same name is taken only if some of the
-feed's episodes are also among that show's episodes, because unrelated shows share names.
+same feed URL is taken; otherwise a result with the same name, or else one whose name contains
+the feed's title (a show's website feed is often called "Latent Space" while Apple lists
+"Latent Space: The AI Engineer Podcast"), is taken only if some of the feed's episodes are
+also among that show's episodes, because unrelated shows share names.
 The show's id is kept in the `feeds` table, so the search runs once per feed (and again
 after `RECHECK_SECONDS` for feeds Apple didn't have). Each episode is then found among
 the show's newest episodes by its audio URL or title. Apple lists new episodes some hours
@@ -31,7 +33,7 @@ SEARCH_URL = "https://itunes.apple.com/search"
 LOOKUP_URL = "https://itunes.apple.com/lookup"
 REQUEST_INTERVAL = 3.5          # seconds between requests; Apple allows about 20 a minute
 RECHECK_SECONDS = 7 * 86400     # before looking again for a feed Apple didn't have
-NAME_MATCHES_TRIED = 2          # same-name shows checked for shared episodes
+NAME_MATCHES_TRIED = 2          # similarly named shows checked for shared episodes
 VALIDATION_EPISODES = 20        # of the feed's stored episodes, looked for in a same-name show
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 TIMEOUT = 20
@@ -133,10 +135,19 @@ def _find_show(client: _Client, database: Database, feed_url: str, state: sqlite
             show = client.show(str(result["collectionId"]))
             database.set_feed_apple_id(feed_url, show.collection_id)
             return show
-    same_name = [result for result in results if result.get("collectionId")
-                 and str(result.get("collectionName") or "").strip().lower() == title.strip().lower()]
+    wanted = title.strip().casefold()
+    same_name = []
+    similar_name = []
+    for result in results:
+        name = str(result.get("collectionName") or "").strip().casefold()
+        if not result.get("collectionId") or not wanted:
+            continue
+        if name == wanted:
+            same_name.append(result)
+        elif wanted in name:
+            similar_name.append(result)
     known = database.feed_episodes(feed_url, VALIDATION_EPISODES)
-    for result in same_name[:NAME_MATCHES_TRIED]:
+    for result in (same_name + similar_name)[:NAME_MATCHES_TRIED]:
         show = client.show(str(result["collectionId"]))
         if show.shares_episodes_with(known):
             database.set_feed_apple_id(feed_url, show.collection_id)

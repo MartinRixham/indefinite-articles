@@ -126,6 +126,16 @@ class AddLinksTests(unittest.TestCase):
         self.assertEqual(apple_podcasts.add_links(self.config, self.database), 1)
         self.assertEqual(self._apple_id(), "6")
 
+    def test_show_whose_name_contains_the_feed_title_needs_shared_episodes(self) -> None:
+        FakeApple.shows = [show_result(5, "The Show Daily", "https://elsewhere.example.com/a"),
+                           show_result(6, "The Show: The Podcast", "https://podcast.example.com/feed.xml"),
+                           show_result(7, "Another show", "https://elsewhere.example.com/c")]
+        FakeApple.episodes = {"5": [episode_result(1, "Unrelated", "https://x/1.mp3")],
+                              "6": [episode_result(2, "Something else", "https://cdn.example.com/2.mp3")]}
+        self.assertEqual(apple_podcasts.add_links(self.config, self.database), 1)
+        self.assertEqual(self._apple_id(), "6")
+        self.assertNotIn("/lookup?id=7", "".join(FakeApple.requests))
+
     def test_feed_not_on_apple_is_checked_again_only_after_a_week(self) -> None:
         FakeApple.shows = [show_result(5, "The Show", "https://elsewhere.example.com/a")]
         FakeApple.episodes = {"5": [episode_result(1, "Unrelated", "https://x/1.mp3")]}
