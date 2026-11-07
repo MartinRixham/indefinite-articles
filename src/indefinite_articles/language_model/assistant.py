@@ -114,7 +114,7 @@ class Assistant:
             f"Title: {article.title}\nSource: {article.source_label}\n{_format_line(article)}"
             f"{article.description(per_article)}"
         )
-        data = self._llm.chat_json(SCORE_SYSTEM, user)
+        data = self._llm.chat_json(SCORE_SYSTEM, user, purpose="score")
         if isinstance(data, dict) and isinstance(data.get("ratings"), list) and data["ratings"]:
             data = data["ratings"][0]  # some models keep the old batch shape
         if isinstance(data, list) and data:
@@ -148,7 +148,7 @@ class Assistant:
             f"sources they favour or avoid. Write at most {PROFILE_WORDS} words as a bullet list. "
             "Output only the profile."
         )
-        text = self._llm.chat(PROFILE_SYSTEM, user).strip()
+        text = self._llm.chat(PROFILE_SYSTEM, user, purpose="profile").strip()
         if len(text) < 20:
             raise LLMError("profile update returned implausibly short text")
         return text
@@ -166,7 +166,7 @@ class Assistant:
             '"general_comment": "any preference not tied to one article, or empty"}. '
             "Only include articles the reader actually referred to."
         )
-        data = self._llm.chat_json(INTERPRET_SYSTEM, user)
+        data = self._llm.chat_json(INTERPRET_SYSTEM, user, purpose="reply")
         if not isinstance(data, dict):
             raise LLMError("unexpected interpretation format")
         ratings: dict[int, Rating] = {}
@@ -186,7 +186,7 @@ class Assistant:
         """Short phrases for what the profile says the reader wants and wants to avoid,
         at most `MAX_PHRASES` of each. Raises `LLMError` if there are no wanted phrases."""
         prompt = PREFERENCES_PROMPT.format(profile=profile_text[:MAX_PROFILE_CHARS], max_phrases=MAX_PHRASES)
-        data = self._llm.chat_json(PREFERENCES_SYSTEM, prompt)
+        data = self._llm.chat_json(PREFERENCES_SYSTEM, prompt, purpose="phrases")
         if not isinstance(data, dict):
             raise LLMError(f"no phrases in LLM output: {str(data)[:200]}")
         likes, avoid = _phrase_list(data, "likes"), _phrase_list(data, "avoid")

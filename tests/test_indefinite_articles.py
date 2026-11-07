@@ -321,6 +321,15 @@ class EndToEndTests(unittest.TestCase):
         with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.1):
             self.assertEqual(self.llm.ping(), "OK")  # no history: waits as long as it takes
 
+    def test_first_token_limit_is_learned_per_purpose(self):
+        with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.1):
+            self.llm.chat("maintain a concise profile", "x", purpose="profile")  # learn: fast
+            self._fake_speed(delay=0.5)  # a long scoring prompt takes far longer to read
+            reply = self.llm.chat("maintain a concise profile", "x", purpose="score")
+            self.assertIn("Dislikes gossip", reply)  # not cut off by the profile's limit
+            self.assertIn("first profile", self.llm.slowest_waits())
+            self.assertGreaterEqual(self.llm.slowest_waits()["first score"], 0.5)
+
     def test_slow_but_progressing_is_not_cut_off(self):
         with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.3):
             self.llm.chat("maintain a concise profile", "x")  # learn: fast
@@ -348,7 +357,7 @@ class EndToEndTests(unittest.TestCase):
     def test_stalled_scoring_stops_the_round(self):
         self._load_articles(score=False)
         with mock.patch("indefinite_articles.language_model.llm.MIN_STALL", 0.3):
-            self.llm.ping()  # learn: fast
+            self.llm.chat("s", "Are you there?", purpose="score")  # learn: scoring is fast
             self._fake_speed(delay=3)  # never sends the first token in time
             before = len(FakeLLM.requests)
             self.assertEqual(ranker.score_candidates(self.config, self.database, self.llm), 0)

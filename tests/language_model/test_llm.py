@@ -149,6 +149,12 @@ class LLMTests(unittest.TestCase):
         self.assertEqual(path, "/v1/embeddings")
         self.assertEqual(body, {"model": "qwen3-embedding:0.6b", "input": ["search: first", "search: second"]})
 
+    def test_embed_timeout_is_learned_per_purpose(self):
+        self._reply(json.dumps({"data": [{"index": 0, "embedding": [1.0]}]}).encode())
+        self.llm.embed(["phrase"], purpose="phrases")
+        self.llm.embed(["article"], purpose="articles")
+        self.assertEqual(set(self.llm.slowest_waits()), {"embed phrases", "embed articles"})
+
     def test_embed_bad_responses(self):
         for answer in ({"data": [{"embedding": [1.0]}]}, {"nothing": []}, {"data": [{"index": 0}]}):
             self._reply(json.dumps(answer).encode())

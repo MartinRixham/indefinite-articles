@@ -107,7 +107,7 @@ def embed_new(
         if stop is not None and stop.is_set():
             break
         batch = rows[start : start + batch_size]
-        vectors = llm.embed([article.embedding_text() for article in batch])
+        vectors = llm.embed([article.embedding_text() for article in batch], purpose="articles")
         for article, vector in zip(batch, vectors):
             database.set_embedding(article.id, pack(vector))
         database.connection.commit()

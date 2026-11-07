@@ -173,7 +173,7 @@ class PrefilterTests(unittest.TestCase):
     def _llm(self):
         from fake_llm import fake_embedding
         llm = mock.Mock(spec=LLM)
-        llm.embed.side_effect = lambda texts: [fake_embedding(text) for text in texts]
+        llm.embed.side_effect = lambda texts, purpose="texts": [fake_embedding(text) for text in texts]
         return llm
 
     def test_shortlist_prefers_matches_with_source_cap_and_exploration(self):

@@ -9,7 +9,7 @@ from email.message import EmailMessage
 from . import __version__
 from .config import Config
 from .fetching import apple_podcasts, extract, feeds
-from .language_model.llm import LLM, LLMError, stall_limit
+from .language_model.llm import LLM, LLMError, LLMUnavailable, stall_limit
 from .mail import mailer
 from .mail.digest import Digest
 from .ranking import embed, ranker
@@ -19,12 +19,20 @@ log = logging.getLogger(__name__)
 
 
 def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> None:
-    """Embed new articles and update pre-filter scores (skipped if no embedding model)."""
+    """Embed new articles and update pre-filter scores (skipped if no embedding model).
+
+    If the embedding model can't be used, the pre-filter falls back to the newest
+    articles. Raises LLMUnavailable if the server stopped responding or can't be
+    reached: then scoring would most likely stall too, and on a slow server it would
+    hold up the embeddings for hours, so the caller should stop and try again later.
+    """
     if not config.llm.embedding_model:
         return
     try:
         embed.embed_new(config, database, llm, stop=stop)
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
+    except LLMUnavailable:
+        raise
     except LLMError as error:
         log.warning("embedding pre-filter unavailable, using newest articles instead: %s", error)
 

@@ -61,7 +61,10 @@ def _command_fetch(config: Config, args: argparse.Namespace):
         llm = LLM(config.llm)
         if args.no_score:
             print(f"{feeds.update_all(config, database)} new articles")
-            prefilter(config, database, llm)
+            try:
+                prefilter(config, database, llm)
+            except LLMError as error:
+                logging.warning("embedding pre-filter stopped: %s", error)
         else:
             print(f"{refresh(config, database, llm)} new articles")
         return 0

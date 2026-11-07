@@ -9,7 +9,7 @@ from indefinite_articles.ranking.vectors import pack
 class ProfilePhrasesTests(unittest.TestCase):
     def setUp(self):
         self.llm = mock.Mock(spec=LLM)
-        self.llm.embed.side_effect = lambda texts: [[3.0, float(index)] for index, _ in enumerate(texts)]
+        self.llm.embed.side_effect = lambda texts, purpose="texts": [[3.0, float(index)] for index, _ in enumerate(texts)]
 
     def test_keeps_phrases_without_embedding(self):
         phrases = ProfilePhrases(["rust compilers"], ["celebrity gossip"], self.llm)
@@ -20,12 +20,12 @@ class ProfilePhrasesTests(unittest.TestCase):
     def test_wanted_vectors_are_packed_embeddings(self):
         phrases = ProfilePhrases(["rust compilers", "gardening"], ["celebrity gossip"], self.llm)
         self.assertEqual(phrases.wanted_vectors(), [pack([3.0, 0.0]), pack([3.0, 1.0])])
-        self.llm.embed.assert_called_once_with(["rust compilers", "gardening"])
+        self.llm.embed.assert_called_once_with(["rust compilers", "gardening"], purpose="phrases")
 
     def test_unwanted_vectors_are_packed_embeddings(self):
         phrases = ProfilePhrases(["rust compilers"], ["celebrity gossip"], self.llm)
         self.assertEqual(phrases.unwanted_vectors(), [pack([3.0, 0.0])])
-        self.llm.embed.assert_called_once_with(["celebrity gossip"])
+        self.llm.embed.assert_called_once_with(["celebrity gossip"], purpose="phrases")
 
     def test_vectors_are_embedded_once(self):
         phrases = ProfilePhrases(["rust compilers"], ["celebrity gossip"], self.llm)

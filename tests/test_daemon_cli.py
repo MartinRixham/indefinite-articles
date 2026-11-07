@@ -12,7 +12,7 @@ from indefinite_articles.config import Config
 from indefinite_articles.fetching import extract, feeds
 from indefinite_articles.fetching.entry import Entry
 from indefinite_articles.fetching.feed import Feed
-from indefinite_articles.language_model.llm import LLM, LLMError
+from indefinite_articles.language_model.llm import LLM, LLMError, LLMUnavailable
 from indefinite_articles.mail import mailer
 from indefinite_articles.ranking import embed, ranker
 from indefinite_articles.service import Service
@@ -48,6 +48,12 @@ class DaemonFunctionTests(unittest.TestCase):
         self.llm.embed.side_effect = LLMError("down")
         with self.assertLogs("indefinite_articles.daemon", "WARNING"):
             daemon.prefilter(self.config, self.database, self.llm)
+
+    def test_stalled_embedding_stops_the_round_before_scoring(self):
+        self.llm.embed.side_effect = LLMUnavailable("stopped responding")
+        with mock.patch.object(ranker, "score_candidates", side_effect=AssertionError("scored")), \
+             self.assertRaises(LLMUnavailable):
+            daemon.rank(self.config, self.database, self.llm)
 
     def test_refresh_runs_the_pipeline_and_tolerates_scoring_failure(self):
         calls = []

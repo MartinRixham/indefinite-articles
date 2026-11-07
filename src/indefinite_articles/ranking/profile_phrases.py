@@ -39,4 +39,4 @@ class ProfilePhrases:
                 - 0.5 * max_similarities(matrix, self.unwanted_vectors()))
 
     def _embed(self, phrases: list[str]) -> list[bytes]:
-        return [pack(vector) for vector in self._llm.embed(phrases)] if phrases else []
+        return [pack(vector) for vector in self._llm.embed(phrases, purpose="phrases")] if phrases else []

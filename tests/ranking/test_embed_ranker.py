@@ -33,7 +33,7 @@ class EmbedTests(unittest.TestCase):
         self.vectors: dict[str, list[float]] = {"wanted": [1.0, 0.0], "unwanted": [0.0, 1.0]}
         self.llm = mock.Mock(spec=LLM)
         self.llm.chat_json.return_value = {"likes": ["wanted"], "avoid": ["unwanted"]}
-        self.llm.embed.side_effect = lambda texts: [self.vectors[text] for text in texts]
+        self.llm.embed.side_effect = lambda texts, purpose="texts": [self.vectors[text] for text in texts]
 
     def _article(self, title: str, vector: Sequence[float], rating: int = 0):
         """Add an embedded article; a rated one has been sent in a digest."""
@@ -53,7 +53,7 @@ class EmbedTests(unittest.TestCase):
     def test_embedded_text_is_title_and_start_of_summary(self):
         self.database.add_article(Entry("https://e/1", "Short", "", None), "S")
         self.database.add_article(Entry("https://e/2", "Long", "x" * (EMBEDDING_SUMMARY_CHARACTERS + 100), None), "S")
-        self.llm.embed.side_effect = lambda texts: [[1.0, 0.0] for _ in texts]
+        self.llm.embed.side_effect = lambda texts, purpose="texts": [[1.0, 0.0] for _ in texts]
         self.assertEqual(embed.embed_new(self.config, self.database, self.llm), 2)
         texts = [text for call in self.llm.embed.call_args_list for text in call.args[0]]
         self.assertEqual(sorted(texts), ["Long. " + "x" * EMBEDDING_SUMMARY_CHARACTERS, "Short. "])
@@ -125,7 +125,7 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(database.get_state("embedding_setup"), embed._embedding_setup(config))
 
     def test_new_embedding_setup_embeds_again(self) -> None:
-        self.llm.embed.side_effect = lambda texts: [[1.0, 0.0] for _ in texts]
+        self.llm.embed.side_effect = lambda texts, purpose="texts": [[1.0, 0.0] for _ in texts]
         self._article("old rated", [1, 0], rating=1)
         self.database.connection.execute("UPDATE articles SET published=0, fetched_at=0")  # too old to embed now
         self._article("recent", [1, 0])
@@ -141,7 +141,7 @@ class EmbedTests(unittest.TestCase):
         self.addCleanup(database.close)
         llm = mock.Mock(spec=LLM)
         llm.chat_json.return_value = {"likes": [], "avoid": ["celebrity gossip"]}  # unusable: keyword split
-        llm.embed.side_effect = lambda texts: [[1.0, float(index)] for index, _ in enumerate(texts)]
+        llm.embed.side_effect = lambda texts, purpose="texts": [[1.0, float(index)] for index, _ in enumerate(texts)]
         phrases = embed._profile_phrases(config, database, llm, ranker.ensure_profile(config, database))
         self.assertEqual(phrases.wanted, [embed.DEFAULT_WANTED])
         self.assertEqual(phrases.unwanted, ["Dislikes celebrity gossip"])

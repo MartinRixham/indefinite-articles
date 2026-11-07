@@ -148,15 +148,19 @@ class LLM:
         self._observe(kind, time.monotonic() - started)
         return data
 
-    def _stream(self, path: str, body: dict) -> str:
+    def _stream(self, path: str, body: dict, purpose: str) -> str:
         """POST a streaming chat request and return the generated text.
 
         The wait for the first token (prompt processing, maybe loading the model) and
-        the gaps between tokens are timed separately, as "first" and "gap"."""
+        the gaps between tokens are timed separately, as "first <purpose>" and "gap".
+        The first-token wait is learned per purpose because it grows with the prompt:
+        a long scoring prompt can take many times longer than a short one, so a limit
+        learned from short prompts would cut it off. The gap between tokens doesn't
+        depend on the prompt, so it is shared."""
         started = time.monotonic()
-        sent = self._send(path, {**body, "stream": True}, "first")
+        kind = f"first {purpose}"
+        sent = self._send(path, {**body, "stream": True}, kind)
         response, limit = sent.response, sent.limit
-        kind = "first"
         try:
             if "text/event-stream" not in (response.getheader("Content-Type") or ""):
                 data = json.loads(response.read())  # server ignored "stream"
@@ -196,14 +200,17 @@ class LLM:
         finally:
             sent.close()
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embedding vectors for `texts`, using the configured embedding model."""
+    def embed(self, texts: list[str], purpose: str = "texts") -> list[list[float]]:
+        """Embedding vectors for `texts`, using the configured embedding model.
+
+        `purpose` names the kind of request, so that its timeout is learned from similar
+        requests: a batch of articles takes far longer than a few short phrases."""
         if not self.config.embedding_model:
             raise LLMError("no embedding_model configured")
         data = self._post("/embeddings", {
             "model": self.config.embedding_model,
             "input": [self.config.embedding_prefix + text for text in texts],
-        }, "embed")
+        }, f"embed {purpose}")
         try:
             items = sorted(data["data"], key=lambda item: item.get("index", 0))
             vectors = [item["embedding"] for item in items]
@@ -213,7 +220,9 @@ class LLM:
             raise LLMError("embeddings response has the wrong number of vectors")
         return vectors
 
-    def chat(self, system: str, user: str, json_mode: bool = False) -> str:
+    def chat(self, system: str, user: str, json_mode: bool = False, purpose: str = "chat") -> str:
+        """The model's answer. `purpose` names the kind of request, so that its
+        first-token timeout is learned from requests with prompts of similar size."""
         body = {
             "model": self.config.model,
             "messages": [
@@ -229,10 +238,10 @@ class LLM:
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
-        return self._stream("/chat/completions", body)
+        return self._stream("/chat/completions", body, purpose)
 
-    def chat_json(self, system: str, user: str) -> Any:
-        text = self.chat(system, user, json_mode=True)
+    def chat_json(self, system: str, user: str, purpose: str = "chat") -> Any:
+        text = self.chat(system, user, json_mode=True, purpose=purpose)
         try:
             return _extract_json(text)
         except ValueError:
