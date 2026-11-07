@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.2
+Version:        0.4.3
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,13 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Sat Nov 07 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.3
+- Embedding and scoring run in order on one ranking thread
+- Reply interpretation is less inclined to overinterpret
+- More international feeds in the default OPML
+- The service requires ollama.service
+- Better Apple Podcasts link lookup
+
 * Fri Nov 06 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.2
 - Pull missing models from Ollama on start-up (pull_models)
 - Podcast episode recommendations, with their own shortlist and digest quota
