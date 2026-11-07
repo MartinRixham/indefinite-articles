@@ -30,9 +30,9 @@ class ServiceTests(unittest.TestCase):
         self.first_scoring = threading.Event()
         self.score = mock.Mock(return_value=0)
         self.score.side_effect = lambda *args, **kwargs: (self.first_scoring.set(), self.score.return_value)[1]
-        # Quiet defaults: fetching waits until the service stops, the inbox is empty and
-        # today's digest has already gone out.
-        for patch in (mock.patch.object(feeds, "update_all", self._fetch_nothing),
+        # Quiet defaults: fetching finds nothing new, the inbox is empty and today's
+        # digest has already gone out.
+        for patch in (mock.patch.object(feeds, "update_all", return_value=0),
                       mock.patch.object(daemon, "prefilter", lambda *args: None),
                       mock.patch.object(extract, "enrich_candidates", lambda *args, **kwargs: 0),
                       mock.patch.object(ranker, "score_candidates", self.score),
@@ -41,11 +41,6 @@ class ServiceTests(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
         self._set_last_digest_date(datetime.now().date().isoformat())
-
-    @staticmethod
-    def _fetch_nothing(*args: object, stop: threading.Event, **kwargs: object) -> int:
-        stop.wait()
-        return 0
 
     def _set_last_digest_date(self, value: str) -> None:
         database = Database(self.config.database)
@@ -78,14 +73,29 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         return services[0].jobs
 
-    def test_fetch_asks_for_scoring(self) -> None:
-        def fetch_after_first_scoring(*args: object, **kwargs: object) -> int:
-            self.first_scoring.wait(5)
+    def test_ranking_waits_for_the_first_fetch(self) -> None:
+        fetch_may_finish = threading.Event()
+
+        def slow_fetch(*args: object, **kwargs: object) -> int:
+            fetch_may_finish.wait(5)
             return 4
 
-        with mock.patch.object(feeds, "update_all", fetch_after_first_scoring):
-            jobs = self._run_service(lambda jobs: self.score.call_count >= 2)
+        def release_fetch(jobs: dict[str, dict]) -> bool:
+            if jobs["feed fetch"].get("running_since") and not fetch_may_finish.is_set():
+                time.sleep(0.2)  # time enough for an early ranking run to show up
+                self.assertEqual(self.score.call_count, 0)
+                fetch_may_finish.set()
+            return self.score.call_count >= 1
+
+        with mock.patch.object(feeds, "update_all", slow_fetch):
+            jobs = self._run_service(release_fetch)
         self.assertEqual(jobs["feed fetch"]["last_result"], "4 new articles")
+
+    def test_failed_fetch_still_starts_ranking(self) -> None:
+        with mock.patch.object(feeds, "update_all", side_effect=OSError("no network")), \
+             self.assertLogs("indefinite_articles.service", "ERROR"):
+            jobs = self._run_service(lambda jobs: self.score.call_count >= 1)
+        self.assertIn("no network", jobs["feed fetch"]["last_error"])
 
     def test_ranking_embeds_before_scoring(self) -> None:
         steps: list[tuple[str, str]] = []

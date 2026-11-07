@@ -44,16 +44,13 @@ class DaemonFunctionTests(unittest.TestCase):
         with mock.patch.object(embed, "embed_new", side_effect=AssertionError("embedded")):
             daemon.prefilter(self.config, self.database, self.llm)
 
-    def test_prefilter_tolerates_llm_failure(self):
-        self.llm.embed.side_effect = LLMError("down")
-        with self.assertLogs("indefinite_articles.daemon", "WARNING"):
-            daemon.prefilter(self.config, self.database, self.llm)
-
-    def test_stalled_embedding_stops_the_round_before_scoring(self):
-        self.llm.embed.side_effect = LLMUnavailable("stopped responding")
-        with mock.patch.object(ranker, "score_candidates", side_effect=AssertionError("scored")), \
-             self.assertRaises(LLMUnavailable):
-            daemon.rank(self.config, self.database, self.llm)
+    def test_failed_embedding_stops_the_round_before_scoring(self):
+        for error in (LLMError("HTTP 500"), LLMUnavailable("stopped responding")):
+            self.llm.embed.side_effect = error
+            with self.subTest(error=error), \
+                 mock.patch.object(ranker, "score_candidates", side_effect=AssertionError("scored")), \
+                 self.assertRaisesRegex(type(error), "embedding failed"):
+                daemon.rank(self.config, self.database, self.llm)
 
     def test_refresh_runs_the_pipeline_and_tolerates_scoring_failure(self):
         calls = []

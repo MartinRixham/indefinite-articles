@@ -64,7 +64,7 @@ def _command_fetch(config: Config, args: argparse.Namespace):
             try:
                 prefilter(config, database, llm)
             except LLMError as error:
-                logging.warning("embedding pre-filter stopped: %s", error)
+                logging.warning("%s", error)
         else:
             print(f"{refresh(config, database, llm)} new articles")
         return 0

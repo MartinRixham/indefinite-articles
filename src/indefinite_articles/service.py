@@ -24,7 +24,9 @@ class Service:
     - fetch:  every fetch_interval_minutes, fetch feeds
     - rank:   whenever fetch or a profile change asks for it, embed and pre-filter, then
               download full text for the shortlist and LLM-score it (in that order, so
-              scoring never works from half-finished embeddings)
+              scoring never works from half-finished embeddings). The first run waits
+              for the first fetch, so the articles it brings are embedded before any
+              scoring.
     - inbox:  every poll_interval_minutes, read replies and rewrite the profile
     - main:   sends the digest at digest_time (no LLM) and prunes old data
 
@@ -69,8 +71,10 @@ class Service:
 
     # -- jobs (each gets the database connection of the thread it runs on) ---------
     def _fetch(self, database: Database) -> str:
-        new = feeds.update_all(self.config, database, stop=self.stop)
-        self.rank_wanted.set()
+        try:
+            new = feeds.update_all(self.config, database, stop=self.stop)
+        finally:
+            self.rank_wanted.set()  # even after a failure: ranking's first run waits for this
         return f"{new} new articles"
 
     def _rank(self, database: Database) -> str:
@@ -115,8 +119,8 @@ class Service:
             self.stop.wait(max(0.0, minutes * 60 - (time.monotonic() - started)))
 
     def _on_demand(self, database: Database, name: str, job: Callable[[Database], str]):
-        """Run `job` whenever rank_wanted is set (also once at start)."""
-        self.rank_wanted.set()
+        """Run `job` whenever rank_wanted is set. It isn't set at start: the first
+        fetch sets it, so the first run sees the articles that fetch brings."""
         while True:
             self.rank_wanted.wait()
             if self.stop.is_set():

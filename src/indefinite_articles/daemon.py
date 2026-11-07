@@ -9,7 +9,7 @@ from email.message import EmailMessage
 from . import __version__
 from .config import Config
 from .fetching import apple_podcasts, extract, feeds
-from .language_model.llm import LLM, LLMError, LLMUnavailable, stall_limit
+from .language_model.llm import LLM, LLMError, stall_limit
 from .mail import mailer
 from .mail.digest import Digest
 from .ranking import embed, ranker
@@ -21,20 +21,18 @@ log = logging.getLogger(__name__)
 def prefilter(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> None:
     """Embed new articles and update pre-filter scores (skipped if no embedding model).
 
-    If the embedding model can't be used, the pre-filter falls back to the newest
-    articles. Raises LLMUnavailable if the server stopped responding or can't be
-    reached: then scoring would most likely stall too, and on a slow server it would
-    hold up the embeddings for hours, so the caller should stop and try again later.
+    Raises LLMError if embedding fails. The caller should then stop and try again
+    later rather than go on to scoring: scoring a shortlist picked without the new
+    articles' embeddings wastes the LLM, and on a slow server it holds up the
+    embeddings for hours.
     """
     if not config.llm.embedding_model:
         return
     try:
         embed.embed_new(config, database, llm, stop=stop)
         embed.update_prefilter(config, database, llm, ranker.ensure_profile(config, database))
-    except LLMUnavailable:
-        raise
     except LLMError as error:
-        log.warning("embedding pre-filter unavailable, using newest articles instead: %s", error)
+        raise type(error)(f"embedding failed: {error}") from error
 
 
 def rank(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
@@ -43,7 +41,8 @@ def rank(config: Config, database: Database, llm: LLM, stop: threading.Event | N
 
     The steps run in this order so that scoring always works from a finished pre-filter
     (after a change of embedding model, that means every article embedded again).
-    Raises LLMError if scoring can't run.
+    Raises LLMError if embedding or scoring can't run; if embedding fails, nothing is
+    scored.
     """
     prefilter(config, database, llm, stop)
     extract.enrich_candidates(config, database, stop=stop)
