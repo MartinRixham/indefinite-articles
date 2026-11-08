@@ -302,6 +302,20 @@ def _choose(ranked: list[Article], limit: int, exploration: int, max_per_source:
     return chosen
 
 
+def _fit_profile(text: str) -> str:
+    """`text` cut to `MAX_PROFILE_CHARS` by dropping whole lines from the top, since
+    the profile writer appends what it has just learned at the bottom."""
+    if len(text) <= MAX_PROFILE_CHARS:
+        return text
+    lines = text.splitlines()
+    while len(lines) > 1 and len("\n".join(lines)) > MAX_PROFILE_CHARS:
+        lines.pop(0)
+    fitted = "\n".join(lines).strip()[-MAX_PROFILE_CHARS:]
+    log.warning("reader profile too long (%d characters); dropped %d from the top",
+                len(text), len(text) - len(fitted))
+    return fitted
+
+
 def update_profile(config: Config, database: Database, llm: LLM) -> bool:
     """Rewrite the reader profile from feedback received since the current profile was made.
 
@@ -322,7 +336,7 @@ def update_profile(config: Config, database: Database, llm: LLM) -> bool:
     dislike_count = sum(1 for row in feedback if row["rating"] < 0)
     comment_count = len(feedback) - like_count - dislike_count + len(comments)
     database.add_profile(
-        text[:MAX_PROFILE_CHARS],
+        _fit_profile(text),
         note=f"{like_count} likes, {dislike_count} dislikes, {comment_count} comments",
     )
     log.info("reader profile updated")

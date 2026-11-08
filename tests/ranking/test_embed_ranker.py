@@ -10,6 +10,7 @@ import numpy as np
 from indefinite_articles.config import Config
 from indefinite_articles.fetching.entry import Entry
 from indefinite_articles.fetching.extract import ArticleContent
+from indefinite_articles.language_model.assistant import MAX_PROFILE_CHARS
 from indefinite_articles.language_model.llm import LLM, LLMError, LLMUnavailable
 from indefinite_articles.ranking import embed, ranker
 from indefinite_articles.ranking.classifier import Classifier
@@ -400,10 +401,31 @@ class RankerTests(unittest.TestCase):
         prompt = llm.chat.call_args[0][1]
         self.assertIn('- Liked one (S) — "more please"', prompt)
         self.assertIn('- "less news"', prompt)
+        word_count = len((self.config.interests or ranker.DEFAULT_PROFILE).split())
+        self.assertIn(f"The reader's profile before this feedback ({word_count} words):", prompt)
         profile = self.database.current_profile()
         assert profile is not None
         self.assertEqual(profile["text"], "- Likes careful explanations of things")
         self.assertEqual(profile["note"], "1 likes, 0 dislikes, 1 comments")
+
+    def test_update_profile_drops_lines_from_the_top_when_too_long(self) -> None:
+        llm = mock.Mock(spec=LLM)
+        ranker.ensure_profile(self.config, self.database)
+        self._add("https://e/1", title="Liked one")
+        self.database.add_feedback(1, 1, "")
+        self.database.connection.commit()
+        lines = [f"- Old interest number {index:04d}" for index in range(400)] + ["- Newest interest"]
+        llm.chat.return_value = "\n".join(lines)
+        with self.assertLogs("indefinite_articles.ranking.ranker", "WARNING"):
+            self.assertTrue(ranker.update_profile(self.config, self.database, llm))
+        profile = self.database.current_profile()
+        assert profile is not None
+        text = profile["text"]
+        self.assertLessEqual(len(text), MAX_PROFILE_CHARS)
+        self.assertGreater(len(text), MAX_PROFILE_CHARS - len(lines[0]) - 1)
+        self.assertTrue(text.endswith("- Newest interest"))
+        self.assertTrue(text.startswith("- Old interest number "))  # whole lines only
+        self.assertNotIn("number 0000", text)
 
 
 if __name__ == "__main__":

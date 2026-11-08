@@ -138,7 +138,8 @@ class Assistant:
             f"Comments on specific articles (no explicit like/dislike):\n{_format_feedback(neutral)}\n\n"
             "General comments from the reader:\n"
             + ("\n".join(f'- "{comment["comment"]}"' for comment in pending.comments) or "(none)")
-            + f"\n\nThe reader's profile before this feedback:\n{profile_text}\n\n"
+            + f"\n\nThe reader's profile before this feedback ({len(profile_text.split())} words):\n"
+            f"{profile_text}\n\n"
             "Where the feedback conflicts with the profile, the feedback wins: drop, narrow or "
             "qualify the old preference (a disliked article on a topic the profile says they like "
             "means that interest is narrower than stated). Add interests the feedback reveals "

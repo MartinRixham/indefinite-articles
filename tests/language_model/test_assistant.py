@@ -92,7 +92,7 @@ class AssistantTests(unittest.TestCase):
         self.assertEqual(text, "- Likes Rust and systems programming\n- Dislikes gossip")
         prompt = self._last_prompt()
         self.assertTrue(prompt.startswith("New feedback from the reader."))
-        self.assertIn("The reader's profile before this feedback:\nLikes everything\n\n", prompt)
+        self.assertIn("The reader's profile before this feedback (2 words):\nLikes everything\n\n", prompt)
         self.assertLess(prompt.index("General comments"), prompt.index("profile before this feedback"))
         self.assertIn('Liked:\n- Liked one (S) — "more please"\n\n', prompt)
         self.assertIn("Disliked:\n- Disliked one (S)\n\n", prompt)
