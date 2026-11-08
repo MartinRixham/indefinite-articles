@@ -113,6 +113,22 @@ class ConfigTests(unittest.TestCase):
         self.assertGreater(ahead, 82000)  # about a day (allowing for a DST change)
         self.assertLess(ahead, 90100)
 
+    def test_next_fetch_time_is_lined_up_with_the_digest(self) -> None:
+        config = Config(digest_time="07:15", fetch_interval_minutes=60)
+        cases = {datetime(2026, 11, 3, 5, 53): datetime(2026, 11, 3, 6, 15),
+                 datetime(2026, 11, 3, 6, 15): datetime(2026, 11, 3, 7, 15),  # strictly after
+                 datetime(2026, 11, 3, 7, 15): datetime(2026, 11, 3, 8, 15),
+                 datetime(2026, 11, 3, 23, 45): datetime(2026, 11, 4, 0, 15)}
+        for now, expected in cases.items():
+            with self.subTest(now=now):
+                self.assertEqual(config.next_fetch_time(now), expected)
+
+    def test_next_fetch_time_with_a_longer_interval(self) -> None:
+        config = Config(digest_time="07:00", fetch_interval_minutes=90)
+        # Slots fall on 07:00 minus multiples of 90 minutes: ..., 04:00, 05:30, 07:00.
+        self.assertEqual(config.next_fetch_time(datetime(2026, 11, 3, 4, 10)), datetime(2026, 11, 3, 5, 30))
+        self.assertEqual(config.next_fetch_time(datetime(2026, 11, 3, 5, 30)), datetime(2026, 11, 3, 7, 0))
+
     def test_problems(self):
         self.assertEqual(len(Config().problems()), 4)
         config = Config(feeds=[Feed("https://example.com/feed")])

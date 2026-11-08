@@ -169,6 +169,20 @@ class Config:
         """
         return self.digest_hour_minute.next_after(datetime.now()).timestamp()
 
+    def next_fetch_time(self, now: datetime) -> datetime:
+        """The next scheduled feed fetch, strictly after `now`.
+
+        Fetches run every fetch_interval_minutes on a schedule lined up with
+        digest_time, so the last fetch before the digest starts a whole interval
+        earlier: the most time to rank what it brings before the digest cuts LLM
+        requests off. (A fetch at digest_time itself is for the next digest.)
+        """
+        interval = timedelta(minutes=max(1, self.fetch_interval_minutes))
+        digest = self.digest_hour_minute.next_after(now)
+        # The earliest digest - steps * interval that is still after now.
+        steps = -((now - digest) // interval) - 1
+        return digest - steps * interval
+
     def problems(self) -> list[str]:
         """Human-readable problems that would stop the daemon working."""
         problems = []

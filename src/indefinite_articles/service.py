@@ -5,7 +5,7 @@ import signal
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .config import Config
 from .daemon import rank, send_digest
@@ -21,7 +21,8 @@ log = logging.getLogger(__name__)
 class Service:
     """Runs each job on its own thread, so a slow LLM never holds up the others.
 
-    - fetch:  every fetch_interval_minutes, fetch feeds
+    - fetch:  fetch feeds at start-up, then every fetch_interval_minutes on a schedule
+              lined up with digest_time (Config.next_fetch_time)
     - rank:   whenever fetch or a profile change asks for it, embed and pre-filter, then
               download full text for the shortlist and LLM-score it (in that order, so
               scoring never works from half-finished embeddings). The first run waits
@@ -118,6 +119,18 @@ class Service:
             self._run_job(name, job, database)
             self.stop.wait(max(0.0, minutes * 60 - (time.monotonic() - started)))
 
+    def _on_schedule(self, database: Database, name: str, job: Callable[[Database], str]):
+        """Run `job` now and then at each `config.next_fetch_time`. A slot less than half
+        an interval after the previous start is skipped, so a restart just before a slot
+        doesn't fetch twice in a row."""
+        half_interval = timedelta(minutes=self.config.fetch_interval_minutes / 2)
+        while not self.stop.is_set():
+            started = datetime.now()
+            self._run_job(name, job, database)
+            now = datetime.now()
+            due = self.config.next_fetch_time(max(now, started + half_interval))
+            self.stop.wait(max(0.0, (due - now).total_seconds()))
+
     def _on_demand(self, database: Database, name: str, job: Callable[[Database], str]):
         """Run `job` whenever rank_wanted is set. It isn't set at start: the first
         fetch sets it, so the first run sees the articles that fetch brings."""
@@ -142,7 +155,7 @@ class Service:
         # Daemon threads: one stuck in a slow LLM request must not stop the service exiting.
         threads = [
             threading.Thread(target=self._with_database, name="fetch", daemon=True,
-                             args=(self._every, "feed fetch", self.config.fetch_interval_minutes, self._fetch)),
+                             args=(self._on_schedule, "feed fetch", self._fetch)),
             threading.Thread(target=self._with_database, name="rank", daemon=True,
                              args=(self._on_demand, "ranking", self._rank)),
             threading.Thread(target=self._with_database, name="inbox", daemon=True,

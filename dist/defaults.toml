@@ -23,7 +23,8 @@ rescore_top = 30                 # after your feedback changes the profile, only
                                  # the rest keep their earlier score
 feeds_dir = "feeds.d"            # relative to indefinite-articles.toml
 fetch_concurrency = 16           # hosts fetched in parallel (one request at a time per host)
-fetch_interval_minutes = 60
+fetch_interval_minutes = 60      # lined up with digest_time, so the last fetch before
+                                 # the digest has a whole interval to be ranked
 poll_interval_minutes = 5
 fetch_full_articles = true       # download each candidate's page so the LLM sees the article text
 article_chars = 4000             # characters of article text given to the LLM per article

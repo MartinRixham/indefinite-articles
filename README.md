@@ -212,7 +212,9 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
   The profile and examples come first in every prompt and stay the same between requests,
   so Ollama and llama-server reuse their cached work and only process the article itself:
   a 14B model on CPU takes roughly 10–30 s per article. With about 150 articles a day that
-  runs in the background after each hourly fetch, so the digest goes out quickly. When a
+  runs in the background after each hourly fetch, so the digest goes out quickly. The fetches
+  are lined up with `digest_time`, so the last one before the digest has a whole interval
+  to score what it brings. When a
   reply changes your profile, only the `rescore_top` (default 30) best-ranked articles are
   scored again; the rest keep their earlier score. With no GPU, lower `max_candidates` or use a smaller model (`qwen3:8b` or `qwen3:4b`).
 * **No embedding model?** Set `embedding_model = ""` and it falls back to the newest

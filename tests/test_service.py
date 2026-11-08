@@ -5,7 +5,7 @@ import threading
 import time
 import unittest
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -90,6 +90,20 @@ class ServiceTests(unittest.TestCase):
         with mock.patch.object(feeds, "update_all", slow_fetch):
             jobs = self._run_service(release_fetch)
         self.assertEqual(jobs["feed fetch"]["last_result"], "4 new articles")
+
+    def test_fetches_follow_the_schedule(self) -> None:
+        asked: list[datetime] = []
+
+        def soon(now: datetime) -> datetime:
+            asked.append(now)
+            return datetime.now() + timedelta(seconds=0.05)
+
+        started = datetime.now()
+        with mock.patch.object(self.config, "next_fetch_time", soon):
+            self._run_service(lambda jobs: feeds.update_all.call_count >= 2)  # type: ignore[attr-defined]
+        # The schedule is asked for the next slot at least half an interval after the
+        # first fetch started, so a restart just before a slot doesn't fetch twice.
+        self.assertGreaterEqual(asked[0], started + timedelta(minutes=self.config.fetch_interval_minutes / 2))
 
     def test_failed_fetch_still_starts_ranking(self) -> None:
         with mock.patch.object(feeds, "update_all", side_effect=OSError("no network")), \
