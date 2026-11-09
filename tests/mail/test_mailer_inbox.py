@@ -1,10 +1,12 @@
+import time
 import unittest
 from email.message import EmailMessage
+from email.utils import formatdate
 from unittest import mock
 
 from indefinite_articles.config import Config
 from indefinite_articles.fetching.entry import Entry
-from indefinite_articles.language_model.llm import LLM
+from indefinite_articles.language_model.llm import LLM, LLMUnavailable
 from indefinite_articles.mail import inbox, mailer
 from indefinite_articles.ranking.ranker import DigestPick
 from indefinite_articles.storage.article import Article
@@ -230,6 +232,55 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(imap.flags["1"], set())
         self.assertEqual(imap.flags["2"], {r"\Seen"})
         self.assertTrue(any("could not send acknowledgement" in line for line in logs.output))
+
+    def test_poll_leaves_replies_for_later_while_the_llm_is_unavailable(self) -> None:
+        self.config.email.allowed_senders = ["you@example.com", "also@example.com"]
+        sent_now = formatdate(time.time())
+        imap = FakeIMAP({
+            "1": bytes(reply("+1\nmore like this", subject="Re: [rec:abcd1234]", Message_ID="<r1@x>", Date=sent_now)),
+            "2": bytes(reply("1 hmm", subject="Re: [rec:abcd1234]", Message_ID="<r2@x>", Date=sent_now)),
+            "3": bytes(reply("-2", subject="Re: [rec:abcd1234]", Message_ID="<r3@x>", Date=sent_now)),
+        })
+        llm = mock.Mock(spec=LLM)
+        llm.config = self.config.llm
+        llm.chat_json.side_effect = LLMUnavailable("down")
+        sent: list[EmailMessage] = []
+        with mock.patch.object(inbox, "connect", return_value=imap), \
+             mock.patch.object(mailer, "send", lambda config, message: sent.append(message)), \
+             self.assertLogs("indefinite_articles.mail.inbox", "WARNING") as logs:
+            self.assertEqual(inbox.poll(self.config, self.database, llm), 1)
+        llm.chat_json.assert_called_once()  # reply 2 didn't try the LLM again
+        self.assertEqual(sum("left until the LLM is available" in line for line in logs.output), 2)
+        self.assertEqual(imap.flags, {"1": set(), "2": set(), "3": {r"\Seen"}})  # ratings alone need no LLM
+        self.assertFalse(self.database.message_processed("<r1@x>"))
+        self.assertFalse(self.database.message_processed("<r2@x>"))
+        self.assertEqual(self.database.source_statistics(), {"S": SourceStatistics(0, 1)})  # nothing from reply 1
+
+        # Back again: the replies that waited are handled with the LLM.
+        llm.chat_json.side_effect = None
+        llm.chat_json.return_value = {"ratings": [{"item": 1, "rating": 1}], "general": ["more like this"]}
+        with mock.patch.object(inbox, "connect", return_value=imap), \
+             mock.patch.object(mailer, "send", lambda config, message: sent.append(message)):
+            self.assertEqual(inbox.poll(self.config, self.database, llm), 2)
+        self.assertTrue(self.database.message_processed("<r1@x>"))
+        self.assertTrue(self.database.message_processed("<r2@x>"))
+
+    def test_poll_stops_waiting_for_the_llm_after_some_days(self) -> None:
+        long_ago = formatdate(time.time() - (inbox.LLM_WAIT_DAYS + 1) * 86400)
+        imap = FakeIMAP({"1": bytes(reply("+1\nmore like this", subject="Re: [rec:abcd1234]",
+                                          Message_ID="<r1@x>", Date=long_ago))})
+        llm = mock.Mock(spec=LLM)
+        llm.config = self.config.llm
+        llm.chat_json.side_effect = LLMUnavailable("down")
+        sent: list[EmailMessage] = []
+        with mock.patch.object(inbox, "connect", return_value=imap), \
+             mock.patch.object(mailer, "send", lambda config, message: sent.append(message)), \
+             self.assertLogs("indefinite_articles.mail.inbox", "WARNING") as logs:
+            self.assertEqual(inbox.poll(self.config, self.database, llm), 1)
+        self.assertTrue(any("using only its structured ratings" in line for line in logs.output))
+        self.assertTrue(self.database.message_processed("<r1@x>"))
+        self.assertIn("liked #1", mailer.part_text(sent[0]))
+        self.assertIn('general: "more like this"', mailer.part_text(sent[0]))
 
     def test_poll_unknown_folder(self):
         imap = FakeIMAP({}, select_status="NO")

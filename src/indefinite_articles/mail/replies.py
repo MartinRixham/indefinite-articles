@@ -8,7 +8,7 @@ from email.message import EmailMessage
 
 from ..fetching.text_extractor import TextExtractor
 from ..language_model.assistant import Assistant
-from ..language_model.llm import LLM, LLMError
+from ..language_model.llm import LLM, LLMError, LLMUnavailable
 from ..storage.article import Article
 from .interpretation import Interpretation, Rating
 
@@ -122,7 +122,10 @@ def _parse_structured(text: str, item_count: int) -> StructuredReply:
 
 
 def understand(llm: LLM | None, text: str, items: Sequence[Article]) -> Interpretation:
-    """Combine the structured parser with LLM interpretation for free-form replies."""
+    """Combine the structured parser with LLM interpretation for free-form replies.
+
+    If the LLM can't make sense of the reply, only the structured part is used. If it
+    is unavailable, LLMUnavailable is raised so that the caller can try again later."""
     parsed = _parse_structured(text, len(items))
     structured = Interpretation(parsed.ratings, parsed.general)
     if llm is None or not (parsed.unresolved or parsed.general):
@@ -130,6 +133,8 @@ def understand(llm: LLM | None, text: str, items: Sequence[Article]) -> Interpre
     try:
         # Explicit structured ratings win; the LLM fills in the rest.
         return structured.filled_in_by(Assistant(llm).interpret_reply(text, items))
+    except LLMUnavailable:
+        raise
     except LLMError as error:
         log.warning("could not interpret free-form reply with LLM: %s", error)
         return structured

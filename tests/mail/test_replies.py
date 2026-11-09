@@ -2,7 +2,7 @@ import unittest
 from email.message import EmailMessage
 from unittest import mock
 
-from indefinite_articles.language_model.llm import LLM, LLMError
+from indefinite_articles.language_model.llm import LLM, LLMError, LLMUnavailable
 from indefinite_articles.mail import replies
 from indefinite_articles.storage.article import Article
 
@@ -126,6 +126,10 @@ class UnderstandTests(unittest.TestCase):
             ratings, general = interpretation.ratings, interpretation.general
         self.assertEqual(ratings, {1: replies.Rating(1)})
         self.assertEqual(general, ["nice list"])
+
+    def test_unavailable_llm_is_raised(self) -> None:
+        with self.assertRaises(LLMUnavailable):
+            replies.understand(stub_llm(error=LLMUnavailable("down")), "+1\nnice list", ITEMS)
 
 
 if __name__ == "__main__":

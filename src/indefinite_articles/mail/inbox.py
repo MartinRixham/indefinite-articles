@@ -6,12 +6,15 @@ import imaplib
 import logging
 import re
 import ssl
+import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from email.message import EmailMessage
+from email.utils import parsedate_to_datetime
 
 from ..config import Config
-from ..language_model.llm import LLM
+from ..language_model.llm import LLM, LLMUnavailable
+from ..language_model.sent_request import SentRequest
 from ..storage.database import Database
 from . import mailer, replies
 from .digest import TOKEN_PREFIX
@@ -19,6 +22,10 @@ from .digest import TOKEN_PREFIX
 log = logging.getLogger(__name__)
 
 TOKEN_RE = re.compile(re.escape(TOKEN_PREFIX) + r"([0-9a-f]{8})")
+
+# How long a reply waits for an unavailable LLM before only its structured ratings are
+# used. Well inside the 14 days poll() searches, so a reply can't drop out of the search.
+LLM_WAIT_DAYS = 3
 
 
 @dataclass
@@ -112,6 +119,40 @@ def handle_message(
     return result
 
 
+def _waited_too_long(message: EmailMessage) -> bool:
+    """Whether the reply was sent more than LLM_WAIT_DAYS ago (or has no usable Date)."""
+    try:
+        sent = parsedate_to_datetime(message.get("Date", "") or "").timestamp()
+    except (TypeError, ValueError):
+        return True
+    return time.time() - sent > LLM_WAIT_DAYS * 86400
+
+
+class _UnavailableLLM(LLM):
+    """Stands in for the LLM once it has been unavailable during a poll: replies that
+    need it then wait for the next poll without another slow attempt, and replies
+    that don't are still handled."""
+
+    def _send(self, path: str, body: dict, kind: str, native: bool = False) -> SentRequest:
+        raise LLMUnavailable("the LLM was unavailable earlier in this poll")
+
+
+def _handle_when_possible(config: Config, database: Database, llm: LLM | None, message: EmailMessage,
+                          reply_id: str) -> ReplyResult:
+    """handle_message(). If the reply needs the LLM and it is unavailable, this raises
+    LLMUnavailable and the reply is left unread and unprocessed for the next poll,
+    until it has waited LLM_WAIT_DAYS; then it is handled without the LLM."""
+    try:
+        return handle_message(config, database, llm, message, reply_id)
+    except LLMUnavailable as error:
+        if not _waited_too_long(message):
+            log.warning("reply %s left until the LLM is available: %s", reply_id, error)
+            raise
+        log.warning("reply %s waited %d days for the LLM (%s); using only its structured ratings",
+                    reply_id, LLM_WAIT_DAYS, error)
+        return handle_message(config, database, None, message, reply_id)
+
+
 def poll(config: Config, database: Database, llm: LLM | None) -> int:
     """Fetch unread replies, record feedback. Returns number of replies used."""
     if not config.email.imap.host:
@@ -135,7 +176,11 @@ def poll(config: Config, database: Database, llm: LLM | None) -> int:
             message = email.message_from_bytes(data[0][1], policy=email.policy.default)
             reply_id = message_id(message, f"uid-{uid}")
             try:
-                result = handle_message(config, database, llm, message, reply_id)
+                result = _handle_when_possible(config, database, llm, message, reply_id)
+            except LLMUnavailable:
+                if llm is not None:
+                    llm = _UnavailableLLM(llm.config)
+                continue
             except Exception:
                 log.exception("failed to process message %s", reply_id)
                 continue
