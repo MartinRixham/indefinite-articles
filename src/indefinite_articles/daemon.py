@@ -201,5 +201,5 @@ def send_digest(config: Config, database: Database, dry_run: bool = False,
     if dry_run:
         return message
     mailer.send(config, message)
-    database.record_digest(digest.token, message["Message-ID"], digest.day.isoformat(), digest.items)
+    database.record_digest(digest.token, message["Message-ID"], digest.items)
     return message

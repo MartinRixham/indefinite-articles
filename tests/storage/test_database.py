@@ -185,9 +185,9 @@ class DatabaseTests(unittest.TestCase):
 
     def test_processed_messages(self):
         self.assertFalse(self.database.message_processed("<a@x>"))
-        self.database.mark_message("<a@x>", "ok")
+        self.database.mark_message("<a@x>")
         self.assertTrue(self.database.message_processed("<a@x>"))
-        self.database.mark_message("<b@x>", "ok", commit=False)
+        self.database.mark_message("<b@x>", commit=False)
         self.database.connection.rollback()
         self.assertFalse(self.database.message_processed("<b@x>"))
 
@@ -195,19 +195,16 @@ class DatabaseTests(unittest.TestCase):
     def test_record_and_find_digest(self):
         first, second = self._article("https://1"), self._article("https://2")
         articles = {article.id: article for article in self.database.pool(3)}
-        digest_id = self.database.record_digest("abcd1234", "<digest@x>", "2026-11-03",
+        digest_id = self.database.record_digest("abcd1234", "<digest@x>",
                                                 [DigestPick(articles[second], False), DigestPick(articles[first], True)])
         self.assertEqual(self.database.digest_items(digest_id), [articles[second], articles[first]])
-        exploratory = self.database.connection.execute(
-            "SELECT exploratory FROM digest_items WHERE digest_id=? ORDER BY position", (digest_id,)).fetchall()
-        self.assertEqual([row["exploratory"] for row in exploratory], [0, 1])
         self.assertEqual(self.database.pool(3), [])  # both now sent
         found = self.database.find_digest("abcd1234")
         assert found is not None
         self.assertEqual(found["id"], digest_id)
         found = self.database.find_digest("deadbeef", ["<other@x>", " <digest@x> "])
         assert found is not None
-        self.assertEqual(found["local_date"], "2026-11-03")
+        self.assertEqual(found["id"], digest_id)
         self.assertIsNone(self.database.find_digest(None, ["<other@x>"]))
         self.assertIsNone(self.database.find_digest())
 
@@ -220,15 +217,35 @@ class DatabaseTests(unittest.TestCase):
         self._sent(old_sent)
         self._age(old_sent, 40)
         recent = self._article("https://recent")
-        self.database.mark_message("<old@x>", "ok")
+        self.database.mark_message("<old@x>")
         self.database.connection.execute("UPDATE processed_messages SET processed_at=?", (time.time() - 40 * DAY,))
-        self.database.mark_message("<new@x>", "ok")
+        self.database.mark_message("<new@x>")
         self.database.prune(30)
         ids = {row["id"] for row in self.database.connection.execute("SELECT id FROM articles")}
         self.assertEqual(ids, {old_sent, recent})
         self.assertEqual(self.database.statistics()["embedded"], 0)
         self.assertFalse(self.database.message_processed("<old@x>"))
         self.assertTrue(self.database.message_processed("<new@x>"))
+
+    def test_prune_slims_old_sent_articles(self) -> None:
+        rated, unrated, recent = (self._article(url) for url in ("https://rated", "https://unrated", "https://recent"))
+        for article_id in (rated, unrated, recent):
+            self._sent(article_id)
+            self.database.set_embedding(article_id, b"v")
+            self.database.set_content(ArticleContent(article_id, "full text", "ok"))
+        self.database.add_feedback(rated, 1, "")
+        self._age(rated, 40)
+        self._age(unrated, 40)
+        self.assertEqual(self.database.prune(30), 0)
+        rows = {row["id"]: row for row in self.database.connection.execute(
+            "SELECT a.id, a.content, a.content_status, e.vec FROM articles a "
+            "LEFT JOIN embeddings e ON e.article_id = a.id")}
+        self.assertEqual(set(rows), {rated, unrated, recent})
+        self.assertEqual([rows[article_id]["content"] for article_id in (rated, unrated, recent)],
+                         [None, None, "full text"])
+        self.assertEqual(rows[unrated]["content_status"], "ok")  # so it is never fetched again
+        self.assertEqual([rows[article_id]["vec"] for article_id in (rated, unrated, recent)],
+                         [b"v", None, b"v"])
 
     def test_statistics(self):
         article_id = self._article("https://a")

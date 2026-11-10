@@ -111,7 +111,7 @@ def handle_message(
         return ReplyResult("already-processed")
     try:
         result = _process_message(config, database, llm, message)
-        database.mark_message(reply_id, result.status, commit=False)
+        database.mark_message(reply_id, commit=False)
         database.connection.commit()
     except BaseException:
         database.connection.rollback()

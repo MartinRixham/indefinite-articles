@@ -188,7 +188,7 @@ class CommandLineTests(unittest.TestCase):
     def test_feedback_from_file(self):
         database = self._database()
         database.add_article(Entry("https://e/1", "Something", "", None), "S")
-        database.record_digest("abcd1234", "<d@x>", "2026-11-03", [ranker.DigestPick(Article(1, "https://e/1", "Something"), False)])
+        database.record_digest("abcd1234", "<d@x>", [ranker.DigestPick(Article(1, "https://e/1", "Something"), False)])
         message = EmailMessage()
         message["From"] = "you@example.com"
         message["Subject"] = "Re: [rec:abcd1234]"

@@ -262,7 +262,7 @@ class EndToEndTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     inbox.handle_message(self.config, database, self.llm, reply, "<a@x>")
             # An unrelated later commit must not persist the failed message's ratings.
-            database.mark_message("<other@x>", "ignored:sender")
+            database.mark_message("<other@x>")
             self.assertEqual(database.connection.execute("SELECT COUNT(*) FROM feedback").fetchone()[0], 0)
             database.close()
 

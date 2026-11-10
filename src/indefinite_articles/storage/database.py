@@ -92,16 +92,13 @@ CREATE TABLE IF NOT EXISTS feeds (
 CREATE TABLE IF NOT EXISTS digests (
     id INTEGER PRIMARY KEY,
     token TEXT NOT NULL UNIQUE,
-    message_id TEXT NOT NULL,
-    sent_at REAL NOT NULL,
-    local_date TEXT NOT NULL
+    message_id TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS digest_items (
     digest_id INTEGER NOT NULL REFERENCES digests(id),
     position INTEGER NOT NULL,
     article_id INTEGER NOT NULL REFERENCES articles(id),
-    exploratory INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (digest_id, position)
 );
 
@@ -130,8 +127,7 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 CREATE TABLE IF NOT EXISTS processed_messages (
     message_id TEXT PRIMARY KEY,
-    processed_at REAL NOT NULL,
-    status TEXT NOT NULL
+    processed_at REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS state (
@@ -149,6 +145,13 @@ _ADDED_COLUMNS = {
     "feeds": (("apple_id", "TEXT"), ("apple_checked_at", "REAL")),
 }
 
+# Columns that nothing read, dropped from existing databases by `Database._migrate`.
+_DROPPED_COLUMNS = {
+    "digests": ("sent_at", "local_date"),
+    "digest_items": ("exploratory",),
+    "processed_messages": ("status",),
+}
+
 
 class Database:
     def __init__(self, path: str):
@@ -163,7 +166,12 @@ class Database:
         self.connection.commit()
 
     def _migrate(self):
-        """Add columns introduced after 0.1.0 to existing databases."""
+        """Add columns introduced after 0.1.0 to existing databases, and drop unused ones."""
+        for table, dropped in _DROPPED_COLUMNS.items():
+            columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+            for name in dropped:
+                if name in columns:
+                    self.connection.execute(f"ALTER TABLE {table} DROP COLUMN {name}")
         for table, added in _ADDED_COLUMNS.items():
             columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
             if not columns:
@@ -386,36 +394,48 @@ class Database:
         ).fetchall()
         return {row["source"]: SourceStatistics(row["likes"] or 0, row["dislikes"] or 0) for row in rows}
 
-    def prune(self, keep_days: int = 30) -> None:
-        """Drop old articles that were never sent (sent/rated ones are training data)."""
+    def prune(self, keep_days: int = 30) -> int:
+        """Clear out data older than `keep_days` that nothing uses any more; returns the articles deleted.
+
+        Old articles that were never sent are deleted. Sent ones stay, since replies refer to
+        them and rated ones are training data, but lose their full text (only scoring reads
+        it) and, unless rated, their embedding (only rated ones are re-embedded or trained on).
+        """
         cutoff = time.time() - keep_days * 86400
         # Embeddings first: databases from before 0.3 lack the cascade on older rows.
         self.connection.execute(
             "DELETE FROM embeddings WHERE article_id IN (SELECT id FROM articles "
-            "WHERE sent_digest_id IS NULL AND fetched_at < ?)", (cutoff,)
+            "WHERE fetched_at < ? AND (sent_digest_id IS NULL "
+            " OR id NOT IN (SELECT article_id FROM feedback WHERE rating != 0)))", (cutoff,)
         )
-        self.connection.execute(
+        deleted = self.connection.execute(
             "DELETE FROM articles WHERE sent_digest_id IS NULL AND fetched_at < ?", (cutoff,)
+        ).rowcount
+        self.connection.execute(
+            "UPDATE articles SET content=NULL WHERE content IS NOT NULL AND fetched_at < ?", (cutoff,)
         )
         self.connection.execute(
             "DELETE FROM processed_messages WHERE processed_at < ?", (cutoff,)
         )
         self.connection.commit()
+        # SQLite reuses the freed pages, so the file stops growing; truncating the WAL
+        # returns the space it took while the deletes were written.
+        self.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.connection.execute("PRAGMA optimize")
+        return deleted
 
     # -- digests -------------------------------------------------------------
-    def record_digest(self, token: str, message_id: str, local_date: str, picks: "list[DigestPick]") -> int:
+    def record_digest(self, token: str, message_id: str, picks: "list[DigestPick]") -> int:
         cursor = self.connection.execute(
-            "INSERT INTO digests(token, message_id, sent_at, local_date) VALUES(?, ?, ?, ?)",
-            (token, message_id, time.time(), local_date),
+            "INSERT INTO digests(token, message_id) VALUES(?, ?)", (token, message_id)
         )
         digest_id = cursor.lastrowid
         assert digest_id is not None  # set by every INSERT
         for position, pick in enumerate(picks, start=1):
             article_id = pick.article.id
             self.connection.execute(
-                "INSERT INTO digest_items(digest_id, position, article_id, exploratory)"
-                " VALUES(?, ?, ?, ?)",
-                (digest_id, position, article_id, int(pick.exploratory)),
+                "INSERT INTO digest_items(digest_id, position, article_id) VALUES(?, ?, ?)",
+                (digest_id, position, article_id),
             )
             self.connection.execute("UPDATE articles SET sent_digest_id=? WHERE id=?", (digest_id, article_id))
         self.connection.commit()
@@ -475,11 +495,10 @@ class Database:
             "SELECT 1 FROM processed_messages WHERE message_id=?", (message_id,)
         ).fetchone())
 
-    def mark_message(self, message_id: str, status: str, commit: bool = True) -> None:
+    def mark_message(self, message_id: str, commit: bool = True) -> None:
         self.connection.execute(
-            "INSERT OR REPLACE INTO processed_messages(message_id, processed_at, status)"
-            " VALUES(?, ?, ?)",
-            (message_id, time.time(), status),
+            "INSERT OR REPLACE INTO processed_messages(message_id, processed_at) VALUES(?, ?)",
+            (message_id, time.time()),
         )
         if commit:
             self.connection.commit()

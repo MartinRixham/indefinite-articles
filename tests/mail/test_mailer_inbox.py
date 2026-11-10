@@ -136,7 +136,7 @@ class InboxTests(unittest.TestCase):
         self.addCleanup(self.database.close)
         for index in (1, 2):
             self.database.add_article(Entry(f"https://e/{index}", f"Article {index}", "", None), "S")
-        self.digest_id = self.database.record_digest("abcd1234", "<digest@example.org>", "2026-11-03",
+        self.digest_id = self.database.record_digest("abcd1234", "<digest@example.org>",
                                                      [DigestPick(Article(1, "https://e/1", "Article 1"), False),
                                                       DigestPick(Article(2, "https://e/2", "Article 2"), True)])
 

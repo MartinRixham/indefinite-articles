@@ -42,7 +42,9 @@ class Service:
         self.llm = LLM(config.llm, deadline=config.next_digest_time)
         self.stop = threading.Event()
         self.rank_wanted = threading.Event()
-        self.last_prune = 0.0
+        # monotonic() counts from boot, so 0.0 would put off the first prune until the
+        # machine had been up a day; a machine rebooted daily would never prune.
+        self.last_prune = float("-inf")
         self.next_digest_attempt = 0.0
         # What each worker thread is doing, for the digest's debug report. Each entry is
         # replaced whole, so the main thread never sees one half-updated.

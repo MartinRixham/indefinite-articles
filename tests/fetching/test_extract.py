@@ -144,12 +144,27 @@ class ExtractTests(unittest.TestCase):
                 "score_profile_id INTEGER, sent_digest_id INTEGER)"
             )
             connection.execute("CREATE TABLE feeds (url TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '')")
+            connection.execute("CREATE TABLE digests (id INTEGER PRIMARY KEY, token TEXT NOT NULL UNIQUE, "
+                               "message_id TEXT NOT NULL, sent_at REAL NOT NULL, local_date TEXT NOT NULL)")
+            connection.execute("CREATE TABLE digest_items (digest_id INTEGER NOT NULL, position INTEGER NOT NULL, "
+                               "article_id INTEGER NOT NULL, exploratory INTEGER NOT NULL DEFAULT 0, "
+                               "PRIMARY KEY (digest_id, position))")
+            connection.execute("CREATE TABLE processed_messages (message_id TEXT PRIMARY KEY, "
+                               "processed_at REAL NOT NULL, status TEXT NOT NULL)")
             connection.commit(); connection.close()
             with Database(path) as database:
                 columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(articles)")}
                 feed_columns = {row["name"] for row in database.connection.execute("PRAGMA table_info(feeds)")}
+                # The dropped NOT NULL columns would make these inserts fail.
+                database.record_digest("abcd1234", "<digest@x>", [])
+                database.mark_message("<reply@x>")
+                remaining = {table: {row["name"] for row in database.connection.execute(f"PRAGMA table_info({table})")}
+                             for table in ("digests", "digest_items", "processed_messages")}
             self.assertTrue({"content", "content_status", "audio_url", "duration", "feed_url", "apple_url"} <= columns)
             self.assertTrue({"apple_id", "apple_checked_at"} <= feed_columns)
+            self.assertEqual(remaining, {"digests": {"id", "token", "message_id"},
+                                         "digest_items": {"digest_id", "position", "article_id"},
+                                         "processed_messages": {"message_id", "processed_at"}})
 
 
 if __name__ == "__main__":
