@@ -153,16 +153,48 @@ def _handle_when_possible(config: Config, database: Database, llm: LLM | None, m
         return handle_message(config, database, None, message, reply_id)
 
 
-def poll(config: Config, database: Database, llm: LLM | None) -> int:
-    """Fetch unread replies, record feedback. Returns number of replies used."""
-    if not config.email.imap.host:
-        return 0
-    used = 0
-    connection = connect(config)
-    try:
-        imap_status, _ = connection.select(config.email.imap_folder)
-        if imap_status != "OK":
-            raise RuntimeError(f"cannot select IMAP folder {config.email.imap_folder!r}")
+def _quote(folder: str) -> str:
+    """An IMAP mailbox name as a quoted string, so names with spaces or brackets work."""
+    return '"' + folder.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+# One line of a LIST response: (attributes) "delimiter" name.
+LIST_RE = re.compile(r'\((?P<attributes>[^)]*)\) (?:"(?:[^"\\]|\\.)*"|NIL) (?P<name>.+)$')
+
+
+def _spam_folder(connection: imaplib.IMAP4) -> str:
+    """The folder the server marks as \\Junk (RFC 6154), or "" if there is none.
+
+    Gmail marks its spam folder this way whatever its name: "[Gmail]/Spam",
+    "[Google Mail]/Spam" or a translation.
+    """
+    imap_status, data = connection.list()
+    if imap_status != "OK":
+        return ""
+    for line in data:
+        if not isinstance(line, bytes):
+            continue
+        match = LIST_RE.match(line.decode("utf-8", "replace"))
+        if match and "\\junk" in match["attributes"].lower().split():
+            name = match["name"]
+            if name.startswith('"') and name.endswith('"'):
+                name = re.sub(r"\\(.)", r"\1", name[1:-1])
+            return name
+    return ""
+
+
+@dataclass
+class _Poll:
+    """State shared by the folders one poll reads."""
+    config: Config
+    database: Database
+    llm: LLM | None
+    connection: imaplib.IMAP4
+    used: int = 0
+
+    def folder(self, folder: str) -> None:
+        """Handle the unread replies in one (already selected) folder."""
+        config, connection = self.config, self.connection
         since = (date.today() - timedelta(days=14)).strftime("%d-%b-%Y")
         uids: list[str] = []
         for sender in config.email.allowed_senders:
@@ -171,19 +203,20 @@ def poll(config: Config, database: Database, llm: LLM | None) -> int:
                 uids += data[0].decode().split()
         uids = list(dict.fromkeys(uids))
         # Logged even when it is 0, so a quiet log can't mean the poll never ran.
-        log.info("inbox poll: %d unread messages from allowed senders in %s",
-                 len(uids), config.email.imap_folder)
+        log.info("inbox poll: %d unread messages from allowed senders in %s", len(uids), folder)
         for uid in uids:
             imap_status, data = connection.uid("FETCH", uid, "(BODY.PEEK[])")
             if imap_status != "OK" or not data or not isinstance(data[0], tuple):
                 continue
             message = email.message_from_bytes(data[0][1], policy=email.policy.default)
-            reply_id = message_id(message, f"uid-{uid}")
+            # uids are per folder, so the fallback id names any folder but the main one.
+            fallback = f"uid-{uid}" if folder == config.email.imap_folder else f"{folder}-uid-{uid}"
+            reply_id = message_id(message, fallback)
             try:
-                result = _handle_when_possible(config, database, llm, message, reply_id)
+                result = _handle_when_possible(config, self.database, self.llm, message, reply_id)
             except LLMUnavailable:
-                if llm is not None:
-                    llm = _UnavailableLLM(llm.config)
+                if self.llm is not None:
+                    self.llm = _UnavailableLLM(self.llm.config)
                 continue
             except Exception:
                 log.exception("failed to process message %s", reply_id)
@@ -193,10 +226,10 @@ def poll(config: Config, database: Database, llm: LLM | None) -> int:
             log.info("reply %s: %s (%d items)", reply_id, result.status, len(result.summary))
             if result.ignored:
                 continue
-            used += 1
+            self.used += 1
             connection.uid("STORE", uid, "+FLAGS", r"(\Seen)")
             if config.email.processed_folder:
-                imap_status, _ = connection.uid("COPY", uid, config.email.processed_folder)
+                imap_status, _ = connection.uid("COPY", uid, _quote(config.email.processed_folder))
                 if imap_status == "OK":
                     connection.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
                     connection.expunge()
@@ -207,9 +240,29 @@ def poll(config: Config, database: Database, llm: LLM | None) -> int:
                     mailer.send(config, mailer.build_acknowledgement(config, message, lines))
                 except Exception as error:
                     log.warning("could not send acknowledgement: %s", error)
+
+
+def poll(config: Config, database: Database, llm: LLM | None) -> int:
+    """Fetch unread replies from the inbox and the spam folder, record feedback.
+    Returns number of replies used."""
+    if not config.email.imap.host:
+        return 0
+    connection = connect(config)
+    state = _Poll(config, database, llm, connection)
+    try:
+        imap_status, _ = connection.select(_quote(config.email.imap_folder))
+        if imap_status != "OK":
+            raise RuntimeError(f"cannot select IMAP folder {config.email.imap_folder!r}")
+        state.folder(config.email.imap_folder)
+        # Replies a spam filter put in the spam folder are read like those in the inbox.
+        spam = _spam_folder(connection)
+        if spam and spam != config.email.imap_folder:
+            imap_status, _ = connection.select(_quote(spam))
+            if imap_status == "OK":
+                state.folder(spam)
     finally:
         try:
             connection.logout()
         except Exception:
             pass
-    return used
+    return state.used

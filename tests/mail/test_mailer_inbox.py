@@ -93,39 +93,62 @@ class MailerTests(unittest.TestCase):
 
 
 class FakeIMAP:
-    """Enough of imaplib.IMAP4 for inbox.poll: a folder of raw messages keyed by uid."""
+    """Enough of imaplib.IMAP4 for inbox.poll: folders of raw messages keyed by uid.
 
-    def __init__(self, messages: dict[str, bytes], select_status: str = "OK"):
+    `messages` is the INBOX; `junk` is the folder LIST marks as \\Junk, named `junk_name`
+    (None: the server has no such folder).
+    """
+
+    def __init__(self, messages: dict[str, bytes], select_status: str = "OK",
+                 junk: dict[str, bytes] | None = None, junk_name: str | None = "[Gmail]/Spam"):
+        self.junk_name = junk_name
+        self.folders = {'"INBOX"': messages}
+        if junk_name is not None:
+            self.folders['"' + junk_name.replace('"', '\\"') + '"'] = junk or {}
         self.messages = messages
         self.select_status = select_status
         self.flags: dict[str, set[str]] = {uid: set() for uid in messages}
+        self.junk_flags: dict[str, set[str]] = {uid: set() for uid in junk or {}}
+        self.selected = '"INBOX"'
         self.copied: list[tuple[str, str]] = []
         self.searches: list[tuple] = []
         self.expunged = 0
         self.logged_out = False
 
-    def select(self, folder: str):
+    def select(self, folder: str) -> tuple[str, list[bytes]]:
+        if folder not in self.folders:
+            return "NO", [b""]
+        self.selected = folder
         return self.select_status, [b""]
 
-    def uid(self, command: str, *args: str):
+    def list(self) -> tuple[str, list[bytes]]:
+        lines = [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren \\All) "/" "[Gmail]/All Mail"']
+        if self.junk_name is not None:
+            escaped = self.junk_name.replace('"', '\\"')
+            lines.append(f'(\\HasNoChildren \\Junk) "/" "{escaped}"'.encode())
+        return "OK", lines
+
+    def uid(self, command: str, *args: str) -> tuple[str, list]:
+        messages = self.folders[self.selected]
+        flags = self.flags if self.selected == '"INBOX"' else self.junk_flags
         if command == "SEARCH":
             self.searches.append(args)
-            unseen = [uid for uid in self.messages if r"\Seen" not in self.flags[uid]]
+            unseen = [uid for uid in messages if r"\Seen" not in flags[uid]]
             return "OK", [" ".join(unseen).encode()]
         if command == "FETCH":
-            return "OK", [(b"header", self.messages[args[0]])]
+            return "OK", [(b"header", messages[args[0]])]
         if command == "STORE":
-            self.flags[args[0]].add(args[2].strip("()"))
+            flags[args[0]].add(args[2].strip("()"))
             return "OK", []
         if command == "COPY":
             self.copied.append((args[0], args[1]))
             return "OK", []
         raise AssertionError(command)
 
-    def expunge(self):
+    def expunge(self) -> None:
         self.expunged += 1
 
-    def logout(self):
+    def logout(self) -> None:
         self.logged_out = True
 
 
@@ -198,7 +221,7 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(imap.searches[0][-1], '"you@example.com"')
         self.assertEqual(imap.flags["10"], {r"\Seen", r"\Deleted"})
         self.assertEqual(imap.flags["11"], set())  # unrelated mail stays unread
-        self.assertEqual(imap.copied, [("10", "Processed"), ("12", "Processed")])
+        self.assertEqual(imap.copied, [("10", '"Processed"'), ("12", '"Processed"')])
         self.assertEqual(imap.expunged, 2)
         self.assertEqual(len(sent), 2)
         self.assertIn("liked #1", mailer.part_text(sent[0]))
@@ -228,7 +251,7 @@ class InboxTests(unittest.TestCase):
              mock.patch.object(mailer, "send", side_effect=OSError("smtp down")), \
              self.assertLogs("indefinite_articles.mail.inbox") as logs:
             self.assertEqual(inbox.poll(self.config, self.database, None), 1)
-        self.assertEqual(len(imap.searches), 2)  # one search per allowed sender, uids deduplicated
+        self.assertEqual(len(imap.searches), 4)  # per allowed sender and folder, uids deduplicated
         self.assertEqual(imap.flags["1"], set())
         self.assertEqual(imap.flags["2"], {r"\Seen"})
         self.assertTrue(any("could not send acknowledgement" in line for line in logs.output))
@@ -287,10 +310,38 @@ class InboxTests(unittest.TestCase):
         with self.assertLogs("indefinite_articles.mail.inbox", "INFO") as logs:
             self._poll(imap, [])
             self._poll(imap, [])  # the reply is now read
-        found = [line for line in logs.output if "inbox poll:" in line]
+        found = [line for line in logs.output if "inbox poll:" in line and "INBOX" in line]
         self.assertEqual(len(found), 2)
         self.assertIn(": 1 unread messages", found[0])
         self.assertIn(": 0 unread messages", found[1])
+
+    def test_poll_reads_replies_from_the_spam_folder_like_the_inbox(self) -> None:
+        self.config.email.processed_folder = "Done"
+        imap = FakeIMAP({}, junk={
+            "5": bytes(reply("+1", subject="Re: [rec:abcd1234]", Message_ID="<spam@x>")),
+            "6": bytes(reply("buy now", Message_ID="<junk@x>")),
+            "7": bytes(reply("-2", subject="Re: [rec:abcd1234]", Message_ID="<read@x>")),
+        })
+        imap.junk_flags["7"].add(r"\Seen")  # already read: left alone, as in the inbox
+        sent: list[EmailMessage] = []
+        self.assertEqual(self._poll(imap, sent), 1)
+        self.assertEqual(imap.copied, [("5", '"Done"')])
+        self.assertEqual(imap.junk_flags, {"5": {r"\Seen", r"\Deleted"}, "6": set(), "7": {r"\Seen"}})
+        self.assertIn("liked #1", mailer.part_text(sent[0]))
+
+    def test_poll_finds_the_spam_folder_by_its_junk_attribute(self) -> None:
+        for name in ("[Google Mail]/Spam", '[Gmail]/Courrier "indésirable"'):
+            with self.subTest(name=name):
+                imap = FakeIMAP({}, junk={"5": bytes(reply("+1", subject="Re: [rec:abcd1234]",
+                                                           Message_ID=f"<{len(name)}@x>"))}, junk_name=name)
+                self.assertEqual(self._poll(imap, []), 1)
+                self.assertEqual(imap.junk_flags["5"], {r"\Seen"})
+
+    def test_poll_without_a_spam_folder(self) -> None:
+        imap = FakeIMAP({"10": bytes(reply("+1", subject="Re: [rec:abcd1234]", Message_ID="<r1@x>"))},
+                        junk_name=None)
+        self.assertEqual(self._poll(imap, []), 1)
+        self.assertEqual(len(imap.searches), 1)  # only the inbox
 
     def test_poll_unknown_folder(self):
         imap = FakeIMAP({}, select_status="NO")
