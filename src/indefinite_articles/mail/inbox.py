@@ -169,7 +169,11 @@ def poll(config: Config, database: Database, llm: LLM | None) -> int:
             imap_status, data = connection.uid("SEARCH", "UNSEEN", "SINCE", since, "FROM", f'"{sender}"')
             if imap_status == "OK" and data and data[0]:
                 uids += data[0].decode().split()
-        for uid in dict.fromkeys(uids):
+        uids = list(dict.fromkeys(uids))
+        # Logged even when it is 0, so a quiet log can't mean the poll never ran.
+        log.info("inbox poll: %d unread messages from allowed senders in %s",
+                 len(uids), config.email.imap_folder)
+        for uid in uids:
             imap_status, data = connection.uid("FETCH", uid, "(BODY.PEEK[])")
             if imap_status != "OK" or not data or not isinstance(data[0], tuple):
                 continue

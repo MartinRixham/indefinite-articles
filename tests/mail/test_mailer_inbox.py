@@ -282,6 +282,16 @@ class InboxTests(unittest.TestCase):
         self.assertIn("liked #1", mailer.part_text(sent[0]))
         self.assertIn('general: "more like this"', mailer.part_text(sent[0]))
 
+    def test_poll_logs_how_many_messages_it_found(self) -> None:
+        imap = FakeIMAP({"10": bytes(reply("+1", subject="Re: [rec:abcd1234]", Message_ID="<r1@x>"))})
+        with self.assertLogs("indefinite_articles.mail.inbox", "INFO") as logs:
+            self._poll(imap, [])
+            self._poll(imap, [])  # the reply is now read
+        found = [line for line in logs.output if "inbox poll:" in line]
+        self.assertEqual(len(found), 2)
+        self.assertIn(": 1 unread messages", found[0])
+        self.assertIn(": 0 unread messages", found[1])
+
     def test_poll_unknown_folder(self):
         imap = FakeIMAP({}, select_status="NO")
         with mock.patch.object(inbox, "connect", return_value=imap):
