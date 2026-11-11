@@ -28,8 +28,10 @@ def episode_result(track_id: int, title: str, audio_url: str) -> dict:
 
 
 class FakeApple(BaseHTTPRequestHandler):
-    """Answers /search with `shows` and /lookup?id=N with `episodes[N]`; records each request."""
+    """Answers /search with `shows_by_term[term]` (or else `shows`) and /lookup?id=N with `episodes[N]`;
+    records each request."""
     shows: list[dict] = []
+    shows_by_term: dict[str, list[dict]] = {}
     episodes: dict[str, list[dict]] = {}
     requests: list[str] = []
     status = 200
@@ -42,7 +44,7 @@ class FakeApple(BaseHTTPRequestHandler):
             self.send_error(FakeApple.status)
             return
         if parts.path == "/search":
-            results = FakeApple.shows
+            results = FakeApple.shows_by_term.get(query.get("term", ""), FakeApple.shows)
         else:
             results = [{"kind": "podcast", "collectionId": int(query["id"])}] + FakeApple.episodes.get(query["id"], [])
         body = json.dumps({"resultCount": len(results), "results": results}).encode()
@@ -76,6 +78,7 @@ class AddLinksTests(unittest.TestCase):
 
     def setUp(self) -> None:
         FakeApple.shows, FakeApple.episodes, FakeApple.requests, FakeApple.status = [], {}, [], 200
+        FakeApple.shows_by_term = {}
         self.config = Config()
         self.database = Database(":memory:")
         self.addCleanup(self.database.close)
@@ -106,6 +109,18 @@ class AddLinksTests(unittest.TestCase):
         })
         self.assertEqual(self._apple_id(), "42")
         self.assertIn("term=The+Show", FakeApple.requests[0])
+
+    def test_feed_missing_from_title_search_is_searched_for_by_opml_name(self) -> None:
+        self.database.feed_ok(FEED, "The Documentary Podcast", CacheValidators())
+        FakeApple.shows_by_term = {
+            "The Documentary Podcast": [show_result(5, "The Documentary Podcast", "https://elsewhere.example.com/a")],
+            "The Show": [show_result(42, "The Documentary Podcast", "https://pod.example.com/feed.xml")],
+        }
+        FakeApple.episodes = {"42": [episode_result(1001, "Episode One", "")]}
+        self.assertEqual(apple_podcasts.add_links(self.config, self.database), 1)
+        self.assertEqual(self._apple_id(), "42")
+        self.assertEqual([urllib.parse.urlsplit(path).path for path in FakeApple.requests],
+                         ["/search", "/search", "/lookup"])
 
     def test_known_show_is_not_searched_again_and_missing_episodes_are_retried(self) -> None:
         self.database.set_feed_apple_id(FEED, "42")

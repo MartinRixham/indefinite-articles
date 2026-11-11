@@ -1,7 +1,8 @@
 """Apple Podcasts links for shortlisted podcast episodes, from Apple's public iTunes Search API.
 
-A feed is matched to an Apple Podcasts show by searching for its title. A result with the
-same feed URL is taken; otherwise a result with the same name, or else one whose name contains
+A feed is matched to an Apple Podcasts show by searching for its title and, if that doesn't
+turn up the feed, for its name in the OPML (Apple's search for "The Documentary Podcast" misses
+the BBC's show, while "BBC The Documentary" finds it). A result with the same feed URL is taken; otherwise a result with the same name, or else one whose name contains
 the feed's title (a show's website feed is often called "Latent Space" while Apple lists
 "Latent Space: The AI Engineer Podcast"), is taken only if some of the feed's episodes are
 also among that show's episodes, because unrelated shows share names.
@@ -128,17 +129,27 @@ def _find_show(client: _Client, database: Database, feed_url: str, state: sqlite
                fallback_title: str) -> AppleShow | None:
     """The feed's show on Apple Podcasts, searched for by title; records the result in `feeds`."""
     title = state["title"] or fallback_title
-    results = client.get(SEARCH_URL, {"media": "podcast", "entity": "podcast", "limit": "10", "term": title})
-    for result in results:
-        if result.get("collectionId") and _normal_feed_url(str(result.get("feedUrl") or "")) == \
-                _normal_feed_url(feed_url):
-            show = client.show(str(result["collectionId"]))
-            database.set_feed_apple_id(feed_url, show.collection_id)
-            return show
+    terms = [title]
+    if fallback_title.strip() and fallback_title.strip().casefold() != title.strip().casefold():
+        terms.append(fallback_title)
+    results: list[dict] = []
+    for term in terms:
+        found = client.get(SEARCH_URL, {"media": "podcast", "entity": "podcast", "limit": "10", "term": term})
+        for result in found:
+            if result.get("collectionId") and _normal_feed_url(str(result.get("feedUrl") or "")) == \
+                    _normal_feed_url(feed_url):
+                show = client.show(str(result["collectionId"]))
+                database.set_feed_apple_id(feed_url, show.collection_id)
+                return show
+        results.extend(found)
     wanted = title.strip().casefold()
     same_name = []
     similar_name = []
+    seen: set[str] = set()
     for result in results:
+        if str(result.get("collectionId")) in seen:
+            continue
+        seen.add(str(result.get("collectionId")))
         name = str(result.get("collectionName") or "").strip().casefold()
         if not result.get("collectionId") or not wanted:
             continue
