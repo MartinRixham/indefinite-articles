@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.4
+Version:        0.4.5
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,15 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Wed Nov 11 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.5
+- Replies are also read from Gmail's spam folder
+- Reply processing is retried when the LLM is unavailable
+- Feed fetches are lined up with the digest send time
+- Profile rewriting copes better near the word limit and avoids examples
+- Paywalled feeds removed from the default OPML
+- Better Apple Podcasts link lookup
+- Database cleanup
+
 * Sat Nov 07 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.4
 - LLM timeouts are learned per kind of request, so long scoring prompts and
   large embedding batches are no longer cut off early
