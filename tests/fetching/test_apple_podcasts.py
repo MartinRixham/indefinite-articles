@@ -132,6 +132,8 @@ class AddLinksTests(unittest.TestCase):
         self.assertEqual(apple_podcasts.add_links(self.config, self.database), 1)
         self.assertEqual([urllib.parse.urlsplit(path).path for path in FakeApple.requests], ["/lookup"])
         self.assertTrue(all(self._links().values()))
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(FakeApple.requests[0]).query)
+        self.assertEqual(query["sort"], ["recent"])  # otherwise Apple may answer from a stale cache
 
     def test_same_name_show_needs_shared_episodes(self) -> None:
         FakeApple.shows = [show_result(5, "The Show", "https://elsewhere.example.com/a"),

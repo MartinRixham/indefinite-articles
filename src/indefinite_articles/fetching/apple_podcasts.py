@@ -116,8 +116,9 @@ class _Client:
         return results if isinstance(results, list) else []
 
     def show(self, collection_id: str) -> AppleShow:
+        # Without `sort=recent` Apple can answer from a stale cache that lacks the last day's episodes.
         results = self.get(LOOKUP_URL, {"id": collection_id, "media": "podcast", "entity": "podcastEpisode",
-                                        "limit": "200"})
+                                        "limit": "200", "sort": "recent"})
         episodes = [AppleEpisode(title_key(str(result.get("trackName") or "")), str(result.get("episodeUrl") or ""),
                                  _episode_link(str(result["trackViewUrl"])))
                     for result in results
