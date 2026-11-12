@@ -379,6 +379,30 @@ class RankerTests(unittest.TestCase):
         chosen = ranker.select(self.config, self.database, random.Random(1))
         self.assertEqual([pick.article.url for pick in chosen], ["https://a/1", "https://b/1", "https://c/1"])
 
+    def test_select_centres_episodes_on_their_own(self) -> None:
+        # Episodes share a direction (dimension 2) that articles lack. Centred on the mean of
+        # every candidate, these three episodes on different subjects would look alike.
+        profile_id = ranker.ensure_profile(self.config, self.database)["id"]
+        article_vectors = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0]]
+        episode_vectors = [[0.4, 0.0, 1.0, 0.0], [0.0, 0.4, 1.0, 0.0], [0.0, 0.0, 1.0, 0.4]]
+        for index, vector in enumerate(article_vectors):
+            self._add(f"https://a{index}/1", f"A{index}", 9.0 - index, profile_id)
+            self._set_vector(f"https://a{index}/1", vector)
+        for index, vector in enumerate(episode_vectors):
+            self._add_episode(f"https://pod{index}/1", f"Pod{index}", 9.0 - index, profile_id)
+            self._set_vector(f"https://pod{index}/1", vector)
+        self.config.articles_per_digest, self.config.exploration = 2, 0
+        self.config.podcasts_per_digest, self.config.podcast_exploration = 2, 0
+        debug: dict = {}
+        chosen = ranker.select(self.config, self.database, random.Random(1), debug)
+        episodes = [pick.article for pick in chosen if pick.article.is_podcast]
+        self.assertEqual([episode.url for episode in episodes], ["https://pod0/1", "https://pod1/1"])
+        self.assertEqual(debug["overlap"][episodes[1].id], 0.0)
+
+    def _set_vector(self, url: str, vector: list[float]) -> None:
+        article_id = self.database.connection.execute("SELECT id FROM articles WHERE url=?", (url,)).fetchone()[0]
+        self.database.set_embedding(article_id, embed.pack(vector))
+
     def test_select_fills_past_cap_with_few_sources(self):
         for index in range(5):
             self._add(f"https://a/{index}", "A")

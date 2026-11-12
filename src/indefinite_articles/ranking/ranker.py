@@ -290,7 +290,7 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
         return []
     statistics = database.source_statistics()
     ranked, parts = _rank(candidates, statistics)
-    overlap = _Overlap(database.vectors_of(article.id for article in candidates))
+    vectors = database.vectors_of(article.id for article in candidates)
     penalties: dict[int, float] = {}
     if debug is not None:
         debug["candidates"] = len(candidates)
@@ -300,13 +300,19 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
         debug["rank"] = {article.id: rank for rank, article in enumerate(ranked, start=1)}
         debug["overlap"] = penalties
     articles, episodes = _split(ranked)
-    diversity = _Diversity({article_id: part.final for article_id, part in parts.items()},
-                           overlap, config.diversity, penalties)
+    final_scores = {article_id: part.final for article_id, part in parts.items()}
+
+    def diversity_among(group: list[Article]) -> _Diversity:
+        # Each group is centred on its own mean: episodes share a "podcast" direction that
+        # the mostly-article mean of all candidates would leave in, making them all look alike.
+        overlap = _Overlap({article.id: vectors[article.id] for article in group if article.id in vectors})
+        return _Diversity(final_scores, overlap, config.diversity, penalties)
+
     chosen = _choose(articles, config.articles_per_digest, config.exploration, config.max_per_source,
-                     statistics, randomizer, diversity)
+                     statistics, randomizer, diversity_among(articles))
     if config.podcasts_per_digest > 0:
         chosen += _choose(episodes, config.podcasts_per_digest, config.podcast_exploration,
-                          config.max_per_source, statistics, randomizer, diversity)
+                          config.max_per_source, statistics, randomizer, diversity_among(episodes))
     return chosen
 
 
@@ -314,8 +320,9 @@ class _Overlap:
     """How much candidates overlap in subject, from their embeddings.
 
     Embeddings of news articles all point in roughly the same direction, so the cosine
-    similarity is taken after subtracting the candidates' mean vector: unrelated
-    articles then come out near 0, and two reports of the same story near 1.
+    similarity is taken after subtracting the mean vector of the candidates given
+    (articles and podcast episodes each get their own): unrelated articles then come
+    out near 0, and two reports of the same story near 1.
     """
 
     def __init__(self, vectors: dict[int, bytes]):
