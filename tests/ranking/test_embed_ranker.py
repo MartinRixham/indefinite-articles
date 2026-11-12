@@ -358,6 +358,27 @@ class RankerTests(unittest.TestCase):
         self.assertEqual(debug["rank"][chosen[0].article.id], 1)
         self.assertIsInstance(debug["scores"][chosen[0].article.id], ranker.ScoreBreakdown)
 
+    def test_select_avoids_overlapping_articles(self) -> None:
+        profile_id = ranker.ensure_profile(self.config, self.database)["id"]
+        stories = [("https://a/1", 9.0, [1.0, 0.0, 0.0, 0.0]),
+                   ("https://b/1", 8.5, [0.99, 0.1, 0.0, 0.0]),  # the same story as a/1
+                   ("https://c/1", 7.0, [0.0, 1.0, 0.0, 0.0]),
+                   ("https://d/1", 6.0, [0.0, 0.0, 1.0, 0.0]),
+                   ("https://e/1", 1.0, [0.0, 0.0, 0.0, 1.0])]
+        for url, score, vector in stories:
+            self._add(url, url, score, profile_id)
+            article_id = self.database.connection.execute("SELECT id FROM articles WHERE url=?", (url,)).fetchone()[0]
+            self.database.set_embedding(article_id, embed.pack(vector))
+        self._add("https://f/1", "F", 0.5, profile_id)  # no embedding: never penalised
+        self.config.articles_per_digest, self.config.exploration = 3, 0
+        debug: dict = {}
+        chosen = ranker.select(self.config, self.database, random.Random(1), debug)
+        self.assertEqual([pick.article.url for pick in chosen], ["https://a/1", "https://c/1", "https://d/1"])
+        self.assertEqual(debug["overlap"][chosen[0].article.id], 0.0)
+        self.config.diversity = 0.0
+        chosen = ranker.select(self.config, self.database, random.Random(1))
+        self.assertEqual([pick.article.url for pick in chosen], ["https://a/1", "https://b/1", "https://c/1"])
+
     def test_select_fills_past_cap_with_few_sources(self):
         for index in range(5):
             self._add(f"https://a/{index}", "A")

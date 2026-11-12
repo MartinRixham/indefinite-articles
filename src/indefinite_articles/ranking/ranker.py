@@ -11,11 +11,14 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 
+import numpy as np
+
 from ..config import Config
 from ..language_model.assistant import MAX_PROFILE_CHARS, ArticleScore, Assistant
 from ..language_model.llm import LLM, LLMError, LLMUnavailable
 from ..storage.article import Article
 from ..storage.database import Database, SourceStatistics
+from .vectors import unpack
 
 log = logging.getLogger(__name__)
 
@@ -65,13 +68,14 @@ class DigestPick:
             **self.article.template_values(escape),
         }
 
-    def debug_line(self, position: int, score: "ScoreBreakdown", rank: int) -> str:
-        """This pick's row in the digest's debug table."""
+    def debug_line(self, position: int, score: "ScoreBreakdown", rank: int, overlap: float = 0.0) -> str:
+        """This pick's row in the digest's debug table; `overlap` is the points it lost for
+        resembling an article picked before it."""
         article = self.article
         llm_score = f"{score.llm:5.1f}" if score.llm is not None else "    -"
         return (
             f"{position:<3} {rank:>4}  {score.final:5.2f} = {llm_score} {score.base:+5.2f}"
-            f" {score.bonus:+5.2f}   {(article.content_status or '-')[:8]:8}  {article.source[:30]}"
+            f" {score.bonus:+5.2f}  {-overlap:+5.2f}   {(article.content_status or '-')[:8]:8}  {article.source[:30]}"
             + ("  [explore]" if self.exploratory else "")
         )
 
@@ -228,6 +232,31 @@ def _breakdown(article: Article, statistics: dict[str, SourceStatistics],
     return ScoreBreakdown(article.score, agree, bonus, article.score + agree + bonus)
 
 
+def _add_diverse(chosen: list[DigestPick], ranked: list[Article], limit: int, max_per_source: int,
+                 diversity: _Diversity) -> None:
+    """Append top picks to `chosen` until it has `limit`, at most `max_per_source` per source:
+    each time the best of `ranked` by its score less its overlap penalty (ties go to the
+    one ranked higher, so with no penalties this is simply the top of `ranked`)."""
+    per_source = Counter(pick.article.source for pick in chosen)
+    remaining = list(ranked)
+    while len(chosen) < limit:
+        best: Article | None = None
+        best_value = best_penalty = 0.0
+        for article in remaining:
+            if per_source[article.source] >= max_per_source:
+                continue
+            penalty = diversity.penalty(article, chosen)
+            value = diversity.scores[article.id] - penalty
+            if best is None or value > best_value:
+                best, best_value, best_penalty = article, value, penalty
+        if best is None:
+            return
+        remaining.remove(best)
+        per_source[best.source] += 1
+        diversity.penalties[best.id] = best_penalty
+        chosen.append(DigestPick(best, False))
+
+
 def _add_capped(
     chosen: list[DigestPick],
     articles: Iterable[Article],
@@ -261,28 +290,82 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
         return []
     statistics = database.source_statistics()
     ranked, parts = _rank(candidates, statistics)
+    overlap = _Overlap(database.vectors_of(article.id for article in candidates))
+    penalties: dict[int, float] = {}
     if debug is not None:
         debug["candidates"] = len(candidates)
         debug["llm_scored"] = sum(article.scored_against(profile["id"]) for article in candidates)
         debug["stale_scored"] = sum(article.has_stale_score(profile["id"]) for article in candidates)
         debug["scores"] = parts
         debug["rank"] = {article.id: rank for rank, article in enumerate(ranked, start=1)}
+        debug["overlap"] = penalties
     articles, episodes = _split(ranked)
+    diversity = _Diversity({article_id: part.final for article_id, part in parts.items()},
+                           overlap, config.diversity, penalties)
     chosen = _choose(articles, config.articles_per_digest, config.exploration, config.max_per_source,
-                     statistics, randomizer)
+                     statistics, randomizer, diversity)
     if config.podcasts_per_digest > 0:
         chosen += _choose(episodes, config.podcasts_per_digest, config.podcast_exploration,
-                          config.max_per_source, statistics, randomizer)
+                          config.max_per_source, statistics, randomizer, diversity)
     return chosen
 
 
+class _Overlap:
+    """How much candidates overlap in subject, from their embeddings.
+
+    Embeddings of news articles all point in roughly the same direction, so the cosine
+    similarity is taken after subtracting the candidates' mean vector: unrelated
+    articles then come out near 0, and two reports of the same story near 1.
+    """
+
+    def __init__(self, vectors: dict[int, bytes]):
+        # Ignore vectors from a different model (e.g. after changing embedding_model).
+        dimension = Counter(len(vector) for vector in vectors.values()).most_common(1)
+        ids = [article_id for article_id, vector in vectors.items() if dimension and len(vector) == dimension[0][0]]
+        self._rows = {article_id: row for row, article_id in enumerate(ids)}
+        if len(ids) < 2:
+            self._matrix = np.zeros((len(ids), 1), dtype=np.float32)
+            return
+        matrix = unpack([vectors[article_id] for article_id in ids])
+        matrix = matrix - matrix.mean(axis=0)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        self._matrix = matrix / np.where(norms > 0, norms, 1.0)
+
+    def closest(self, article: Article, others: Iterable[Article]) -> float:
+        """The similarity of `article` to the most similar of `others`, 0..1 (0 if there are
+        none, or no embedding to compare)."""
+        row = self._rows.get(article.id)
+        other_rows = [self._rows[other.id] for other in others if other.id in self._rows]
+        if row is None or not other_rows:
+            return 0.0
+        return max(0.0, float((self._matrix[other_rows] @ self._matrix[row]).max()))
+
+
+@dataclass
+class _Diversity:
+    """What the top picks of a digest are chosen by: each article's final ranking score,
+    less `weight` points times its overlap with the closest article already picked.
+    The points taken off each pick are recorded in `penalties`."""
+    scores: dict[int, float]
+    overlap: _Overlap
+    weight: float
+    penalties: dict[int, float]
+
+    def penalty(self, article: Article, chosen: list[DigestPick]) -> float:
+        if self.weight <= 0:
+            return 0.0
+        return self.weight * self.overlap.closest(article, (pick.article for pick in chosen))
+
+
 def _choose(ranked: list[Article], limit: int, exploration: int, max_per_source: int,
-            statistics: dict[str, SourceStatistics], randomizer: random.Random) -> list[DigestPick]:
+            statistics: dict[str, SourceStatistics], randomizer: random.Random,
+            diversity: _Diversity) -> list[DigestPick]:
     """`limit` picks from `ranked` (best first): the top ones, at most `max_per_source` from
-    each source, then `exploration` random ones from the rest."""
+    each source and favouring ones that don't overlap those already picked, then
+    `exploration` random ones from the rest."""
     explore_count = min(exploration, max(0, limit - 1))
     chosen: list[DigestPick] = []
-    _add_capped(chosen, ranked, limit - explore_count, False, max_per_source)
+    _add_diverse(chosen, ranked, limit - explore_count, max_per_source, diversity)
 
     # Exploration: random picks from the rest, biased towards less-seen sources,
     # so the model keeps learning about things outside its current beliefs.

@@ -136,6 +136,7 @@ class Config:
     exploration: int = 2
     podcast_exploration: int = 1
     max_per_source: int = 3
+    diversity: float = 3.0         # score points taken off for overlapping an article already picked
     max_article_age_days: int = 3
     max_candidates: int = 150      # articles per day that get full-text + LLM scoring
     max_podcast_candidates: int = 30  # podcast episodes per day that get LLM scoring
@@ -251,7 +252,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     config = Config()
     _copy_settings(config, general, (
         "database", "digest_time", "articles_per_digest", "podcasts_per_digest", "exploration",
-        "podcast_exploration", "max_per_source", "max_article_age_days", "max_candidates",
+        "podcast_exploration", "max_per_source", "diversity", "max_article_age_days", "max_candidates",
         "max_podcast_candidates", "apple_podcasts_links", "rescore_top", "fetch_interval_minutes",
         "poll_interval_minutes", "fetch_full_articles", "article_chars", "fetch_workers",
         "allow_private_addresses", "feeds_dir", "fetch_concurrency",

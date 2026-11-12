@@ -158,15 +158,17 @@ def _debug_report(config: Config, database: Database, items: list[ranker.DigestP
         lines.append(_llm_limits(info["llm"]))
     lines += [
         "",
-        "#   rank  final =   llm + adj  + src   text      source",
+        "#   rank  final =   llm + adj  + src    ovl   text      source",
     ]
     scores, rank = selection.get("scores", {}), selection.get("rank", {})
+    overlap = selection.get("overlap", {})
     for position, pick in enumerate(items, start=1):
         score = scores.get(pick.article.id)
         if score is not None:
-            lines.append(pick.debug_line(position, score, rank.get(pick.article.id, 0)))
+            lines.append(pick.debug_line(position, score, rank.get(pick.article.id, 0),
+                                         overlap.get(pick.article.id, 0.0)))
     lines.append("(adj: embedding agreement, or fallback rank when the LLM did not score;"
-                 " src: source like/dislike bonus)")
+                 " src: source like/dislike bonus; ovl: taken off for resembling an earlier pick)")
     return lines
 
 

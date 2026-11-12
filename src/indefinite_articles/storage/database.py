@@ -2,7 +2,7 @@
 
 import sqlite3
 import time
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, overload
@@ -283,6 +283,17 @@ class Database:
         self.connection.execute(
             "INSERT OR REPLACE INTO embeddings(article_id, vec) VALUES(?, ?)", (article_id, vector)
         )
+
+    def vectors_of(self, article_ids: Iterable[int]) -> dict[int, bytes]:
+        """The stored embedding of each of `article_ids` that has one."""
+        ids = list(article_ids)
+        out: dict[int, bytes] = {}
+        for start in range(0, len(ids), 500):  # stay well under SQLite's parameter limit
+            chunk = ids[start:start + 500]
+            out.update((row[0], row[1]) for row in self.connection.execute(
+                f"SELECT article_id, vec FROM embeddings WHERE article_id IN ({','.join('?' * len(chunk))})",
+                chunk))
+        return out
 
     def rated_vectors(self, rating: int, limit: int) -> list[bytes]:
         return [row[0] for row in self.connection.execute(
