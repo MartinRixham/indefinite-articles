@@ -234,6 +234,7 @@
       <outline type="rss" text="BBC Science &amp; Environment" title="BBC Science &amp; Environment" xmlUrl="https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"/>
       <outline type="rss" text="Big Think" title="Big Think" xmlUrl="https://bigthink.com/feed/"/>
       <outline type="rss" text="Discover Magazine" title="Discover Magazine" xmlUrl="https://www.discovermagazine.com/rss/all"/>
+      <outline type="rss" text="Eos (AGU)" title="Eos (AGU)" xmlUrl="https://eos.org/feed"/>
       <outline type="rss" text="Guardian Science" title="Guardian Science" xmlUrl="https://www.theguardian.com/science/rss"/>
       <outline type="rss" text="Knowable Magazine" title="Knowable Magazine" xmlUrl="https://knowablemagazine.org/rss"/>
       <outline type="rss" text="Live Science" title="Live Science" xmlUrl="https://www.livescience.com/feeds/all"/>
@@ -246,6 +247,7 @@
       <outline type="rss" text="Science News" title="Science News" xmlUrl="https://www.sciencenews.org/feed"/>
       <outline type="rss" text="Science News (AAAS)" title="Science News (AAAS)" xmlUrl="https://www.science.org/rss/news_current.xml"/>
       <outline type="rss" text="ScienceDaily" title="ScienceDaily" xmlUrl="https://www.sciencedaily.com/rss/all.xml" maxItems="20"/>
+      <outline type="rss" text="Scientific American" title="Scientific American" xmlUrl="https://www.scientificamerican.com/platform/syndication/rss/"/>
       <outline type="rss" text="Smithsonian Magazine" title="Smithsonian Magazine" xmlUrl="https://www.smithsonianmag.com/rss/latest_articles/"/>
       <outline type="rss" text="The Conversation (Science)" title="The Conversation (Science)" xmlUrl="https://theconversation.com/us/technology/articles.atom"/>
       <outline type="rss" text="Undark" title="Undark" xmlUrl="https://undark.org/feed/"/>
@@ -254,12 +256,17 @@
     <outline text="Physics &amp; Mathematics" title="Physics &amp; Mathematics">
       <outline type="rss" text="APS Physics" title="APS Physics" xmlUrl="https://feeds.aps.org/rss/recent/physics.xml"/>
       <outline type="rss" text="Azimuth (John Baez)" title="Azimuth (John Baez)" xmlUrl="https://johncarlosbaez.wordpress.com/feed/"/>
+      <outline type="rss" text="CERN Courier" title="CERN Courier" xmlUrl="https://cerncourier.com/feed/"/>
       <outline type="rss" text="Computational Complexity" title="Computational Complexity" xmlUrl="https://blog.computationalcomplexity.org/feeds/posts/default"/>
+      <outline type="rss" text="Counting Atoms (Chad Orzel)" title="Counting Atoms (Chad Orzel)" xmlUrl="https://chadorzel.substack.com/feed"/>
       <outline type="rss" text="Gil Kalai" title="Gil Kalai" xmlUrl="https://gilkalai.wordpress.com/feed/"/>
       <outline type="rss" text="Gödel's Lost Letter" title="Gödel's Lost Letter" xmlUrl="https://rjlipton.com/feed/"/>
       <outline type="rss" text="John D. Cook" title="John D. Cook" xmlUrl="https://www.johndcook.com/blog/feed/"/>
       <outline type="rss" text="Math with Bad Drawings" title="Math with Bad Drawings" xmlUrl="https://mathwithbaddrawings.com/feed/"/>
+      <outline type="rss" text="New Scientist: Physics" title="New Scientist: Physics" xmlUrl="https://www.newscientist.com/subject/physics/feed/"/>
       <outline type="rss" text="Not Even Wrong (Peter Woit)" title="Not Even Wrong (Peter Woit)" xmlUrl="https://www.math.columbia.edu/~woit/wordpress/?feed=rss2"/>
+      <outline type="rss" text="Of Particular Significance (Matt Strassler)" title="Of Particular Significance (Matt Strassler)" xmlUrl="https://profmattstrassler.com/feed/"/>
+      <outline type="rss" text="Physics Today" title="Physics Today" xmlUrl="https://physicstoday.aip.org/index.rss"/>
       <outline type="rss" text="Physics World" title="Physics World" xmlUrl="https://physicsworld.com/feed/"/>
       <outline type="rss" text="Quantum Frontiers" title="Quantum Frontiers" xmlUrl="https://quantumfrontiers.com/feed/"/>
       <outline type="rss" text="Shtetl-Optimized (Scott Aaronson)" title="Shtetl-Optimized (Scott Aaronson)" xmlUrl="https://scottaaronson.blog/?feed=rss2"/>
@@ -269,15 +276,25 @@
       <outline type="rss" text="Windows on Theory (Boaz Barak)" title="Windows on Theory (Boaz Barak)" xmlUrl="https://windowsontheory.org/feed/"/>
       <outline type="rss" text="Xena (Kevin Buzzard)" title="Xena (Kevin Buzzard)" xmlUrl="https://xenaproject.wordpress.com/feed/"/>
     </outline>
+    <outline text="Chemistry" title="Chemistry">
+      <outline type="rss" text="C&amp;EN" title="C&amp;EN" xmlUrl="https://cen.acs.org/feeds/rss/latestnews.xml" maxItems="25"/>
+      <outline type="rss" text="Chemistry World" title="Chemistry World" xmlUrl="https://www.chemistryworld.com/413.rss" maxItems="25"/>
+      <outline type="rss" text="Compound Interest" title="Compound Interest" xmlUrl="https://www.compoundchem.com/feed/"/>
+    </outline>
     <outline text="Space &amp; Astronomy" title="Space &amp; Astronomy">
+      <outline type="rss" text="AAS Nova" title="AAS Nova" xmlUrl="https://aasnova.org/feed/" maxItems="25"/>
       <outline type="rss" text="Ars Technica: Space" title="Ars Technica: Space" xmlUrl="https://arstechnica.com/space/feed/"/>
+      <outline type="rss" text="Astrobites" title="Astrobites" xmlUrl="https://astrobites.org/feed/"/>
       <outline type="rss" text="Astronomy Magazine" title="Astronomy Magazine" xmlUrl="https://www.astronomy.com/feed/"/>
       <outline type="rss" text="Centauri Dreams" title="Centauri Dreams" xmlUrl="https://www.centauri-dreams.org/feed/"/>
       <outline type="rss" text="ESA Space Science" title="ESA Space Science" xmlUrl="https://www.esa.int/rssfeed/Our_Activities/Space_Science"/>
       <outline type="rss" text="ESO News" title="ESO News" xmlUrl="https://www.eso.org/public/news/feed/"/>
       <outline type="rss" text="NASA News" title="NASA News" xmlUrl="https://www.nasa.gov/news-release/feed/"/>
+      <outline type="rss" text="NASA Science" title="NASA Science" xmlUrl="https://science.nasa.gov/feed/"/>
       <outline type="rss" text="NASASpaceflight" title="NASASpaceflight" xmlUrl="https://www.nasaspaceflight.com/feed/"/>
+      <outline type="rss" text="NOIRLab" title="NOIRLab" xmlUrl="https://noirlab.edu/public/news/feed/"/>
       <outline type="rss" text="Payload Space" title="Payload Space" xmlUrl="https://payloadspace.com/feed/"/>
+      <outline type="rss" text="Sky &amp; Telescope" title="Sky &amp; Telescope" xmlUrl="https://skyandtelescope.org/feed/"/>
       <outline type="rss" text="Space.com" title="Space.com" xmlUrl="https://www.space.com/feeds/all"/>
       <outline type="rss" text="Spaceflight Now" title="Spaceflight Now" xmlUrl="https://spaceflightnow.com/feed/"/>
       <outline type="rss" text="SpaceNews" title="SpaceNews" xmlUrl="https://spacenews.com/feed/"/>
@@ -285,6 +302,7 @@
       <outline type="rss" text="Universe Today" title="Universe Today" xmlUrl="https://www.universetoday.com/feed/"/>
     </outline>
     <outline text="Biology &amp; Medicine" title="Biology &amp; Medicine">
+      <outline type="rss" text="Asimov Press" title="Asimov Press" xmlUrl="https://www.asimov.press/feed"/>
       <outline type="rss" text="BMJ" title="BMJ" xmlUrl="https://www.bmj.com/rss/recent.xml"/>
       <outline type="rss" text="Eric Topol (Ground Truths)" title="Eric Topol (Ground Truths)" xmlUrl="https://erictopol.substack.com/feed"/>
       <outline type="rss" text="GEN (Genetic Engineering News)" title="GEN (Genetic Engineering News)" xmlUrl="https://www.genengnews.com/feed/"/>
