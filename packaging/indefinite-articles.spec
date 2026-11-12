@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.5
+Version:        0.4.6
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,10 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Thu Nov 12 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.6
+- Digest picks are penalized for overlapping with articles already picked
+- Apple Podcasts links are found for episodes from the last day too
+
 * Wed Nov 11 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.5
 - Replies are also read from Gmail's spam folder
 - Reply processing is retried when the LLM is unavailable
