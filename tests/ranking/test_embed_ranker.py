@@ -14,7 +14,7 @@ from indefinite_articles.language_model.assistant import MAX_PROFILE_CHARS
 from indefinite_articles.language_model.llm import LLM, LLMError, LLMUnavailable
 from indefinite_articles.ranking import embed, ranker
 from indefinite_articles.ranking.classifier import Classifier
-from indefinite_articles.storage.article import EMBEDDING_SUMMARY_CHARACTERS
+from indefinite_articles.storage.article import EMBEDDING_SUMMARY_CHARACTERS, Article
 from indefinite_articles.storage.database import Database
 
 
@@ -357,6 +357,33 @@ class RankerTests(unittest.TestCase):
         self.assertEqual((debug["candidates"], debug["llm_scored"], debug["stale_scored"]), (6, 6, 0))
         self.assertEqual(debug["rank"][chosen[0].article.id], 1)
         self.assertIsInstance(debug["scores"][chosen[0].article.id], ranker.ScoreBreakdown)
+
+    def test_exploration_comes_from_the_random_sample(self) -> None:
+        # The shortlist is mostly the best pre-filter matches; picking exploration from all
+        # the candidates would mostly pick those, which resemble the top picks.
+        profile_id = ranker.ensure_profile(self.config, self.database)["id"]
+        for index in range(30):
+            self._add(f"https://e/{index}", f"S{index}", 5.0, profile_id, prefilter=1.0 - index / 100)
+            self._set_vector(f"https://e/{index}", [1.0 if dimension == index % 4 else 0.0 for dimension in range(4)])
+        self.config.max_candidates = 20
+        _, sample = ranker._shortlist_parts(self.config, self.database)
+        self.assertEqual(len(sample), 2)
+        self.config.exploration = 2
+        chosen = ranker.select(self.config, self.database, random.Random(1))
+        self.assertEqual({pick.article.id for pick in chosen if pick.exploratory}, sample)
+
+    def test_exploratory_picks_are_unlike_the_rest(self) -> None:
+        vectors = {"near": [0.9, 0.1, 0.0], "far": [0.0, 0.0, 1.0], "farther": [-1.0, 0.0, 0.0],
+                   "top": [1.0, 0.0, 0.0], "unembedded": None}
+        articles = {name: Article(id=index, url=f"https://e/{name}", title=name, summary="", published=0.0,
+                                  source=name) for index, name in enumerate(vectors)}
+        overlap = ranker._Overlap({articles[name].id: embed.pack(vector)
+                                   for name, vector in vectors.items() if vector is not None})
+        chosen = [ranker.DigestPick(articles["top"], False)]
+        sample = [articles[name] for name in ("unembedded", "near", "far", "farther")]
+        ranker._add_exploratory(chosen, sample, 4, 1, overlap)
+        self.assertEqual([pick.article.title for pick in chosen], ["top", "farther", "far", "near"])
+        self.assertTrue(all(pick.exploratory for pick in chosen[1:]))
 
     def test_select_avoids_overlapping_articles(self) -> None:
         profile_id = ranker.ensure_profile(self.config, self.database)["id"]

@@ -56,7 +56,7 @@ def _examples(database: Database) -> str:
 
 @dataclass
 class DigestPick:
-    """An article chosen for the digest; exploratory picks are random, to keep learning."""
+    """An article chosen for the digest; exploratory picks are off-profile, to keep learning."""
     article: Article
     exploratory: bool
 
@@ -108,26 +108,37 @@ def shortlist(config: Config, database: Database) -> list[Article]:
     Podcast episodes get their own shortlist so that the far more numerous articles
     can't crowd them out of LLM scoring.
     """
+    return _shortlist_parts(config, database)[0]
+
+
+def _shortlist_parts(config: Config, database: Database) -> tuple[list[Article], set[int]]:
+    """The shortlist, and the ids of its random picks (a uniform sample of the pool, not
+    chosen for matching the profile: what the digest's exploratory picks come from)."""
     articles, episodes = _split(database.pool(config.max_article_age_days))
-    out = _shortlist_of(config, database, articles, config.max_candidates, podcasts=False)
+    out, sample = _shortlist_of(config, database, articles, config.max_candidates, podcasts=False)
     if config.podcasts_per_digest > 0:
-        out += _shortlist_of(config, database, episodes, config.max_podcast_candidates, podcasts=True)
-    return out
+        episode_list, episode_sample = _shortlist_of(config, database, episodes, config.max_podcast_candidates,
+                                                     podcasts=True)
+        out += episode_list
+        sample |= episode_sample
+    return out, sample
 
 
 def _shortlist_of(config: Config, database: Database, pool: list[Article], limit: int,
-                  podcasts: bool) -> list[Article]:
-    """At most `limit` of `pool` (which holds only articles, or only podcast episodes).
+                  podcasts: bool) -> tuple[list[Article], set[int]]:
+    """At most `limit` of `pool` (which holds only articles, or only podcast episodes),
+    and the ids of the random picks among them.
 
     Uses the embedding pre-filter when available: the best matches (with a per-source
     cap so no single feed dominates) plus ~10% random picks for exploration. Without
-    embeddings, falls back to the newest articles balanced across sources.
+    embeddings, falls back to the newest articles balanced across sources (and no
+    random picks).
     """
     if limit <= 0:
-        return []
+        return [], set()
     scored = [article for article in pool if article.prefilter is not None]
     if not scored:
-        return database.candidates(config.max_article_age_days, limit, podcasts)
+        return database.candidates(config.max_article_age_days, limit, podcasts), set()
     random_count = max(1, limit // 10)
     cap = max(3, limit // 15)
     ranked = sorted(scored, key=lambda article: article.prefilter or 0.0, reverse=True)
@@ -151,8 +162,8 @@ def _shortlist_of(config: Config, database: Database, pool: list[Article], limit
     today = date.today().isoformat()
     rest = sorted((article for article in pool if article.id not in chosen),
                   key=lambda article: hashlib.sha1(f"{today}:{article.id}".encode()).digest())
-    out += rest[:random_count]
-    return out
+    sample = rest[:random_count]
+    return out + sample, {article.id for article in sample}
 
 
 def score_candidates(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
@@ -165,7 +176,7 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
     Rescoring everything would cost one LLM request per shortlisted article per reply.
     """
     profile = ensure_profile(config, database)
-    candidates = _digest_candidates(config, database, profile["id"])
+    candidates, _ = _digest_candidates(config, database, profile["id"])
     unscored = [article for article in candidates if article.score is None]
     ranked, _ = _rank(candidates, database.source_statistics())
     stale = [article for group in _split(ranked) for article in group[:config.rescore_top]
@@ -197,14 +208,15 @@ def score_candidates(config: Config, database: Database, llm: LLM, stop: threadi
     return done
 
 
-def _digest_candidates(config: Config, database: Database, profile_id: int) -> list[Article]:
-    """The shortlist, plus anything the LLM already scored against the current profile."""
-    candidates = shortlist(config, database)
+def _digest_candidates(config: Config, database: Database, profile_id: int) -> tuple[list[Article], set[int]]:
+    """The shortlist, plus anything the LLM already scored against the current profile;
+    and the ids of the shortlist's random picks."""
+    candidates, sample = _shortlist_parts(config, database)
     if not candidates:
-        return []
+        return [], set()
     ids = {article.id for article in candidates}
     return candidates + [article for article in database.pool(config.max_article_age_days)
-                         if article.id not in ids and article.scored_against(profile_id)]
+                         if article.id not in ids and article.scored_against(profile_id)], sample
 
 
 def _rank(candidates: list[Article], statistics: dict[str, SourceStatistics],
@@ -257,24 +269,6 @@ def _add_diverse(chosen: list[DigestPick], ranked: list[Article], limit: int, ma
         chosen.append(DigestPick(best, False))
 
 
-def _add_capped(
-    chosen: list[DigestPick],
-    articles: Iterable[Article],
-    limit: int,
-    exploratory: bool,
-    max_per_source: int,
-) -> None:
-    """Append articles to `chosen` until it has `limit`, at most `max_per_source` per source."""
-    per_source = Counter(pick.article.source for pick in chosen)
-    for article in articles:
-        if len(chosen) >= limit:
-            break
-        if per_source[article.source] >= max_per_source:
-            continue
-        per_source[article.source] += 1
-        chosen.append(DigestPick(article, exploratory))
-
-
 def select(config: Config, database: Database, randomizer: random.Random | None = None,
            debug: dict | None = None) -> list[DigestPick]:
     """Choose the digest: top-ranked articles plus a few exploratory picks, then the
@@ -285,7 +279,7 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
     """
     randomizer = randomizer or random.Random()
     profile = ensure_profile(config, database)
-    candidates = _digest_candidates(config, database, profile["id"])
+    candidates, sample = _digest_candidates(config, database, profile["id"])
     if not candidates:
         return []
     statistics = database.source_statistics()
@@ -309,10 +303,10 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
         return _Diversity(final_scores, overlap, config.diversity, penalties)
 
     chosen = _choose(articles, config.articles_per_digest, config.exploration, config.max_per_source,
-                     statistics, randomizer, diversity_among(articles))
+                     sample, randomizer, diversity_among(articles))
     if config.podcasts_per_digest > 0:
         chosen += _choose(episodes, config.podcasts_per_digest, config.podcast_exploration,
-                          config.max_per_source, statistics, randomizer, diversity_among(episodes))
+                          config.max_per_source, sample, randomizer, diversity_among(episodes))
     return chosen
 
 
@@ -341,11 +335,18 @@ class _Overlap:
     def closest(self, article: Article, others: Iterable[Article]) -> float:
         """The similarity of `article` to the most similar of `others`, 0..1 (0 if there are
         none, or no embedding to compare)."""
+        return max(0.0, self.nearest(article, others) or 0.0)
+
+    def nearest(self, article: Article, others: Iterable[Article]) -> float | None:
+        """The cosine similarity, -1..1, of `article` to the most similar of `others`; -1 if
+        none of them has an embedding, None if `article` has none."""
         row = self._rows.get(article.id)
+        if row is None:
+            return None
         other_rows = [self._rows[other.id] for other in others if other.id in self._rows]
-        if row is None or not other_rows:
-            return 0.0
-        return max(0.0, float((self._matrix[other_rows] @ self._matrix[row]).max()))
+        if not other_rows:
+            return -1.0
+        return float((self._matrix[other_rows] @ self._matrix[row]).max())
 
 
 @dataclass
@@ -364,23 +365,48 @@ class _Diversity:
         return self.weight * self.overlap.closest(article, (pick.article for pick in chosen))
 
 
+def _add_exploratory(chosen: list[DigestPick], sample: list[Article], limit: int, max_per_source: int,
+                     overlap: _Overlap) -> None:
+    """Append exploratory picks from `sample` to `chosen` until it has `limit`: each time
+    the one least like anything already picked, so that the picks spread out over the
+    subjects the digest doesn't cover. Articles without an embedding come last, in the
+    order given."""
+    per_source = Counter(pick.article.source for pick in chosen)
+    remaining = list(sample)
+    while len(chosen) < limit:
+        eligible = [article for article in remaining if per_source[article.source] < max_per_source]
+        if not eligible:
+            return
+
+        def likeness(article: Article) -> float:
+            nearest = overlap.nearest(article, (pick.article for pick in chosen))
+            return 2.0 if nearest is None else nearest
+
+        best = min(eligible, key=likeness)
+        remaining.remove(best)
+        per_source[best.source] += 1
+        chosen.append(DigestPick(best, True))
+
+
 def _choose(ranked: list[Article], limit: int, exploration: int, max_per_source: int,
-            statistics: dict[str, SourceStatistics], randomizer: random.Random,
-            diversity: _Diversity) -> list[DigestPick]:
+            sample: set[int], randomizer: random.Random, diversity: _Diversity) -> list[DigestPick]:
     """`limit` picks from `ranked` (best first): the top ones, at most `max_per_source` from
     each source and favouring ones that don't overlap those already picked, then
-    `exploration` random ones from the rest."""
+    `exploration` exploratory ones."""
     explore_count = min(exploration, max(0, limit - 1))
     chosen: list[DigestPick] = []
     _add_diverse(chosen, ranked, limit - explore_count, max_per_source, diversity)
 
-    # Exploration: random picks from the rest, biased towards less-seen sources,
-    # so the model keeps learning about things outside its current beliefs.
+    # Exploration, so the model keeps learning about things outside its current beliefs.
+    # Most candidates were shortlisted for resembling the profile, so the picks come from
+    # the shortlist's random sample of the pool (and from the other candidates only if
+    # that runs out), choosing those least like the rest of the digest.
     picked = {pick.article.id for pick in chosen}
     rest = [article for article in ranked if article.id not in picked]
     randomizer.shuffle(rest)
-    rest.sort(key=lambda article: statistics.get(article.source, SourceStatistics()).total)
-    _add_capped(chosen, rest, limit, True, max_per_source)
+    for group in ([article for article in rest if article.id in sample],
+                  [article for article in rest if article.id not in sample]):
+        _add_exploratory(chosen, group, limit, max_per_source, diversity.overlap)
 
     # Too few sources to honour the cap: fill remaining slots ignoring it.
     picked = {pick.article.id for pick in chosen}
