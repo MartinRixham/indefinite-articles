@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.6
+Version:        0.4.7
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,11 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Fri Nov 13 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.7
+- Exploration picks articles unlike the recommendations
+- Deduplication treats articles and podcast episodes separately
+- More science feeds in the default OPML
+
 * Thu Nov 12 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.6
 - Digest picks are penalized for overlapping with articles already picked
 - Apple Podcasts links are found for episodes from the last day too
