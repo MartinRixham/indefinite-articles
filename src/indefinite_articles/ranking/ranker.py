@@ -300,7 +300,7 @@ def select(config: Config, database: Database, randomizer: random.Random | None 
         # Each group is centred on its own mean: episodes share a "podcast" direction that
         # the mostly-article mean of all candidates would leave in, making them all look alike.
         overlap = _Overlap({article.id: vectors[article.id] for article in group if article.id in vectors})
-        return _Diversity(final_scores, overlap, config.diversity, penalties)
+        return _Diversity(final_scores, overlap, config.diversity, config.same_source_penalty, penalties)
 
     chosen = _choose(articles, config.articles_per_digest, config.exploration, config.max_per_source,
                      sample, randomizer, diversity_among(articles))
@@ -352,17 +352,20 @@ class _Overlap:
 @dataclass
 class _Diversity:
     """What the top picks of a digest are chosen by: each article's final ranking score,
-    less `weight` points times its overlap with the closest article already picked.
+    less `weight` points times its overlap with the closest article already picked, and
+    less `same_source` points for each article already picked from its source.
     The points taken off each pick are recorded in `penalties`."""
     scores: dict[int, float]
     overlap: _Overlap
     weight: float
+    same_source: float
     penalties: dict[int, float]
 
     def penalty(self, article: Article, chosen: list[DigestPick]) -> float:
-        if self.weight <= 0:
-            return 0.0
-        return self.weight * self.overlap.closest(article, (pick.article for pick in chosen))
+        penalty = max(0.0, self.same_source) * sum(pick.article.source == article.source for pick in chosen)
+        if self.weight > 0:
+            penalty += self.weight * self.overlap.closest(article, (pick.article for pick in chosen))
+        return penalty
 
 
 def _add_exploratory(chosen: list[DigestPick], sample: list[Article], limit: int, max_per_source: int,
@@ -391,7 +394,8 @@ def _add_exploratory(chosen: list[DigestPick], sample: list[Article], limit: int
 def _choose(ranked: list[Article], limit: int, exploration: int, max_per_source: int,
             sample: set[int], randomizer: random.Random, diversity: _Diversity) -> list[DigestPick]:
     """`limit` picks from `ranked` (best first): the top ones, at most `max_per_source` from
-    each source and favouring ones that don't overlap those already picked, then
+    each source and favouring ones that don't overlap those already picked or share
+    their source, then
     `exploration` exploratory ones."""
     explore_count = min(exploration, max(0, limit - 1))
     chosen: list[DigestPick] = []

@@ -13,6 +13,8 @@ max_per_source = 3               # avoid one feed dominating a digest
 diversity = 3.0                  # avoid several articles on the same story: an article
                                  # loses up to this many points (of the LLM's 0-10) for
                                  # being similar to one already picked; 0 turns it off
+same_source_penalty = 1.5        # points an article loses for each one already picked from
+                                 # its source, so a second needs to clearly beat the rest
 max_article_age_days = 3
 max_candidates = 150             # articles per day that get full text + LLM scoring;
                                  # every other article is only ranked by embeddings

@@ -168,7 +168,8 @@ def _debug_report(config: Config, database: Database, items: list[ranker.DigestP
             lines.append(pick.debug_line(position, score, rank.get(pick.article.id, 0),
                                          overlap.get(pick.article.id, 0.0)))
     lines.append("(adj: embedding agreement, or fallback rank when the LLM did not score;"
-                 " src: source like/dislike bonus; ovl: taken off for resembling an earlier pick)")
+                 " src: source like/dislike bonus; ovl: taken off for resembling an earlier pick"
+                 " or sharing its source)")
     return lines
 
 

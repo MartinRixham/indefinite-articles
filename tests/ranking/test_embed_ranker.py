@@ -406,6 +406,22 @@ class RankerTests(unittest.TestCase):
         chosen = ranker.select(self.config, self.database, random.Random(1))
         self.assertEqual([pick.article.url for pick in chosen], ["https://a/1", "https://b/1", "https://c/1"])
 
+    def test_select_penalises_repeating_a_source(self) -> None:
+        profile_id = ranker.ensure_profile(self.config, self.database)["id"]
+        for url, source, score in [("https://a/1", "A", 9.0), ("https://a/2", "A", 8.6),
+                                   ("https://a/3", "A", 7.6), ("https://b/1", "B", 7.0)]:
+            self._add(url, source, score, profile_id)
+        self.config.articles_per_digest, self.config.exploration, self.config.max_per_source = 3, 0, 3
+        self.config.diversity = 0.0
+        debug: dict = {}
+        chosen = ranker.select(self.config, self.database, random.Random(1), debug)
+        # a/2 loses 1.5 for following a/1 and still beats b/1; a/3 then loses 3.0 and doesn't.
+        self.assertEqual([pick.article.url for pick in chosen], ["https://a/1", "https://a/2", "https://b/1"])
+        self.assertEqual(debug["overlap"][chosen[1].article.id], 1.5)
+        self.config.same_source_penalty = 0.0
+        chosen = ranker.select(self.config, self.database, random.Random(1))
+        self.assertEqual([pick.article.url for pick in chosen], ["https://a/1", "https://a/2", "https://a/3"])
+
     def test_select_centres_episodes_on_their_own(self) -> None:
         # Episodes share a direction (dimension 2) that articles lack. Centred on the mean of
         # every candidate, these three episodes on different subjects would look alike.
