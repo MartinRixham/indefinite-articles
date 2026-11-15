@@ -123,7 +123,16 @@ class AssistantTests(unittest.TestCase):
                   '"general_comment": "  "}')
         with self._answering(answer):
             self.assertEqual(self.assistant.interpret_reply("x", ITEMS),
-                             Interpretation({1: Rating(1, "x" * 500), 3: Rating(0)}, []))
+                             Interpretation({1: Rating(1, "x" * 500)}, []))
+        # A general comment, with every article listed as neutral (with no comment, or
+        # with the general comment repeated), rates nothing.
+        answer = ('{"ratings": [{"item": 1, "rating": "neutral", "comment": ""}, '
+                  '{"item": 2, "rating": "neutral", "comment": "More science, please"}, '
+                  '{"item": 3, "rating": "neutral", "comment": "too long"}], '
+                  '"general_comment": "more science, please"}')
+        with self._answering(answer):
+            self.assertEqual(self.assistant.interpret_reply("More science, please", ITEMS),
+                             Interpretation({3: Rating(0, "too long")}, ["more science, please"]))
         with self._answering('{"ratings": null}'):
             self.assertEqual(self.assistant.interpret_reply("x", ITEMS), Interpretation({}, []))
         with self._answering('["not", "a", "dict"]'), self.assertRaises(LLMError):

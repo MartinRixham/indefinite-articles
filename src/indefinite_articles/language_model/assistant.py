@@ -169,11 +169,15 @@ class Assistant:
             '{"ratings": [{"item": 1, "rating": "like" or "dislike" or "neutral", '
             '"comment": "what they said about it, or empty"}], '
             '"general_comment": "any preference not tied to one article, or empty"}. '
-            "Only include articles the reader actually referred to."
+            "Only include articles the reader actually referred to, by number, title or "
+            "subject; leave the ratings list empty if they referred to none. A preference "
+            "about the kind of articles they want goes in general_comment only, not under "
+            "each article."
         )
         data = self._llm.chat_json(INTERPRET_SYSTEM, user, purpose="reply")
         if not isinstance(data, dict):
             raise LLMError("unexpected interpretation format")
+        general = str(data.get("general_comment") or "").strip()
         ratings: dict[int, Rating] = {}
         for entry in data.get("ratings") or []:
             try:
@@ -183,8 +187,12 @@ class Assistant:
             if not 1 <= item_number <= len(items):
                 continue
             rating = {"like": 1, "dislike": -1}.get(str(entry.get("rating", "")).lower(), 0)
-            ratings[item_number] = Rating(rating, str(entry.get("comment") or "")[:500])
-        general = str(data.get("general_comment") or "").strip()
+            comment = str(entry.get("comment") or "").strip()[:500]
+            # Small models often list every article, rated neutral with no comment or
+            # with the general comment copied in; those say nothing about the article.
+            if rating == 0 and (not comment or comment.casefold() == general.casefold()):
+                continue
+            ratings[item_number] = Rating(rating, comment)
         return Interpretation(ratings, [general] if general else [])
 
     def profile_phrases(self, profile_text: str) -> tuple[list[str], list[str]]:
