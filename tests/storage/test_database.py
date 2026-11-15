@@ -227,6 +227,24 @@ class DatabaseTests(unittest.TestCase):
         self.assertFalse(self.database.message_processed("<old@x>"))
         self.assertTrue(self.database.message_processed("<new@x>"))
 
+    def test_rated_unsent_articles_leave_the_pool(self) -> None:
+        rated, comment_only, unrated = (self._article(url) for url in ("https://rated", "https://comment", "https://unrated"))
+        self.database.add_feedback(rated, -1, "")
+        self.database.add_feedback(comment_only, 0, "hmm")
+        self.assertEqual([article.id for article in self.database.pool(3)], [unrated])
+        self.assertEqual([article.id for article in self.database.candidates(3, 10)], [unrated])
+
+    def test_prune_keeps_rated_unsent_articles(self) -> None:
+        rated, unrated = self._article("https://rated"), self._article("https://unrated")
+        for article_id in (rated, unrated):
+            self.database.set_embedding(article_id, b"v")
+            self._age(article_id, 40)
+        self.database.add_feedback(rated, 1, "")
+        self.assertEqual(self.database.prune(30), 1)
+        rows = self.database.connection.execute("SELECT a.id, e.vec FROM articles a "
+                                                "LEFT JOIN embeddings e ON e.article_id = a.id").fetchall()
+        self.assertEqual([(row["id"], row["vec"]) for row in rows], [(rated, b"v")])
+
     def test_prune_slims_old_sent_articles(self) -> None:
         rated, unrated, recent = (self._article(url) for url in ("https://rated", "https://unrated", "https://recent"))
         for article_id in (rated, unrated, recent):

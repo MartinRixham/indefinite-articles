@@ -153,6 +153,10 @@ _DROPPED_COLUMNS = {
 }
 
 
+# SQL condition on `articles`: no feedback has been recorded for the article.
+_UNRATED = "id NOT IN (SELECT article_id FROM feedback)"
+
+
 class Database:
     def __init__(self, path: str):
         if path != ":memory:":
@@ -235,29 +239,30 @@ class Database:
         return True
 
     def candidates(self, max_age_days: int, limit: int, podcasts: bool = False) -> list[Article]:
-        """Unsent, recent articles (or podcast episodes, if `podcasts`), balanced across
-        sources so a busy feed can't crowd out others."""
+        """Unsent, unrated, recent articles (or podcast episodes, if `podcasts`), balanced
+        across sources so a busy feed can't crowd out others."""
         cutoff = time.time() - max_age_days * 86400
         source_count = self.connection.execute(
             "SELECT COUNT(DISTINCT source) FROM articles WHERE sent_digest_id IS NULL "
-            "AND COALESCE(published, fetched_at) >= ? AND (audio_url IS NOT NULL) = ?", (cutoff, podcasts)
+            f"AND COALESCE(published, fetched_at) >= ? AND (audio_url IS NOT NULL) = ? AND {_UNRATED}",
+            (cutoff, podcasts)
         ).fetchone()[0] or 1
         per_source = max(5, -(-limit // source_count))
         return self._articles(
             "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY source "
             "  ORDER BY COALESCE(published, fetched_at) DESC) AS rn "
             "  FROM articles WHERE sent_digest_id IS NULL AND COALESCE(published, fetched_at) >= ?"
-            "  AND (audio_url IS NOT NULL) = ?) "
+            f"  AND (audio_url IS NOT NULL) = ? AND {_UNRATED}) "
             "WHERE rn <= ? ORDER BY rn, COALESCE(published, fetched_at) DESC LIMIT ?",
             (cutoff, podcasts, per_source, limit),
         )
 
     def pool(self, max_age_days: int, limit: int = 50000) -> list[Article]:
-        """All unsent recent articles."""
+        """All unsent recent articles, except those rated without being sent (with `rate`)."""
         cutoff = time.time() - max_age_days * 86400
         return self._articles(
             "SELECT * FROM articles WHERE sent_digest_id IS NULL "
-            "AND COALESCE(published, fetched_at) >= ? "
+            f"AND COALESCE(published, fetched_at) >= ? AND {_UNRATED} "
             "ORDER BY COALESCE(published, fetched_at) DESC LIMIT ?",
             (cutoff, limit),
         )
@@ -408,19 +413,20 @@ class Database:
     def prune(self, keep_days: int = 30) -> int:
         """Clear out data older than `keep_days` that nothing uses any more; returns the articles deleted.
 
-        Old articles that were never sent are deleted. Sent ones stay, since replies refer to
-        them and rated ones are training data, but lose their full text (only scoring reads
-        it) and, unless rated, their embedding (only rated ones are re-embedded or trained on).
+        Old articles that were neither sent nor rated are deleted. The rest stay, since replies
+        refer to sent ones and rated ones are training data, but lose their full text (only
+        scoring reads it) and, unless rated, their embedding (only rated ones are re-embedded
+        or trained on).
         """
         cutoff = time.time() - keep_days * 86400
         # Embeddings first: databases from before 0.3 lack the cascade on older rows.
         self.connection.execute(
             "DELETE FROM embeddings WHERE article_id IN (SELECT id FROM articles "
-            "WHERE fetched_at < ? AND (sent_digest_id IS NULL "
-            " OR id NOT IN (SELECT article_id FROM feedback WHERE rating != 0)))", (cutoff,)
+            "WHERE fetched_at < ? AND id NOT IN (SELECT article_id FROM feedback WHERE rating != 0))",
+            (cutoff,)
         )
         deleted = self.connection.execute(
-            "DELETE FROM articles WHERE sent_digest_id IS NULL AND fetched_at < ?", (cutoff,)
+            f"DELETE FROM articles WHERE sent_digest_id IS NULL AND fetched_at < ? AND {_UNRATED}", (cutoff,)
         ).rowcount
         self.connection.execute(
             "UPDATE articles SET content=NULL WHERE content IS NOT NULL AND fetched_at < ?", (cutoff,)

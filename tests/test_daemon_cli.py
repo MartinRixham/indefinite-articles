@@ -11,6 +11,7 @@ from indefinite_articles import cli, daemon
 from indefinite_articles.config import Config
 from indefinite_articles.fetching import extract, feeds
 from indefinite_articles.fetching.entry import Entry
+from indefinite_articles.fetching.extract import ArticleContent
 from indefinite_articles.fetching.feed import Feed
 from indefinite_articles.language_model.llm import LLM, LLMError, LLMUnavailable
 from indefinite_articles.mail import mailer
@@ -145,6 +146,72 @@ class CommandLineTests(unittest.TestCase):
     def test_version(self):
         with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()):
             cli.main(["--version"])
+
+    def test_rate_records_ratings_until_quit(self) -> None:
+        database = self._database()
+        for index in range(4):
+            database.add_article(Entry(f"https://e/{index}", f"Article {index}", "About it.", None), f"S{index}")
+        database.connection.commit()
+        answers = iter(["", "what?", "+ more like this", "-", "q"])
+        with mock.patch("builtins.input", lambda prompt: next(answers)):
+            code, out, _ = self._run("rate")
+        self.assertEqual(code, 0)
+        self.assertIn("1 like and 1 dislike recorded.", out)
+        self.assertEqual(out.count(cli.RATE_HELP), 2)  # at the start, and after "what?"
+        rows = database.connection.execute("SELECT rating, comment FROM feedback ORDER BY id").fetchall()
+        self.assertEqual([tuple(row) for row in rows], [(1, "more like this"), (-1, "")])
+        self.assertEqual(len(database.pool(3)), 2)
+
+    def test_rate_stops_at_count_or_end_of_input(self) -> None:
+        database = self._database()
+        for index in range(3):
+            database.add_article(Entry(f"https://e/{index}", f"Article {index}", "", None), "S")
+        database.connection.commit()
+        with mock.patch("builtins.input", lambda prompt: "+"):
+            self.assertIn("2 likes", self._run("rate", "--count", "2")[1])
+
+        def end_of_input(prompt: str) -> str:
+            raise EOFError
+
+        with mock.patch("builtins.input", end_of_input):
+            self.assertIn("0 likes and 0 dislikes", self._run("rate")[1])
+        with mock.patch("builtins.input", lambda prompt: ""):
+            self.assertIn("No more articles to rate.", self._run("rate")[1])
+
+    def test_rate_reads_the_full_text_then_asks_again(self) -> None:
+        database = self._database()
+        database.add_article(Entry("https://e/long", "Long read", "Short summary.", None), "S")
+        database.add_article(Entry("https://e/stored", "Stored", "", None), "S")
+        stored = database.connection.execute("SELECT id FROM articles WHERE title='Stored'").fetchone()[0]
+        database.set_content(ArticleContent(stored, "Already fetched text.", "ok"))
+        database.connection.commit()
+        fetched: list[str] = []
+
+        def fetch_page(url: str, max_characters: int, allow_private: bool = False) -> str:
+            fetched.append(url)
+            if url == "https://e/long":
+                return "First paragraph of the page.\nSecond paragraph."
+            raise AssertionError("stored text should be used")
+
+        answers = iter(["r", "+", "r", "-"])
+        with mock.patch.object(extract, "fetch_page", fetch_page), \
+             mock.patch("builtins.input", lambda prompt: next(answers)):
+            code, out, _ = self._run("rate")
+        self.assertEqual(code, 0)
+        self.assertEqual(fetched, ["https://e/long"])
+        self.assertIn("First paragraph of the page.\n\nSecond paragraph.", out)
+        self.assertIn("Already fetched text.", out)
+        self.assertIn("1 like and 1 dislike recorded.", out)
+
+    def test_rate_says_when_the_full_text_cannot_be_loaded(self) -> None:
+        database = self._database()
+        database.add_article(Entry("https://e/down", "Down", "", None), "S")
+        database.connection.commit()
+        answers = iter(["r", "q"])
+        with mock.patch.object(extract, "fetch_page", side_effect=OSError("timed out")), \
+             mock.patch("builtins.input", lambda prompt: next(answers)):
+            out = self._run("rate")[1]
+        self.assertIn("Couldn't load the article: timed out", out)
 
     def test_profile_commands(self):
         self.assertEqual(self._run("profile"), (0, "Rust\n", ""))

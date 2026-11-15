@@ -189,6 +189,17 @@ Loved the Rust one. Less US politics generally.
 Lines it can't parse go to the LLM, which works out what you meant. Quoted text from the
 original email is ignored.
 
+### Rating more articles at the terminal
+
+The digest only shows articles that already match your profile, so you never get to say
+you like something it isn't showing you. When you have time, log in to the server and run
+`sudo -u indefinite-articles indefinite-articles rate`. It shows unrated articles one at a
+time, taking turns between close matches that just missed today's shortlist, articles the
+classifier can't make up its mind about, and random articles (a random feed first, so busy
+feeds don't dominate). Type `+` or `-` (optionally followed by a comment), `r` to read
+the full article text in a pager (`$PAGER`, else `less`), Enter to skip, `q` to stop. Each rating is saved straight away and counts like one from an email reply;
+articles you rate this way are left out of later digests.
+
 ## Commands
 
 Run these as the service user so they can use its database: `sudo -u indefinite-articles indefinite-articles …`
@@ -199,6 +210,7 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
 | `indefinite-articles fetch` | fetch feeds and score new articles now |
 | `indefinite-articles digest [--dry-run]` | send (or just print) a digest now |
 | `indefinite-articles poll` | read replies now |
+| `indefinite-articles rate [--count N]` | rate more articles at the terminal (see below) |
 | `indefinite-articles feedback reply.eml` | process a reply saved to a file |
 | `indefinite-articles profile [--history] [--set TEXT]` | show, review or replace the learned profile |
 | `indefinite-articles status` | database statistics |

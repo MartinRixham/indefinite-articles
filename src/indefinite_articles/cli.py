@@ -5,7 +5,8 @@ import email
 import email.policy
 import logging
 import sys
-from collections.abc import Sequence
+import textwrap
+from collections.abc import Callable, Iterable, Sequence
 
 from . import __version__
 from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load as load_config
@@ -14,6 +15,8 @@ from .fetching.parsed_feed import ParsedFeed
 from .language_model.llm import LLM, LLMError
 from .mail import inbox, mailer
 from .ranking import ranker
+from .ranking.rating_queue import QueueItem, rating_queue
+from .storage.article import Article
 from .storage.database import Database, SourceStatistics
 
 
@@ -149,6 +152,105 @@ def _command_feedback(config: Config, args: argparse.Namespace):
         return 0 if result.status == "ok" else 1
 
 
+RATE_HELP = ("Rate each article: + like, - dislike (add a comment after either, e.g. "
+             "\"+ more like this\"), r to read the full text, Enter to skip, q to stop.")
+READ_CHARACTERS = 200_000  # of an article's text shown by r; the LLM gets only article_chars
+
+
+def _age_label(timestamp: float | None) -> str:
+    """How long ago `timestamp` was, e.g. "40 min ago", "5 h ago" or "2 days ago"."""
+    import time
+    if not timestamp:
+        return ""
+    minutes = max(0, int((time.time() - timestamp) / 60))
+    if minutes < 120:
+        return f"{minutes} min ago"
+    hours = minutes // 60
+    return f"{hours} h ago" if hours < 48 else f"{hours // 24} days ago"
+
+
+def _full_text(config: Config, article: Article) -> str:
+    """The article's text for reading: what extraction already stored if it got the whole
+    page, else downloaded now. Raises OSError, ValueError or `extract.BlockedAddress`."""
+    if article.content_status == "ok" and article.content and len(article.content) < config.article_chars:
+        return article.content  # stored text is cut to article_chars, so this is all of it
+    return extract.fetch_page(article.url, READ_CHARACTERS, config.allow_private_addresses)
+
+
+def _show_full_text(config: Config, article: Article) -> None:
+    """Show the article's full text in a pager, or say why it couldn't be loaded."""
+    import pydoc
+    print("Loading the article…")
+    try:
+        body = _full_text(config, article)
+    except (OSError, ValueError, extract.BlockedAddress) as error:
+        print(f"Couldn't load the article: {error}")
+        return
+    if not body.strip():
+        print("No article text found on the page.")
+        return
+    paragraphs = [textwrap.fill(line, width=100) for line in body.splitlines() if line.strip()]
+    pydoc.pager(f"{article.title}\n{article.url}\n\n" + "\n\n".join(paragraphs) + "\n")
+
+
+def _rate_session(database: Database, items: Iterable[QueueItem], read_line: Callable[[str], str],
+                  count: int, read_article: Callable[[Article], None]) -> tuple[int, int]:
+    """Show `items` one by one and record the reader's ratings; returns (likes, dislikes).
+
+    r calls `read_article` and asks again. Stops after `count` articles (0: no limit), at q
+    or at the end of input. Each rating is committed at once, so stopping (or Ctrl-C) loses
+    nothing.
+    """
+    print(RATE_HELP)
+    likes = dislikes = 0
+    for number, item in enumerate(items, start=1):
+        article = item.article
+        details = " · ".join(part for part in (article.source_label, _age_label(article.published or article.fetched_at),
+                                               article.length_label) if part)
+        print(f"\n── {number} · {item.kind} " + "─" * max(0, 50 - len(item.kind)))
+        print(article.title)
+        print(details)
+        blurb = article.blurb(600)
+        if blurb:
+            print(textwrap.fill(blurb, width=100))
+        print(article.url)
+        while True:
+            try:
+                answer = read_line("> ").strip()
+            except EOFError:
+                answer = "q"
+            if answer in ("", "+", "-", "q") or answer[0] in "+-":
+                break
+            if answer == "r":
+                read_article(article)
+            else:
+                print(RATE_HELP)
+        if answer == "q":
+            break
+        if answer:
+            rating = 1 if answer[0] == "+" else -1
+            database.add_feedback(article.id, rating, answer[1:].strip()[:500])
+            database.connection.commit()
+            likes, dislikes = likes + (rating > 0), dislikes + (rating < 0)
+        if count and number >= count:
+            break
+    else:
+        print("\nNo more articles to rate.")
+    return likes, dislikes
+
+
+def _command_rate(config: Config, args: argparse.Namespace):
+    """Rate articles at the terminal, beyond those the digest shows."""
+    with Database(config.database) as database:
+        likes, dislikes = _rate_session(database, rating_queue(config, database), input, args.count,
+                                         lambda article: _show_full_text(config, article))
+        print(f"\n{likes} like{'s' * (likes != 1)} and {dislikes} dislike{'s' * (dislikes != 1)} recorded.")
+        if likes or dislikes:
+            print("The service learns from them at its next inbox poll"
+                  f" (every {config.poll_interval_minutes} minutes).")
+        return 0
+
+
 def _command_profile(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         if args.set:
@@ -255,6 +357,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = subparsers.add_parser("feedback", help="process a reply from an .eml file (- for stdin)")
     parser.add_argument("file")
     parser.set_defaults(handler=_command_feedback)
+    parser = subparsers.add_parser("rate", help="rate articles at the terminal, beyond those the digest shows")
+    parser.add_argument("-n", "--count", type=int, default=0, metavar="N", help="stop after N articles")
+    parser.set_defaults(handler=_command_rate)
     parser = subparsers.add_parser("profile", help="show the learned reader profile")
     parser.add_argument("--history", action="store_true")
     parser.add_argument("--set", metavar="TEXT", help="replace the profile")
