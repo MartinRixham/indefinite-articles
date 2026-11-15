@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.7
+Version:        0.4.8
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,11 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Sun Nov 15 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.8
+- Digest picks are penalized for coming from the same feed as one already picked
+- Apple Podcasts links are found more reliably
+- General feedback in replies is no longer recorded as article ratings
+
 * Fri Nov 13 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.7
 - Exploration picks articles unlike the recommendations
 - Deduplication treats articles and podcast episodes separately
