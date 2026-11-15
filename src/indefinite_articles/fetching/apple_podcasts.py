@@ -10,10 +10,15 @@ The show's id is kept in the `feeds` table, so the search runs once per feed (an
 after `RECHECK_SECONDS` for feeds Apple didn't have). Each episode is then found among
 the show's newest episodes by its audio URL or title. Apple lists new episodes some hours
 after they come out, so an episode not found yet is tried again on the next fetch.
+Feeds and Apple often disagree on both: Apple's audio URL can have another path prefix
+(libsyn's `/secure/`, a tracking redirect) and query parameters, and its title can lack the
+feed's episode number ("538: Hedgehog of Antennas" against "Hedgehog of Antennas"), so audio
+URLs are compared by their last two path segments and titles without a leading episode number.
 """
 
 import json
 import logging
+import re
 import sqlite3
 import threading
 import time
@@ -40,14 +45,35 @@ MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 TIMEOUT = 20
 
 
+# A leading episode number: "538: ", "#12 - ", "Ep. 7 | ", "Episode 41. ".
+EPISODE_NUMBER = re.compile(r"^\s*(?:(?:episode|ep)\.?\s*)?#?\d+\s*[:.|\-\u2013\u2014]\s*", re.IGNORECASE)
+
+
+def _episode_title_key(title: str) -> str:
+    """The title's `title_key` without a leading episode number."""
+    return title_key(EPISODE_NUMBER.sub("", title, count=1))
+
+
+def _audio_key(url: str) -> str:
+    """An audio URL's last two path segments, lowercased, ignoring its host, other path and query;
+    with the host when the path is shorter, since a lone file name like `1.mp3` says little."""
+    parts = urllib.parse.urlsplit(url.strip().lower())
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if not segments:
+        return ""
+    if len(segments) < 2:
+        segments.insert(0, parts.netloc.removeprefix("www."))
+    return "/".join(segments[-2:])
+
+
 class AppleRefused(Exception):
     """Apple turned a request down (rate limit or block): stop asking for now."""
 
 
 @dataclass(frozen=True)
 class AppleEpisode:
-    title_key: str
-    audio_url: str
+    title_key: str      # `_episode_title_key` of the title
+    audio_key: str      # `_audio_key` of the audio URL
     link: str
 
 
@@ -59,9 +85,10 @@ class AppleShow:
 
     def link_for(self, article: Article) -> str:
         """The Apple Podcasts link of the article's episode, or '' if Apple doesn't list it."""
-        key = title_key(article.title)
+        key = _episode_title_key(article.title)
+        audio = _audio_key(article.audio_url or "")
         for episode in self.episodes:
-            if (article.audio_url and episode.audio_url == article.audio_url) or (key and episode.title_key == key):
+            if (audio and episode.audio_key == audio) or (key and episode.title_key == key):
                 return episode.link
         return ""
 
@@ -119,7 +146,8 @@ class _Client:
         # Without `sort=recent` Apple can answer from a stale cache that lacks the last day's episodes.
         results = self.get(LOOKUP_URL, {"id": collection_id, "media": "podcast", "entity": "podcastEpisode",
                                         "limit": "200", "sort": "recent"})
-        episodes = [AppleEpisode(title_key(str(result.get("trackName") or "")), str(result.get("episodeUrl") or ""),
+        episodes = [AppleEpisode(_episode_title_key(str(result.get("trackName") or "")),
+                                 _audio_key(str(result.get("episodeUrl") or "")),
                                  _episode_link(str(result["trackViewUrl"])))
                     for result in results
                     if result.get("kind") == "podcast-episode" and result.get("trackViewUrl")]

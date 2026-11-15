@@ -143,6 +143,26 @@ class AddLinksTests(unittest.TestCase):
         self.assertEqual(apple_podcasts.add_links(self.config, self.database), 1)
         self.assertEqual(self._apple_id(), "6")
 
+    def test_same_name_show_shares_episodes_despite_episode_numbers_and_audio_url_prefixes(self) -> None:
+        # Like Embedded: Apple lists the libsyn feed, drops the feed's episode numbers and serves the
+        # audio from `/secure/` with a query parameter, so neither title nor audio URL matches exactly.
+        self.database.feed_ok(FEED, "Embedded", CacheValidators())
+        self._episode("538: Hedgehog of Antennas", "https://traffic.libsyn.com/makingembedded/embedded-ep538.mp3")
+        self._episode("537: Quiet Time", "https://traffic.libsyn.com/makingembedded/embedded-ep537.mp3")
+        FakeApple.shows = [show_result(5, "Embedded", "https://feeds.npr.example.com/podcast.xml"),
+                           show_result(6, "Embedded", "https://rss.libsyn.com/shows/1/destinations/2.xml")]
+        FakeApple.episodes = {
+            "5": [episode_result(1, "Unrelated", "https://npr.example.com/audio/1.mp3")],
+            "6": [episode_result(538, "Hedgehog of Antennas", "https://traffic.libsyn.com/secure/x/other.mp3"),
+                  episode_result(537, "Something else",
+                                 "https://traffic.libsyn.com/secure/makingembedded/embedded-ep537.mp3?dest-id=2")],
+        }
+        apple_podcasts.add_links(self.config, self.database)
+        self.assertEqual(self._apple_id(), "6")
+        links = self._links()
+        self.assertEqual(links["538: Hedgehog of Antennas"], "https://podcasts.apple.com/us/podcast/x/id1?i=538")
+        self.assertEqual(links["537: Quiet Time"], "https://podcasts.apple.com/us/podcast/x/id1?i=537")
+
     def test_show_whose_name_contains_the_feed_title_needs_shared_episodes(self) -> None:
         FakeApple.shows = [show_result(5, "The Show Daily", "https://elsewhere.example.com/a"),
                            show_result(6, "The Show: The Podcast", "https://podcast.example.com/feed.xml"),
@@ -197,6 +217,22 @@ class HelperTests(unittest.TestCase):
                          apple_podcasts._normal_feed_url("https://example.com/feed"))
         self.assertNotEqual(apple_podcasts._normal_feed_url("https://example.com/feed?a=1"),
                             apple_podcasts._normal_feed_url("https://example.com/feed?a=2"))
+
+    def test_episode_title_key_drops_a_leading_episode_number(self) -> None:
+        for title in ("538: Hedgehog of Antennas", "#538 - Hedgehog of Antennas", "Ep. 538 | Hedgehog of Antennas",
+                      "Episode 538. Hedgehog of Antennas", "Hedgehog of Antennas"):
+            with self.subTest(title=title):
+                self.assertEqual(apple_podcasts._episode_title_key(title), "hedgehogofantennas")
+        self.assertEqual(apple_podcasts._episode_title_key("1984 and Orwell"), "1984andorwell")
+
+    def test_audio_key(self) -> None:
+        self.assertEqual(apple_podcasts._audio_key("https://traffic.libsyn.com/show/ep1.mp3"),
+                         apple_podcasts._audio_key("https://traffic.libsyn.com/secure/show/EP1.mp3?dest-id=9"))
+        self.assertEqual(apple_podcasts._audio_key("https://dts.podtrac.com/redirect.mp3/cdn.example.com/show/ep1.mp3"),
+                         "show/ep1.mp3")
+        self.assertNotEqual(apple_podcasts._audio_key("https://x/1.mp3"),
+                            apple_podcasts._audio_key("https://cdn.example.com/1.mp3"))
+        self.assertEqual(apple_podcasts._audio_key(""), "")
 
     def test_link_for_ignores_empty_audio_and_titles(self) -> None:
         show = apple_podcasts.AppleShow("1", [apple_podcasts.AppleEpisode("", "", "https://apple/1")])
