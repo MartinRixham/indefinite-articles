@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.8
+Version:        0.4.9
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,9 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Tue Nov 17 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.9
+- New rate command for rating unsent articles at the terminal
+
 * Sun Nov 15 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.8
 - Digest picks are penalized for coming from the same feed as one already picked
 - Apple Podcasts links are found more reliably
