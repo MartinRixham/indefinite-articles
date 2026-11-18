@@ -15,7 +15,7 @@ from .fetching.parsed_feed import ParsedFeed
 from .language_model.llm import LLM, LLMError
 from .mail import inbox, mailer
 from .ranking import ranker
-from .ranking.rating_queue import QueueItem, rating_queue
+from .ranking.rating_queue import rating_queue
 from .storage.article import Article
 from .storage.database import Database, SourceStatistics
 
@@ -193,9 +193,9 @@ def _show_full_text(config: Config, article: Article) -> None:
     pydoc.pager(f"{article.title}\n{article.url}\n\n" + "\n\n".join(paragraphs) + "\n")
 
 
-def _rate_session(database: Database, items: Iterable[QueueItem], read_line: Callable[[str], str],
+def _rate_session(database: Database, articles: Iterable[Article], read_line: Callable[[str], str],
                   count: int, read_article: Callable[[Article], None]) -> tuple[int, int]:
-    """Show `items` one by one and record the reader's ratings; returns (likes, dislikes).
+    """Show `articles` one by one and record the reader's ratings; returns (likes, dislikes).
 
     r calls `read_article` and asks again. Stops after `count` articles (0: no limit), at q
     or at the end of input. Each rating is committed at once, so stopping (or Ctrl-C) loses
@@ -203,11 +203,10 @@ def _rate_session(database: Database, items: Iterable[QueueItem], read_line: Cal
     """
     print(RATE_HELP)
     likes = dislikes = 0
-    for number, item in enumerate(items, start=1):
-        article = item.article
+    for number, article in enumerate(articles, start=1):
         details = " · ".join(part for part in (article.source_label, _age_label(article.published or article.fetched_at),
                                                article.length_label) if part)
-        print(f"\n── {number} · {item.kind} " + "─" * max(0, 50 - len(item.kind)))
+        print(f"\n── {number} " + "─" * 50)
         print(article.title)
         print(details)
         blurb = article.blurb(600)

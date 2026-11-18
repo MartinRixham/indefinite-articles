@@ -194,9 +194,8 @@ original email is ignored.
 The digest only shows articles that already match your profile, so you never get to say
 you like something it isn't showing you. When you have time, log in to the server and run
 `sudo -u indefinite-articles indefinite-articles rate`. It shows unrated articles one at a
-time, taking turns between close matches that just missed today's shortlist, articles the
-classifier can't make up its mind about, and random articles (a random feed first, so busy
-feeds don't dominate). Type `+` or `-` (optionally followed by a comment), `r` to read
+time in random order, whatever your profile says (a random feed first, so busy feeds don't
+dominate). Type `+` or `-` (optionally followed by a comment), `r` to read
 the full article text in a pager (`$PAGER`, else `less`), Enter to skip, `q` to stop. Each rating is saved straight away and counts like one from an email reply;
 articles you rate this way are left out of later digests.
 
