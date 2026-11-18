@@ -190,7 +190,22 @@ def _show_full_text(config: Config, article: Article) -> None:
         print("No article text found on the page.")
         return
     paragraphs = [textwrap.fill(line, width=100) for line in body.splitlines() if line.strip()]
-    pydoc.pager(f"{article.title}\n{article.url}\n\n" + "\n\n".join(paragraphs) + "\n")
+    text = f"{article.title}\n{article.url}\n\n" + "\n\n".join(paragraphs) + "\n"
+    if _use_less():
+        pydoc.pipe_pager(text, "less", article.title)
+    else:
+        pydoc.pager(text, article.title)
+
+
+def _use_less() -> bool:
+    """Whether to page with less ourselves. pydoc.pager would fall back to more, which can't
+    scroll back: it looks for less by running `(less)`, which on a terminal fails with
+    "Missing filename". A $MANPAGER or $PAGER, or output that isn't a terminal, is left to pydoc."""
+    import os
+    import shutil
+    if os.environ.get("MANPAGER") or os.environ.get("PAGER") or os.environ.get("TERM") in ("dumb", "emacs"):
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty() and shutil.which("less") is not None
 
 
 def _rate_session(database: Database, articles: Iterable[Article], read_line: Callable[[str], str],
