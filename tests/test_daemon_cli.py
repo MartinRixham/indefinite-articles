@@ -220,6 +220,40 @@ class CommandLineTests(unittest.TestCase):
         history = self._run("profile", "--history")[1]
         self.assertLess(history.index("version 1 (initial (from config))"), history.index("version 2 (set manually)"))
 
+    def _editor(self, script: str) -> dict[str, str]:
+        """Environment that makes `profile --edit` run `script` (sh, file path in $1) as the editor."""
+        editor = Path(self.directory) / "editor"
+        editor.write_text("#!/bin/sh\n" + script + "\n")
+        editor.chmod(0o755)
+        return {"VISUAL": str(editor), "EDITOR": ""}
+
+    def test_profile_edit(self) -> None:
+        with mock.patch.dict("os.environ", self._editor('grep -q "^Rust$" "$1" && echo "Rust and Go" > "$1"')):
+            self.assertEqual(self._run("profile", "--edit")[:2], (0, "profile replaced\n"))
+        self.assertEqual(self._run("profile")[1], "Rust and Go\n")
+        self.assertIn("version 2 (set manually)", self._run("profile", "--history")[1])
+
+    def test_profile_edit_keeps_the_profile_when_nothing_is_saved(self) -> None:
+        for script, expected_code, expected_out in [("true", 0, "profile unchanged\n"),
+                                                    (': > "$1"', 1, "empty profile; nothing changed\n"),
+                                                    ("exit 3", 1, "")]:
+            with self.subTest(script=script), mock.patch.dict("os.environ", self._editor(script)):
+                code, out, _ = self._run("profile", "--edit")
+                self.assertEqual((code, out), (expected_code, expected_out))
+        self.assertNotIn("version 2", self._run("profile", "--history")[1])
+
+    def test_profile_edit_mentions_pending_feedback(self) -> None:
+        database = self._database()
+        database.add_article(Entry("https://e/1", "One", "", None), "S")
+        article_id = database.connection.execute("SELECT id FROM articles").fetchone()["id"]
+        database.connection.commit()
+        self._run("profile")  # creates the initial profile
+        database.add_feedback(article_id, 1, "")
+        database.connection.commit()
+        with mock.patch.dict("os.environ", self._editor('echo Go > "$1"')):
+            out = self._run("profile", "--edit")[1]
+        self.assertIn("1 rating received since the last profile update", out)
+
     def test_status(self):
         code, out, _ = self._run("status")
         self.assertEqual(code, 0)

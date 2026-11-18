@@ -4,6 +4,7 @@ import argparse
 import email
 import email.policy
 import logging
+import sqlite3
 import sys
 import textwrap
 from collections.abc import Callable, Iterable, Sequence
@@ -265,11 +266,65 @@ def _command_rate(config: Config, args: argparse.Namespace):
         return 0
 
 
+def _edit_text(text: str) -> str | None:
+    """`text` as the reader leaves it after editing it in $VISUAL or $EDITOR (default vi),
+    or None if the editor couldn't be run or exited with an error."""
+    import os
+    import shlex
+    import subprocess
+    import tempfile
+    editor = shlex.split(os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi")
+    with tempfile.TemporaryDirectory(prefix="indefinite-articles-") as directory:
+        path = os.path.join(directory, "profile.txt")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(text.rstrip("\n") + "\n")
+        try:
+            result = subprocess.run([*editor, path])
+        except OSError as error:
+            print(f"Couldn't run the editor {editor[0]!r}: {error}", file=sys.stderr)
+            return None
+        if result.returncode:
+            print(f"The editor exited with code {result.returncode}.", file=sys.stderr)
+            return None
+        with open(path, encoding="utf-8") as file:
+            return file.read()
+
+
+def _replace_profile(database: Database, profile: sqlite3.Row, text: str) -> None:
+    """Store `text` as the new profile in place of `profile`, the current one."""
+    from .language_model.assistant import MAX_PROFILE_CHARS
+    pending = database.feedback_since(profile["created_at"])
+    database.add_profile(text, note="set manually")
+    print("profile replaced")
+    if len(text) > MAX_PROFILE_CHARS:
+        print(f"Warning: the profile is {len(text)} characters; the next automatic update"
+              f" keeps only the last {MAX_PROFILE_CHARS}.")
+    if pending.feedback or pending.comments:
+        counts = [f"{count} {noun}{'s' * (count != 1)}" for count, noun in
+                  ((len(pending.feedback), "rating"), (len(pending.comments), "comment")) if count]
+        print(f"Note: the {' and '.join(counts)} received since the last profile update"
+              " won't be worked into it.")
+
+
 def _command_profile(config: Config, args: argparse.Namespace):
     with Database(config.database) as database:
         if args.set:
-            database.add_profile(args.set, note="set manually")
-            print("profile replaced")
+            _replace_profile(database, ranker.ensure_profile(config, database), args.set)
+            return 0
+        if args.edit:
+            profile = ranker.ensure_profile(config, database)
+            current = profile["text"]
+            edited = _edit_text(current)
+            if edited is None:
+                return 1
+            edited = edited.strip()
+            if not edited:
+                print("empty profile; nothing changed")
+                return 1
+            if edited == current.strip():
+                print("profile unchanged")
+                return 0
+            _replace_profile(database, profile, edited)
             return 0
         if args.history:
             for row in database.connection.execute("SELECT * FROM profiles ORDER BY id"):
@@ -374,9 +429,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = subparsers.add_parser("rate", help="rate articles at the terminal, beyond those the digest shows")
     parser.add_argument("-n", "--count", type=int, default=0, metavar="N", help="stop after N articles")
     parser.set_defaults(handler=_command_rate)
-    parser = subparsers.add_parser("profile", help="show the learned reader profile")
+    parser = subparsers.add_parser("profile", help="show, edit or replace the reader profile")
     parser.add_argument("--history", action="store_true")
-    parser.add_argument("--set", metavar="TEXT", help="replace the profile")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--set", metavar="TEXT", help="replace the profile")
+    actions.add_argument("--edit", action="store_true", help="edit the profile in $VISUAL or $EDITOR")
     parser.set_defaults(handler=_command_profile)
     subparsers.add_parser("status", help="show database statistics").set_defaults(handler=_command_status)
     parser = subparsers.add_parser("extract", help="show the article text extracted from a URL")

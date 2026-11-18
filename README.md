@@ -211,7 +211,7 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
 | `indefinite-articles poll` | read replies now |
 | `indefinite-articles rate [--count N]` | rate more articles at the terminal (see below) |
 | `indefinite-articles feedback reply.eml` | process a reply saved to a file |
-| `indefinite-articles profile [--history] [--set TEXT]` | show, review or replace the learned profile |
+| `indefinite-articles profile [--history] [--edit] [--set TEXT]` | show, review, edit (in `$VISUAL`/`$EDITOR`) or replace the learned profile |
 | `indefinite-articles status` | database statistics |
 | `indefinite-articles feeds [--broken] [--categories]` | feed health: articles per week, your likes, errors |
 | `indefinite-articles extract URL` | show the article text the LLM would see for a page |
