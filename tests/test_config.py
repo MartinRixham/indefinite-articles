@@ -185,6 +185,26 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(config.llm.model, "small")
         self.assertEqual([feed.url for feed in config.feeds], ["https://kept/feed", "https://n/feed"])
 
+    def test_unmatched_exclusions_are_logged(self) -> None:
+        feeds_directory = self.directory / "feeds"
+        feeds_directory.mkdir()
+        (feeds_directory / "list.txt").write_text("# Tech News\nhttps://t/feed\n# Sports\nhttps://s/feed\n")
+        path = self._write('[general]\nexclude_categories = ["sports", "Tech", "Gamng"]\n'
+                           f'feeds_dir = "{feeds_directory}"\n')
+        with self.assertLogs("indefinite_articles.config", "WARNING") as logs:
+            config = load(path)
+        self.assertEqual([feed.url for feed in config.feeds], ["https://t/feed"])
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("'Tech', 'Gamng'", logs.output[0])
+        self.assertNotIn("sports", logs.output[0])
+
+    def test_matched_exclusions_are_not_logged(self) -> None:
+        feeds_directory = self.directory / "feeds"
+        feeds_directory.mkdir()
+        (feeds_directory / "list.txt").write_text("# Sports\nhttps://s/feed\n")
+        with self.assertNoLogs("indefinite_articles.config"):
+            load(self._write(f'[general]\nexclude_categories = ["SPORTS"]\nfeeds_dir = "{feeds_directory}"\n'))
+
     def test_config_file_overrides_defaults_file(self):
         (self.directory / "defaults.toml").write_text(
             '[general]\nmax_candidates = 20\nrescore_top = 5\n[llm]\nmodel = "tuned"\ntemperature = 0.5\n')

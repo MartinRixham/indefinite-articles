@@ -1,5 +1,6 @@
 """Configuration loading (TOML)."""
 
+import logging
 import os
 import re
 import tomllib
@@ -15,6 +16,8 @@ from .fetching.feed import Feed
 
 DEFAULT_CONFIG_PATH = "/etc/indefinite-articles/indefinite-articles.toml"
 DEFAULTS_FILE_NAME = "defaults.toml"  # optional, next to the config file; the config file overrides it
+
+log = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -281,9 +284,19 @@ def load(path: str | os.PathLike | None = None) -> Config:
             continue
         seen.add(feed.url)
         config.feeds.append(feed)
+    _warn_about_unmatched_exclusions(general.get("exclude_categories", []), feeds)
 
     config.digest_hour_minute  # validate
     return config
+
+
+def _warn_about_unmatched_exclusions(excluded: Iterable[str], feeds: Iterable[Feed]) -> None:
+    """Log the `exclude_categories` entries that name no feed's category (a typo, say)."""
+    categories = {feed.category.lower() for feed in feeds}
+    unmatched = [category for category in excluded if category.lower() not in categories]
+    if unmatched:
+        log.warning("exclude_categories: no feed has the category %s; `indefinite-articles feeds "
+                    "--categories` lists them", ", ".join(repr(category) for category in unmatched))
 
 
 def _parse_opml(data: bytes) -> list[Feed]:
