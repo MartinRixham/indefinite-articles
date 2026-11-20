@@ -12,8 +12,8 @@ class RatingQueueTests(unittest.TestCase):
         self.config, self.database = Config(), Database(":memory:")
         self.addCleanup(self.database.close)
 
-    def _article(self, title: str, source: str = "S", prefilter: float | None = None) -> int:
-        self.database.add_article(Entry(f"https://e/{title}", title, "", None), source)
+    def _article(self, title: str, source: str = "S", prefilter: float | None = None, category: str = "") -> int:
+        self.database.add_article(Entry(f"https://e/{title}", title, "", None), source, category)
         article_id = self.database.connection.execute("SELECT id FROM articles WHERE title=?", (title,)).fetchone()[0]
         if prefilter is not None:
             self.database.set_prefilter({article_id: prefilter}, 1)
@@ -43,3 +43,10 @@ class RatingQueueTests(unittest.TestCase):
         quiet = self._article("quiet", source="Quiet")
         articles = list(rating_queue(self.config, self.database, random.Random(3)))
         self.assertIn(quiet, [article.id for article in articles[:4]])
+
+    def test_categories_limit_the_pool(self) -> None:
+        science = {self._article(f"science {index}", category="Science") for index in range(4)}
+        self._article("politics", category="Politics")
+        self._article("uncategorized")
+        articles = list(rating_queue(self.config, self.database, random.Random(1), categories=["science"]))
+        self.assertEqual({article.id for article in articles}, science)

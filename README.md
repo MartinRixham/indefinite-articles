@@ -197,7 +197,9 @@ you like something it isn't showing you. When you have time, log in to the serve
 time in random order, whatever your profile says (a random feed first, so busy feeds don't
 dominate). Type `+` or `-` (optionally followed by a comment), `r` to read
 the full article text in a pager (`$PAGER`, else `less`), Enter to skip, `q` to stop. Each rating is saved straight away and counts like one from an email reply;
-articles you rate this way are left out of later digests.
+articles you rate this way are left out of later digests. Add `--category NAME` (as often
+as you like; `feeds --categories` lists them) to rate only articles from feeds in those
+categories.
 
 ## Commands
 
@@ -209,7 +211,7 @@ Run these as the service user so they can use its database: `sudo -u indefinite-
 | `indefinite-articles fetch` | fetch feeds and score new articles now |
 | `indefinite-articles digest [--dry-run]` | send (or just print) a digest now |
 | `indefinite-articles poll` | read replies now |
-| `indefinite-articles rate [--count N]` | rate more articles at the terminal (see below) |
+| `indefinite-articles rate [--count N] [--category NAME]` | rate more articles at the terminal (see below) |
 | `indefinite-articles feedback reply.eml` | process a reply saved to a file |
 | `indefinite-articles profile [--history] [--edit] [--set TEXT]` | show, review, edit (in `$VISUAL`/`$EDITOR`) or replace the learned profile |
 | `indefinite-articles status` | database statistics |

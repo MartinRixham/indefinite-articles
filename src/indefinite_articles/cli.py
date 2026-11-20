@@ -256,8 +256,17 @@ def _rate_session(database: Database, articles: Iterable[Article], read_line: Ca
 
 def _command_rate(config: Config, args: argparse.Namespace):
     """Rate articles at the terminal, beyond those the digest shows."""
+    if args.category:
+        known = sorted({feed.category for feed in config.feeds if feed.category}, key=str.lower)
+        unknown = [category for category in args.category
+                   if category.lower() not in {name.lower() for name in known}]
+        if unknown:
+            print(f"Unknown categor{'ies' if len(unknown) > 1 else 'y'}: {', '.join(unknown)}."
+                  f" Known categories: {', '.join(known) or '(none)'}.", file=sys.stderr)
+            return 2
     with Database(config.database) as database:
-        likes, dislikes = _rate_session(database, rating_queue(config, database), input, args.count,
+        likes, dislikes = _rate_session(database, rating_queue(config, database, categories=args.category or ()),
+                                         input, args.count,
                                          lambda article: _show_full_text(config, article))
         print(f"\n{likes} like{'s' * (likes != 1)} and {dislikes} dislike{'s' * (dislikes != 1)} recorded.")
         if likes or dislikes:
@@ -428,6 +437,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.set_defaults(handler=_command_feedback)
     parser = subparsers.add_parser("rate", help="rate articles at the terminal, beyond those the digest shows")
     parser.add_argument("-n", "--count", type=int, default=0, metavar="N", help="stop after N articles")
+    parser.add_argument("--category", action="append", metavar="NAME",
+                        help="only articles from feeds in this category (repeatable; see feeds --categories)")
     parser.set_defaults(handler=_command_rate)
     parser = subparsers.add_parser("profile", help="show, edit or replace the reader profile")
     parser.add_argument("--history", action="store_true")

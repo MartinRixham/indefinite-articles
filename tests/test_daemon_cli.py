@@ -178,6 +178,20 @@ class CommandLineTests(unittest.TestCase):
         with mock.patch("builtins.input", lambda prompt: ""):
             self.assertIn("No more articles to rate.", self._run("rate")[1])
 
+    def test_rate_only_shows_the_chosen_categories(self) -> None:
+        database = self._database()
+        database.add_article(Entry("https://e/tech", "Tech article", "", None), "Feed A", "Tech")
+        database.add_article(Entry("https://e/other", "Other article", "", None), "Feed B")
+        database.connection.commit()
+        with mock.patch("builtins.input", lambda prompt: ""):
+            code, out, _ = self._run("rate", "--category", "tech")
+        self.assertEqual(code, 0)
+        self.assertIn("Tech article", out)
+        self.assertNotIn("Other article", out)
+        code, _, error = self._run("rate", "--category", "Gardening")
+        self.assertEqual(code, 2)
+        self.assertIn("Unknown category: Gardening. Known categories: Tech.", error)
+
     def test_rate_reads_the_full_text_then_asks_again(self) -> None:
         database = self._database()
         database.add_article(Entry("https://e/long", "Long read", "Short summary.", None), "S")
