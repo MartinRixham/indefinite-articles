@@ -1,5 +1,5 @@
 Name:           indefinite-articles
-Version:        0.4.10
+Version:        0.4.11
 Release:        1%{?dist}
 Summary:        Daily article recommendations by email, trained on your replies with a local LLM
 
@@ -72,6 +72,10 @@ install -dm 0750 %{buildroot}%{_sharedstatedir}/indefinite-articles
 %dir %attr(0750,indefinite-articles,indefinite-articles) %{_sharedstatedir}/indefinite-articles
 
 %changelog
+* Fri Nov 20 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.11
+- The rate command takes a category parameter
+- Log a warning when an excluded category matches no feed
+
 * Wed Nov 18 2026 Martin Rixham <martin.rixham@gmail.com> - 0.4.10
 - The rate command shows articles in random order and pages them with less
 - New profile edit command
