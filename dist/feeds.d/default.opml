@@ -254,25 +254,50 @@
       <outline type="rss" text="Works in Progress" title="Works in Progress" xmlUrl="https://www.worksinprogress.news/feed"/>
     </outline>
     <outline text="Physics &amp; Mathematics" title="Physics &amp; Mathematics">
+      <outline type="rss" text="0xDE (David Eppstein)" title="0xDE (David Eppstein)" xmlUrl="https://11011110.github.io/blog/feed.xml"/>
+      <outline type="rss" text="4 gravitons (Matt von Hippel)" title="4 gravitons (Matt von Hippel)" xmlUrl="https://4gravitons.com/feed/"/>
+      <outline type="rss" text="Algorithmic Assertions (Craig Gidney)" title="Algorithmic Assertions (Craig Gidney)" xmlUrl="https://algassert.com/feed.xml"/>
       <outline type="rss" text="APS Physics" title="APS Physics" xmlUrl="https://feeds.aps.org/rss/recent/physics.xml"/>
       <outline type="rss" text="Azimuth (John Baez)" title="Azimuth (John Baez)" xmlUrl="https://johncarlosbaez.wordpress.com/feed/"/>
       <outline type="rss" text="CERN Courier" title="CERN Courier" xmlUrl="https://cerncourier.com/feed/"/>
       <outline type="rss" text="Computational Complexity" title="Computational Complexity" xmlUrl="https://blog.computationalcomplexity.org/feeds/posts/default"/>
+      <outline type="rss" text="Condensed Concepts (Ross McKenzie)" title="Condensed Concepts (Ross McKenzie)" xmlUrl="https://condensedconcepts.blogspot.com/feeds/posts/default"/>
       <outline type="rss" text="Counting Atoms (Chad Orzel)" title="Counting Atoms (Chad Orzel)" xmlUrl="https://chadorzel.substack.com/feed"/>
+      <outline type="rss" text="Daniel Litt" title="Daniel Litt" xmlUrl="https://www.daniellitt.com/rss.xml"/>
       <outline type="rss" text="Gil Kalai" title="Gil Kalai" xmlUrl="https://gilkalai.wordpress.com/feed/"/>
+      <outline type="rss" text="Gowers's Weblog" title="Gowers's Weblog" xmlUrl="https://gowers.wordpress.com/feed/"/>
       <outline type="rss" text="Gödel's Lost Letter" title="Gödel's Lost Letter" xmlUrl="https://rjlipton.com/feed/"/>
+      <outline type="rss" text="Higher Dimensions (Janna Levin)" title="Higher Dimensions (Janna Levin)" xmlUrl="https://jannalevin.substack.com/feed"/>
+      <outline type="rss" text="In the Dark (Peter Coles)" title="In the Dark (Peter Coles)" xmlUrl="https://telescoper.blog/feed/"/>
+      <outline type="rss" text="Infinitely More (Joel David Hamkins)" title="Infinitely More (Joel David Hamkins)" xmlUrl="https://www.infinitelymore.xyz/feed"/>
+      <outline type="rss" text="Interpretations (Jim Baggott)" title="Interpretations (Jim Baggott)" xmlUrl="https://jimbaggott.substack.com/feed"/>
       <outline type="rss" text="John D. Cook" title="John D. Cook" xmlUrl="https://www.johndcook.com/blog/feed/"/>
       <outline type="rss" text="Math with Bad Drawings" title="Math with Bad Drawings" xmlUrl="https://mathwithbaddrawings.com/feed/"/>
+      <outline type="rss" text="Matt Baker's Math Blog" title="Matt Baker's Math Blog" xmlUrl="https://mattbaker.blog/feed/"/>
+      <outline type="rss" text="More Quantum (Mateus Araújo)" title="More Quantum (Mateus Araújo)" xmlUrl="https://mateusaraujo.info/feed/"/>
+      <outline type="rss" text="Musings on Quantum Mechanics (Vlatko Vedral)" title="Musings on Quantum Mechanics (Vlatko Vedral)" xmlUrl="https://vlatkovedral.substack.com/feed"/>
+      <outline type="rss" text="Nanoscale Views (Doug Natelson)" title="Nanoscale Views (Doug Natelson)" xmlUrl="https://nanoscale.blogspot.com/feeds/posts/default"/>
       <outline type="rss" text="New Scientist: Physics" title="New Scientist: Physics" xmlUrl="https://www.newscientist.com/subject/physics/feed/"/>
       <outline type="rss" text="Not Even Wrong (Peter Woit)" title="Not Even Wrong (Peter Woit)" xmlUrl="https://www.math.columbia.edu/~woit/wordpress/?feed=rss2"/>
       <outline type="rss" text="Of Particular Significance (Matt Strassler)" title="Of Particular Significance (Matt Strassler)" xmlUrl="https://profmattstrassler.com/feed/"/>
+      <outline type="rss" text="Peter Cameron's Blog" title="Peter Cameron's Blog" xmlUrl="https://cameroncounts.wordpress.com/feed/"/>
       <outline type="rss" text="Physics Today" title="Physics Today" xmlUrl="https://physicstoday.aip.org/index.rss"/>
       <outline type="rss" text="Physics World" title="Physics World" xmlUrl="https://physicsworld.com/feed/"/>
+      <outline type="rss" text="PhysicsMatt (Matt Buckley)" title="PhysicsMatt (Matt Buckley)" xmlUrl="http://www.physicsmatt.com/blog?format=rss"/>
+      <outline type="rss" text="Post Quantum (Jonathan Oppenheim)" title="Post Quantum (Jonathan Oppenheim)" xmlUrl="https://superposer.substack.com/feed"/>
       <outline type="rss" text="Quantum Frontiers" title="Quantum Frontiers" xmlUrl="https://quantumfrontiers.com/feed/"/>
+      <outline type="rss" text="Quomodocumque (Jordan Ellenberg)" title="Quomodocumque (Jordan Ellenberg)" xmlUrl="https://quomodocumque.wordpress.com/feed/"/>
+      <outline type="rss" text="Sean Carroll" title="Sean Carroll" xmlUrl="https://preposterousuniverse.com/blog/feed/"/>
       <outline type="rss" text="Shtetl-Optimized (Scott Aaronson)" title="Shtetl-Optimized (Scott Aaronson)" xmlUrl="https://scottaaronson.blog/?feed=rss2"/>
+      <outline type="rss" text="Silicon Reckoner (Michael Harris)" title="Silicon Reckoner (Michael Harris)" xmlUrl="https://siliconreckoner.substack.com/feed"/>
+      <outline type="rss" text="Starts With A Bang (Ethan Siegel)" title="Starts With A Bang (Ethan Siegel)" xmlUrl="https://startswithabang.substack.com/feed"/>
       <outline type="rss" text="Statistical Modeling (Gelman)" title="Statistical Modeling (Gelman)" xmlUrl="https://statmodeling.stat.columbia.edu/feed/"/>
       <outline type="rss" text="Terence Tao" title="Terence Tao" xmlUrl="https://terrytao.wordpress.com/feed/"/>
+      <outline type="rss" text="The Aperiodical" title="The Aperiodical" xmlUrl="https://aperiodical.com/feed/"/>
       <outline type="rss" text="The n-Category Café" title="The n-Category Café" xmlUrl="https://golem.ph.utexas.edu/category/atom10.xml"/>
+      <outline type="rss" text="The Quantum Cat" title="The Quantum Cat" xmlUrl="https://www.thequantumcat.space/feed"/>
+      <outline type="rss" text="Tommaso Dorigo" title="Tommaso Dorigo" xmlUrl="https://www.science20.com/quantum_diaries_survivor/feed"/>
+      <outline type="rss" text="Triton Station (Stacy McGaugh)" title="Triton Station (Stacy McGaugh)" xmlUrl="https://tritonstation.com/feed/"/>
       <outline type="rss" text="Windows on Theory (Boaz Barak)" title="Windows on Theory (Boaz Barak)" xmlUrl="https://windowsontheory.org/feed/"/>
       <outline type="rss" text="Xena (Kevin Buzzard)" title="Xena (Kevin Buzzard)" xmlUrl="https://xenaproject.wordpress.com/feed/"/>
     </outline>
@@ -1366,15 +1391,22 @@
       <outline type="rss" text="OUPblog" title="OUPblog" xmlUrl="https://blog.oup.com/feed/"/>
       <outline type="rss" text="Roots of Progress" title="Roots of Progress" xmlUrl="https://rootsofprogress.org/feed.xml"/>
       <outline type="rss" text="Smithsonian: History" title="Smithsonian: History" xmlUrl="https://www.smithsonianmag.com/rss/history/"/>
+      <outline type="rss" text="The Renaissance Mathematicus" title="The Renaissance Mathematicus" xmlUrl="https://thonyc.wordpress.com/feed/"/>
       <outline type="rss" text="World History Encyclopedia" title="World History Encyclopedia" xmlUrl="https://www.worldhistory.org/rss/"/>
     </outline>
     <outline text="Philosophy &amp; Ideas" title="Philosophy &amp; Ideas">
       <outline type="rss" text="3 Quarks Daily" title="3 Quarks Daily" xmlUrl="https://3quarksdaily.com/feed"/>
       <outline type="rss" text="Blog of the APA" title="Blog of the APA" xmlUrl="https://blog.apaonline.org/feed/"/>
+      <outline type="rss" text="Conscious Entities" title="Conscious Entities" xmlUrl="https://consciousentities.com/feed/"/>
       <outline type="rss" text="Conspicuous Cognition (Dan Williams)" title="Conspicuous Cognition (Dan Williams)" xmlUrl="https://www.conspicuouscognition.com/feed"/>
       <outline type="rss" text="Daily Nous" title="Daily Nous" xmlUrl="https://dailynous.com/feed/"/>
+      <outline type="rss" text="Figs in Winter (Massimo Pigliucci)" title="Figs in Winter (Massimo Pigliucci)" xmlUrl="https://figsinwinter.substack.com/feed"/>
       <outline type="rss" text="Good Thoughts (Richard Y. Chappell)" title="Good Thoughts (Richard Y. Chappell)" xmlUrl="https://www.goodthoughts.blog/feed"/>
+      <outline type="rss" text="New Work in Philosophy" title="New Work in Philosophy" xmlUrl="https://newworkinphilosophy.substack.com/feed"/>
+      <outline type="rss" text="Philip Goff" title="Philip Goff" xmlUrl="https://philipgoff.substack.com/feed"/>
       <outline type="rss" text="Stanford Encyclopedia of Philosophy (new)" title="Stanford Encyclopedia of Philosophy (new)" xmlUrl="https://plato.stanford.edu/rss/sep.xml"/>
+      <outline type="rss" text="The Intrinsic Perspective (Erik Hoel)" title="The Intrinsic Perspective (Erik Hoel)" xmlUrl="https://www.theintrinsicperspective.com/feed"/>
+      <outline type="rss" text="The Splintered Mind (Eric Schwitzgebel)" title="The Splintered Mind (Eric Schwitzgebel)" xmlUrl="http://feeds.feedburner.com/blogspot/FHhv"/>
     </outline>
     <outline text="Books &amp; Culture" title="Books &amp; Culture">
       <outline type="rss" text="Colossal (art)" title="Colossal (art)" xmlUrl="https://www.thisiscolossal.com/feed/"/>
