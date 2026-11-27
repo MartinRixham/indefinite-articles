@@ -372,6 +372,19 @@ class RankerTests(unittest.TestCase):
         chosen = ranker.select(self.config, self.database, random.Random(1))
         self.assertEqual({pick.article.id for pick in chosen if pick.exploratory}, sample)
 
+    def test_random_sample_spreads_over_feeds(self) -> None:
+        # A feed that posts dozens of episodes a day must not fill the random sample.
+        for index in range(40):
+            self._add(f"https://busy/{index}", "Busy", prefilter=-1.0)
+        for index in range(5):
+            self._add(f"https://quiet{index}/1", f"Quiet {index}", prefilter=-1.0)
+        sample = ranker._daily_sample(self.database.pool(3), 5)
+        self.assertEqual(len({article.source for article in sample}), 5)
+        self.assertEqual(ranker._daily_sample(self.database.pool(3), 5), sample)  # the same all day
+        everything = ranker._daily_sample(self.database.pool(3), 45)
+        self.assertEqual(len(everything), 45)
+        self.assertEqual(len({article.source for article in everything[:6]}), 6)
+
     def test_exploratory_picks_are_unlike_the_rest(self) -> None:
         vectors = {"near": [0.9, 0.1, 0.0], "far": [0.0, 0.0, 1.0], "farther": [-1.0, 0.0, 0.0],
                    "top": [1.0, 0.0, 0.0], "unembedded": None}

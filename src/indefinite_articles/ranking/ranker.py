@@ -158,12 +158,31 @@ def _shortlist_of(config: Config, database: Database, pool: list[Article], limit
         if article.id not in chosen:
             out.append(article)
             chosen.add(article.id)
-    # Random picks that stay the same all day, so they aren't re-chosen every hour.
-    today = date.today().isoformat()
-    rest = sorted((article for article in pool if article.id not in chosen),
-                  key=lambda article: hashlib.sha1(f"{today}:{article.id}".encode()).digest())
-    sample = rest[:random_count]
+    sample = _daily_sample([article for article in pool if article.id not in chosen], random_count)
     return out + sample, {article.id for article in sample}
+
+
+def _daily_sample(pool: list[Article], count: int) -> list[Article]:
+    """`count` random articles of `pool`, the same all day so they aren't re-chosen every hour.
+
+    Feeds are sampled first, then an article from each, so a feed that posts many items a
+    day (a radio station's interviews) is no likelier to be picked than a weekly podcast.
+    A feed gets a second article only once every feed has one.
+    """
+    today = date.today().isoformat()
+
+    def daily_order(text: str) -> bytes:
+        return hashlib.sha1(f"{today}:{text}".encode()).digest()
+
+    by_source: dict[str, list[Article]] = {}
+    for article in sorted(pool, key=lambda article: daily_order(str(article.id))):
+        by_source.setdefault(article.source, []).append(article)
+    source_order = {source: daily_order(source) for source in by_source}
+    ordered = sorted(((position, source_order[source], article)
+                      for source, articles in by_source.items()
+                      for position, article in enumerate(articles)),
+                     key=lambda item: (item[0], item[1]))
+    return [article for _, _, article in ordered[:count]]
 
 
 def score_candidates(config: Config, database: Database, llm: LLM, stop: threading.Event | None = None) -> int:
